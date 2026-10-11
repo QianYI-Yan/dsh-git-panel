@@ -655,7 +655,7 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       }),
     ])
   return h('div', {}, [
-    h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, paddingLeft: 10 }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
+    h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
     section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 })),
     section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 })),
     section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 })),
