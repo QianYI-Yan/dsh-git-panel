@@ -2,7 +2,7 @@
  * git output parsers: porcelain status, log, branch, numstat, name-status.
  * Pure functions over raw stdout, no I/O.
  */
-import type { GitBranch, GitChange, GitCommit, GitFileStat, GraphCommit, GitRef, StashEntry } from './types.ts';
+import type { GitBranch, GitChange, GitCommit, GitFileStat, GraphCommit, GitRef, StashEntry } from './types.js';
 /**
  * Build a GitCommit from a `%H\x1f%h\x1f%s\x1f%an\x1f%aI`-ordered field array
  * (the body, when present, is the caller's `parts.slice(5)`). Null when the

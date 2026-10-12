@@ -1,6 +1,6 @@
 # dsh-git-panel
 
-[English](README_EN.md) | 简体中文
+[English](README.en.md) | 简体中文
 
 ![dsh-git-panel](docs/assets/banner-zh.png)
 
@@ -58,14 +58,14 @@ dsh plugin --profile web add github:xbzbing/dsh-git-panel
 ## 开发
 
 ```bash
-node build.mjs      # tsc（host d.ts）+ esbuild（host bundle + client bundle + testkit）
+node build.mjs      # tsc（host d.ts）+ esbuild（host 逐模块 js + client bundle + testkit）
 npm run typecheck   # 类型检查
 npm run test:unit   # 纯算法与 host 端点单测（node --test）
 npm run test:e2e    # 隔离的 file:// 无头浏览器 e2e（不碰任何运行中的实例）
 npm test            # 单测 + e2e
 ```
 
-host bundle 不做压缩：typert 网关靠方法参数名做参数校验，压缩会改名并破坏 wire 契约。client 改动没有热重载，需重新构建并刷新页面。`lib/` 作为构建产物随 git 提交入库，改动 `src/` 后必须重新构建并提交，否则从 GitHub 安装会加载到过期入口；测试期生成的 `lib/testkit.mjs` 不入库。本地联调：把插件加入 dsh web profile 的 `dsh.profile.bundles`，用 `file:` 依赖指向本目录，构建后即生效。
+host 产物按 `src/host/` 逐模块输出（一个源文件一个 js，堆栈直接落在出问题的模块），且不做压缩：typert 网关靠方法参数名做参数校验，压缩会改名并破坏 wire 契约。client 改动没有热重载，需重新构建并刷新页面。`lib/` 作为构建产物随 git 提交入库，改动 `src/` 后必须重新构建并提交，否则从 GitHub 安装会加载到过期入口；测试期生成的 `lib/testkit.mjs` 不入库。本地联调：把插件加入 dsh web profile 的 `dsh.profile.bundles`，用 `file:` 依赖指向本目录，构建后即生效。
 
 ## 项目结构
 

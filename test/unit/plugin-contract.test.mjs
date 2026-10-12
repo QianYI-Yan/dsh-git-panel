@@ -11,7 +11,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import * as host from '../../lib/host/index.js'
 
@@ -30,6 +30,27 @@ test('host bundle exports the GitPanelService + endpoints', () => {
   assert.equal(typeof host.readVersionInfo, 'function')
   assert.equal(typeof host.checkLatestVersion, 'function')
   assert.equal(typeof host.compareVersions, 'function')
+})
+
+// The shipped host tree is a plain ESM package: one js per src/host module plus
+// its declaration. Every relative import it carries must therefore resolve to a
+// file that is actually shipped — a missing sibling breaks the runtime import
+// and the published type declarations at the same time.
+test('shipped host tree resolves every relative import', () => {
+  const dir = new URL('../../lib/host/', import.meta.url)
+  const files = readdirSync(dir).filter((file) => file.endsWith('.js') || file.endsWith('.d.ts'))
+  const present = new Set(files)
+  const specifier = /(?:from\s*|import\s*\(\s*)['"](\.[^'"]+)['"]/g
+  const missing = []
+  for (const file of files) {
+    const source = readFileSync(new URL(file, dir), 'utf8')
+    for (const match of source.matchAll(specifier)) {
+      const target = match[1].split(/[?#]/, 1)[0].replace(/^\.\//, '')
+      const candidates = [target, `${target}.js`, `${target}.d.ts`]
+      if (!candidates.some((candidate) => present.has(candidate))) missing.push(`${file} -> ${match[1]}`)
+    }
+  }
+  assert.deepEqual(missing, [], 'every relative import must point at a shipped file')
 })
 
 // N15: the config values hard-coded in cordis.patch.yml must match the host's

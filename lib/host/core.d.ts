@@ -1,6 +1,6 @@
-import type { GitRunner } from './git.ts';
-import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts';
-import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitRemote, GitSnapshotResult } from './types.ts';
+import type { GitRunner } from './git.js';
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.js';
+import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitRemote, GitSnapshotResult } from './types.js';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
     /** Per-command stdout cap; also the per-side image-diff payload cap. */

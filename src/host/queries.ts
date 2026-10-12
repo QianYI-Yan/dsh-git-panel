@@ -3,12 +3,12 @@
  * tags / authors / last-commit-message / worktree-stats.
  */
 import { join, sep } from 'node:path'
-import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
-import { isSafePath, isSafeRev } from './validate.ts'
-import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.ts'
-import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.ts'
-import { imageMimeFor } from './types.ts'
+import type { SnapshotDeps, GitPanelConfig } from './core.js'
+import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
+import { isSafePath, isSafeRev } from './validate.js'
+import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
+import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.js'
+import { imageMimeFor } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 

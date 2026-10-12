@@ -2,10 +2,10 @@
  * GitAction → command sequence construction + execution.
  */
 import { join, sep } from 'node:path'
-import type { SnapshotDeps, GitPanelConfig } from './core.ts'
-import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.ts'
-import { isSafeBranchName, isSafePath, isSafeRemoteName, isSafeRev } from './validate.ts'
-import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts'
+import type { SnapshotDeps, GitPanelConfig } from './core.js'
+import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
+import { isSafeBranchName, isSafePath, isSafeRemoteName, isSafeRev } from './validate.js'
+import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.js'
 
 export { isSafePath }
 

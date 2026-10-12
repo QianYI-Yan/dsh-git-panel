@@ -2,12 +2,12 @@
  * Workspace resolution + snapshot orchestration (framework-neutral).
  */
 import { dirname, join } from 'node:path'
-import type { GitRunner } from './git.ts'
-import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts'
-import { commitFromFields, parseStatus, sumNumstat } from './parser.ts'
-import { parseRemote } from './remote.ts'
-import { isSafePath } from './validate.ts'
-import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.ts'
+import type { GitRunner } from './git.js'
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
+import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
+import { parseRemote } from './remote.js'
+import { isSafePath } from './validate.js'
+import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number

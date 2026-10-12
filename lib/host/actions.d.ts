@@ -1,6 +1,6 @@
-import type { SnapshotDeps, GitPanelConfig } from './core.ts';
-import { isSafePath } from './validate.ts';
-import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.ts';
+import type { SnapshotDeps, GitPanelConfig } from './core.js';
+import { isSafePath } from './validate.js';
+import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.js';
 export { isSafePath };
 interface CommandPlan {
     readonly argv: readonly (readonly string[])[];

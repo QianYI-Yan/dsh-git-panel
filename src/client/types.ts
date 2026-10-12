@@ -9,6 +9,6 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind,
-} from '../host/types.ts'
+} from '../host/types.js'
 
-export { imageMimeFor } from '../host/types.ts'
+export { imageMimeFor } from '../host/types.js'

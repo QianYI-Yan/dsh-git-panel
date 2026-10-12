@@ -58,14 +58,14 @@ Two halves communicating over the typert Remote gateway.
 ## Development
 
 ```bash
-node build.mjs      # tsc (host d.ts) + esbuild (host bundle + client bundle + testkit)
+node build.mjs      # tsc (host d.ts) + esbuild (per-module host js + client bundle + testkit)
 npm run typecheck   # type check
 npm run test:unit   # pure-algorithm and host-endpoint unit tests (node --test)
 npm run test:e2e    # isolated file:// headless-browser e2e (never touches a running instance)
 npm test            # unit + e2e
 ```
 
-The host bundle is not minified: the typert gateway validates arguments by method parameter name, and minification would rename them and break the wire contract. Client changes are not hot-reloaded — rebuild and refresh the page. `lib/` is committed as a build artifact so `dsh plugin add github:…` installs the built tree directly; after editing `src/` you must rebuild and commit, or a GitHub install loads a stale entry. The test-time `lib/testkit.mjs` is not committed. For local development, add the plugin to a dsh web profile's `dsh.profile.bundles` with a `file:` dependency pointing at this directory; a rebuild makes it effective.
+The host output is emitted one file per `src/host/` module (stack traces land in the module that raised) and is never minified: the typert gateway validates arguments by method parameter name, and minification would rename them and break the wire contract. Client changes are not hot-reloaded — rebuild and refresh the page. `lib/` is committed as a build artifact so `dsh plugin add github:…` installs the built tree directly; after editing `src/` you must rebuild and commit, or a GitHub install loads a stale entry. The test-time `lib/testkit.mjs` is not committed. For local development, add the plugin to a dsh web profile's `dsh.profile.bundles` with a `file:` dependency pointing at this directory; a rebuild makes it effective.
 
 ## Project structure
 

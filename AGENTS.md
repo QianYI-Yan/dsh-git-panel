@@ -87,10 +87,10 @@ MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依�
 
 ## 构建
 
-`build.mjs` 用 esbuild 出三个产物 + tsc 出类型声明：
+`build.mjs` 用 esbuild 出产物 + tsc 出类型声明：
 
 1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`（`emitDeclarationOnly`）。
-2. esbuild 把 `src/host/index.ts` 打成单文件 `lib/host/index.js`（ESM，`react`/`@deepseek-ai/*` external，**绝不压缩**——typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约）。
+2. esbuild 把 `src/host/*.ts` **逐文件**转译成 `lib/host/*.js`（`bundle: false`，输出结构与 `src/host/` 一一对应，读栈追踪直接落在出问题的模块；ESM 裸导入 `@deepseek-ai/*` 不打包，由宿主解析；**绝不压缩**——typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约）。
 3. esbuild 把 `src/client/index.ts` 打成 `lib/client.js`（cjs + banner/footer 包成 `window.__ModuleLoader__.load({id,factory})`；平台模块 external；client 可 minify）。
 
 `lib/testkit.mjs` 由 esbuild 从 `src/client/testkit.ts` 单独打出，供单测消费；已 gitignore，`npm run test:unit` 会重建。
@@ -115,6 +115,7 @@ npx tsc --noEmit      # 类型检查
 ## 代码约定
 
 - TypeScript 严格模式，无隐式 any。
+- 相对导入一律写 `./x.js` 后缀（不写 `./x.ts`）：`src/` 是 TypeScript、`lib/` 是 JS，同一份源码要同时产出可运行的 `lib/host/*.js` 和能解析到真实文件的 `lib/host/*.d.ts`，两种产物都与 `src/host/` 同名同构。
 - 数据模型改动从 `host/types.ts` 起，client 侧的 RPC 类型直接从它复用——单一权威源，不存在需要手工同步的第二份定义。
 - 注释精简，只写最终实现意图，不写演进历史。
 - git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串（注入防护 + cwd 锁定）。

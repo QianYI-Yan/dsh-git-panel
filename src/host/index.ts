@@ -10,14 +10,14 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { readFile, readdir, realpath, rm, stat } from 'node:fs/promises'
-import { createGitRunner, type SubprocessLike } from './git.ts'
-import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.ts'
-import { runAction } from './actions.ts'
-import { runQuery } from './queries.ts'
-import { runSuggest } from './suggest.ts'
-import type { AgentDefaultModelFace, LlmFace } from './llm-face.ts'
-import { checkLatestVersion, readVersionInfo } from './version.ts'
-import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.ts'
+import { createGitRunner, type SubprocessLike } from './git.js'
+import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.js'
+import { runAction } from './actions.js'
+import { runQuery } from './queries.js'
+import { runSuggest } from './suggest.js'
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
+import { checkLatestVersion, readVersionInfo } from './version.js'
+import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js'
 
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
@@ -25,15 +25,15 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind,
-} from './types.ts'
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote } from './core.ts'
-export { createGitRunner } from './git.ts'
-export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.ts'
-export { parseRemote, classifyHost } from './remote.ts'
-export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.ts'
-export { runQuery } from './queries.ts'
-export { runSuggest } from './suggest.ts'
-export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.ts'
+} from './types.js'
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote } from './core.js'
+export { createGitRunner } from './git.js'
+export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
+export { parseRemote, classifyHost } from './remote.js'
+export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js'
+export { runQuery } from './queries.js'
+export { runSuggest } from './suggest.js'
+export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js'
 
 /** Structural slice of the Cordis sessions store (live cwd). */
 interface SessionsService {

@@ -12,12 +12,12 @@
  * cap, an output token cap, a timeout, and finish-reason → error mapping.
  */
 import type { FinishReason, GenerateOptions, MessageId } from '@deepseek-ai/dsh-llm'
-import type { GitPanelConfig, SnapshotDeps } from './core.ts'
-import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.ts'
-import { isSafePath } from './validate.ts'
-import { parseStatus } from './parser.ts'
-import type { AgentDefaultModelFace } from './llm-face.ts'
-import type { GitChange, GitSuggestRequest, GitSuggestResult } from './types.ts'
+import type { GitPanelConfig, SnapshotDeps } from './core.js'
+import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.js'
+import { isSafePath } from './validate.js'
+import { parseStatus } from './parser.js'
+import type { AgentDefaultModelFace } from './llm-face.js'
+import type { GitChange, GitSuggestRequest, GitSuggestResult } from './types.js'
 
 /** One endpoint failure (the inner envelope of GitSuggestResult). */
 type SuggestFailure = Extract<GitSuggestResult, { ok: false }>

@@ -7,7 +7,7 @@
  * icon. Credentials in the URL (`https://user:token@host/…`) are stripped so a
  * token can never leak into an href the browser renders.
  */
-import type { GitRemote, RemoteHostKind } from './types.ts'
+import type { GitRemote, RemoteHostKind } from './types.js'
 
 /** Map a hostname to a known-host kind (self-hosted / unknown → 'other'). */
 export function classifyHost(host: string): RemoteHostKind {
