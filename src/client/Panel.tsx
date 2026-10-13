@@ -92,6 +92,13 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // first-mount bump): OverviewTab/ChangesTab reload when it advances.
   const refreshKey = view.state === 'ready' ? view.snapshot.checkedAt : 0
 
+  // Work-tree generation: bumped whenever the *contents* of the work tree are
+  // replaced wholesale — a branch switch, or a switch that stashed the local
+  // changes first (which removes files even when the checkout then fails). The
+  // Files tab keeps a per-session directory cache that would otherwise serve
+  // the previous branch's tree for up to a minute; this tells it to drop it.
+  const [worktreeGen, setWorktreeGen] = useState(0)
+
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
     const result = await remote.run({ sessionId, action })
@@ -99,11 +106,13 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       // The run already returned a fresh snapshot; feed it to the controller
       // instead of triggering another git round-trip.
       controllerFor(sessionId).accept(result.snapshot)
+      if (action.kind === 'branch-checkout') setWorktreeGen((n) => n + 1)
       return { ok: true }
     }
     // A failed write may still have changed the work tree (e.g. a stash pop that
     // hit a conflict applies the diff but keeps the stash); resync so the panel
     // reflects the real state rather than the pre-action snapshot.
+    if (action.kind === 'branch-checkout' && action.stashMessage !== undefined) setWorktreeGen((n) => n + 1)
     controllerFor(sessionId).resync()
     return { ok: false, error: opErrorText(result.error.code, result.error.message, t) }
   }
@@ -126,7 +135,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, t }) : null
+      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, t }) : null
       // git-not-installed inside a repo: stack a notice above the browser.
       if (gitMissingInRepo) {
         return h('div', { className: 'gp-files-wrap' }, [
@@ -152,7 +161,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       // until the user opens it), then stays mounted to retain its tree state.
       filesVisited
         ? h('div', { key: 'files', style: activeTab === 'files' ? { display: 'contents' } : { display: 'none' } },
-          h(FilesTab, { key: sessionId, remote, sessionId, compact, t }))
+          h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, t }))
         : null,
     ])
   })()

@@ -58,6 +58,11 @@ const out = await page.evaluate(async (snap) => {
   // fit ratio (the square fixture is height-constrained instead).
   const MOCK_PNG_WIDE = 'iVBORw0KGgoAAAANSUhEUgAABLAAAAEsCAIAAABc390HAAAGB0lEQVR42u3XQQ0AIBDEwJODJpSgEwc4QAI6uJ1kFPTXGmsCAAAQqCQAAAAwhAAAABhCAAAAooZwnwsAAEBjhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMISGEAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAgCE0hAAAAIbQEAIAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAADCEhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMITSAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAMISGEAAAwBAaQgAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAAIbQEAIAABhCQwgAAGAI1QEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAGAIDSEAAIAhNIQAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAMoSEEAAAwhIYQAADAEKoDAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAADAEBpCAAAAQ2gIAQAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAGEJDCAAAYAgNIQAAgCEEAADAEAIAAGAIAQAAMIQAAAAYQgAAAAwhAAAAhhAAAID/hhAAAIAchhAAAMAQAgAAYAgBAABo7wH350/iheM7iwAAAABJRU5ErkJggg=='
   const fileQueries = []
+  // Branch-switch probes: every `run` action lands here, and `branchQueries`
+  // counts the branch-list reloads a landed checkout must trigger.
+  const runActions = []
+  let runFailure = null
+  let branchQueries = 0
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -69,7 +74,7 @@ const out = await page.evaluate(async (snap) => {
         if (endpoint === 'gitPanel/query') {
           const q = request.query
           if (q.kind === 'worktree-stats') return { ok: true, value: { ok: true, value: { kind: 'worktree-stats', stats: { fileCount: 3, staged: 0, modified: 2, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: new Date().toISOString() } } } }
-          if (q.kind === 'branches') return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [] } } }
+          if (q.kind === 'branches') { branchQueries += 1; return { ok: true, value: { ok: true, value: { kind: 'branches', current: 'main', defaultBranch: null, local: [{ name: 'feature', shortHash: 'd196623' }, { name: 'main', shortHash: 'de54fc0' }], remote: [{ name: 'origin/main', shortHash: 'de54fc0' }, { name: 'origin/release', shortHash: 'e5f6a7b' }] } } } }
           if (q.kind === 'tags') return { ok: true, value: { ok: true, value: { kind: 'tags', tags: [] } } }
           if (q.kind === 'authors') return { ok: true, value: { ok: true, value: { kind: 'authors', authors: ['Tester'] } } }
           if (q.kind === 'history') return { ok: true, value: { ok: true, value: { kind: 'history', total: 2, commits: [
@@ -116,7 +121,21 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'push-preview') return { ok: true, value: { ok: true, value: { kind: 'push-preview', hasUpstream: liveSnap.hasUpstream === true, commits: 3, files: 2, insertions: 7, deletions: 1 } } }
           if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }] } } }
         }
-        if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: liveSnap } }
+        if (endpoint === 'gitPanel/run') {
+          const act = request.action
+          runActions.push(act)
+          // A forced failure drives the refusal path (dirty work tree) without
+          // needing the mock to model git's real work-tree checks.
+          if (runFailure !== null && act.kind === 'branch-checkout') {
+            const failure = runFailure
+            runFailure = null
+            return { ok: true, value: { ok: false, error: failure } }
+          }
+          // A landed checkout moves HEAD: the panel must show the branch it read
+          // back from the returned snapshot.
+          if (act.kind === 'branch-checkout') liveSnap = { ...liveSnap, branch: act.name }
+          return { ok: true, value: { ok: true, snapshot: liveSnap } }
+        }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
@@ -238,7 +257,6 @@ const out = await page.evaluate(async (snap) => {
     msgBox.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 60))
   }
-
   // Image compare: opening a binary image renders old/new panes (not the
   // binary notice), and before/after modes collapse to a single labelled pane.
   const imgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('img.png'))
@@ -336,6 +354,73 @@ const out = await page.evaluate(async (snap) => {
   panelHostForSearch.style.width = '1000px'
   await new Promise((r) => setTimeout(r, 120))
   result.searchHintRestored = document.querySelector('.gp-search')?.getAttribute('placeholder') === 'overview.search'
+
+  // ── branch switch (wide): row switch button → confirm → run payload ──
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+  const leftRow = (name) => [...document.querySelectorAll('.gp-col--left .gp-branch-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent || '') === name) || null
+  const switchBtnOf = (name) => leftRow(name)?.querySelector('.gp-branch-row__switch') ?? null
+  result.switchNoFixedEntry = document.querySelector('.gp-switch-row') === null
+  // The remote section starts collapsed; expand it so its rows are listed.
+  ;[...document.querySelectorAll('.gp-col--left .gp-branch-group__head')].find((el) => (el.textContent || '').includes('overview.remote'))?.click()
+  await wait(60)
+  // Only rows with a real target carry the button: not the checked-out branch,
+  // not the remote ref resolving to it, never tags.
+  result.switchBtnRows = [...document.querySelectorAll('.gp-col--left .gp-branch-row')]
+    .filter((r) => r.querySelector('.gp-branch-row__switch') !== null)
+    .map((r) => r.querySelector('.gp-tree-name')?.textContent)
+  // Hidden until hover (no pointer in the headless run), revealed by a hover rule.
+  result.switchBtnHidden = switchBtnOf('feature') !== null && getComputedStyle(switchBtnOf('feature')).display === 'none'
+  result.switchBtnHoverRule = [...document.styleSheets].some((sheet) => {
+    try { return [...sheet.cssRules].some((rule) => rule.selectorText === '.gp-branch-row:hover .gp-branch-row__switch') } catch { return false }
+  })
+  result.switchBtnTitleTrack = switchBtnOf('origin/release')?.getAttribute('title') === 'switch.rowTitleTrack'
+  result.switchBtnTitleLocal = switchBtnOf('feature')?.getAttribute('title') === 'switch.rowTitle'
+  const branchQueriesBefore = branchQueries
+  // Remote row → confirm dialog states the tracking branch it will create. The
+  // button click must not also toggle the row's history filter.
+  switchBtnOf('origin/release')?.click()
+  await wait(80)
+  result.switchBtnNoFilter = leftRow('origin/release')?.classList.contains('gp-branch-row--active') === false
+  const confirmText = () => (document.querySelector('.gp-modal')?.textContent || '')
+  result.switchConfirmOpened = confirmText().includes('switch.confirmTitle')
+  result.switchConfirmBody = confirmText().includes('switch.body')
+  result.switchTrackingNote = confirmText().includes('switch.trackingNote')
+  result.switchDirtyWarn = confirmText().includes('switch.dirtyWarn')
+  result.switchStashChoice = confirmText().includes('switch.modeStash')
+  result.switchDefaultNoStash = confirmText().includes('switch.confirm') && !confirmText().includes('switch.confirmStash')
+  // Choosing "stash first" is an explicit opt-in and relabels the confirm button.
+  const stashRadio = [...document.querySelectorAll('.gp-bpick__mode')].find((l) => (l.textContent || '').includes('switch.modeStash'))
+  stashRadio?.querySelector('input')?.click()
+  await wait(60)
+  result.switchStashRelabel = confirmText().includes('switch.confirmStash')
+  const confirmBtn = [...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirmStash'))
+  confirmBtn?.click()
+  await wait(150)
+  const switchAction = runActions[runActions.length - 1]
+  result.switchAction = switchAction
+  result.switchModalClosed = document.querySelector('.gp-modal__path') === null
+  result.switchReloadedBranches = branchQueries > branchQueriesBefore
+  liveSnap = snap
+  await clickCheck()
+  // Closing the confirm without confirming runs nothing.
+  const runsBeforeCancel = runActions.length
+  switchBtnOf('feature')?.click()
+  await wait(80)
+  document.querySelector('.gp-modal__close')?.click()
+  await wait(60)
+  result.switchCancelRunsNothing = runActions.length === runsBeforeCancel && document.querySelector('.gp-modal__path') === null
+  // Refusal path: git rejects the switch, the error lands inside the still-open
+  // dialog (with the stash option already on screen as the way out).
+  switchBtnOf('feature')?.click()
+  await wait(80)
+  runFailure = { code: 'local-changes-block', message: 'local changes' }
+  ;[...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirm'))?.click()
+  await wait(150)
+  result.switchRefusalShown = (document.querySelector('.gp-modal .gp-feedback')?.textContent || '').includes('error.localChangesBlock')
+  result.switchRefusalStaysOpen = document.querySelector('.gp-modal__path')?.textContent === 'switch.confirmTitle'
+  document.querySelector('.gp-modal__close')?.click()
+  await wait(60)
+
 
   // Select the first commit → its changed-file tree appears on the right.
   const firstCommit = document.querySelector('.gp-commit-row')
@@ -803,6 +888,26 @@ const out = await page.evaluate(async (snap) => {
   result.restoredChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
   result.restoredSelected = document.querySelector('.gp-files__tree .gp-tree-row--active')?.textContent?.trim() ?? null
   result.restoredPreviewShown = document.querySelector('.gp-files__code, .gp-files__markdown, .gp-files__image') !== null
+
+  // Work-tree generation: a branch switch replaces every file under the root, so
+  // the Files tab must drop its preserved state and re-list the root instead of
+  // serving the previous branch's tree from its sticky cache.
+  const filesTabBtn = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.files'))
+  const overviewTabBtn = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.overview'))
+  overviewTabBtn?.click()
+  await wait(400)
+  const rootListsBefore = fileQueries.filter((p) => p === '').length
+  // The branch tree loads async; wait for the row's button before using it.
+  for (let i = 0; i < 20 && switchBtnOf('feature') === null; i += 1) await wait(50)
+  switchBtnOf('feature')?.click()
+  await wait(80)
+  ;[...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirm'))?.click()
+  await wait(250)
+  result.switchRelistsFiles = fileQueries.filter((p) => p === '').length > rootListsBefore
+  result.switchClearsFileSelection = document.querySelector('.gp-files__tree .gp-tree-row--active') === null
+  // Back to Files for the real-input zoom phase (it needs a visible pane).
+  filesTabBtn?.click()
+  await wait(200)
   return result
 }, SNAP)
 
@@ -1022,6 +1127,34 @@ try {
   assert.equal(out.restoredChildVisible, true, 'a quick return keeps the expanded directory open')
   assert.equal(out.restoredSelected, out.preUnmountSelected, 'a quick return keeps the same file selected')
   assert.equal(out.restoredPreviewShown, true, 'a quick return restores the file preview')
+
+  // Branch switch (wide): per-row switch button, confirm + stash choice,
+  // run payload, refusal kept in the dialog.
+  assert.equal(out.switchNoFixedEntry, true, 'the left column has no fixed switch entry any more')
+  assert.deepEqual(out.switchBtnRows, ['feature', 'origin/release'],
+    'only rows with a switch target carry the button (not the current branch or the remote resolving to it)')
+  assert.equal(out.switchBtnHidden, true, 'the switch button is hidden until the row is hovered')
+  assert.equal(out.switchBtnHoverRule, true, 'a hover rule reveals the switch button')
+  assert.equal(out.switchBtnTitleTrack, true, 'a remote row without a local branch says it creates a tracking branch')
+  assert.equal(out.switchBtnTitleLocal, true, 'a local row titles a plain switch')
+  assert.equal(out.switchBtnNoFilter, true, 'clicking the switch button does not toggle the history filter')
+  assert.equal(out.switchCancelRunsNothing, true, 'closing the confirm runs no checkout')
+  assert.equal(out.switchConfirmOpened, true, 'picking a row opens the switch confirm')
+  assert.equal(out.switchConfirmBody, true, 'the confirm states the from → to switch')
+  assert.equal(out.switchTrackingNote, true, 'a remote row explains the local branch it will create and track')
+  assert.equal(out.switchDirtyWarn, true, 'a dirty work tree is called out before switching')
+  assert.equal(out.switchStashChoice, true, 'the dirty work tree offers the stash-first choice')
+  assert.equal(out.switchDefaultNoStash, true, 'the default is a plain switch, not a stash')
+  assert.equal(out.switchStashRelabel, true, 'choosing stash relabels the confirm button')
+  assert.deepEqual(out.switchAction, {
+    kind: 'branch-checkout', name: 'release', createFrom: 'origin/release', stashMessage: 'switch.stashMessage',
+  }, 'the confirm runs the tracking checkout, stashing first when chosen')
+  assert.equal(out.switchModalClosed, true, 'a landed switch closes the dialog')
+  assert.equal(out.switchReloadedBranches, true, 'a landed switch reloads the branch list')
+  assert.equal(out.switchRefusalShown, true, 'a refused switch shows the refusal inside the dialog')
+  assert.equal(out.switchRefusalStaysOpen, true, 'a refused switch keeps the dialog open for another choice')
+  assert.equal(out.switchRelistsFiles, true, 'a branch switch makes the Files tab re-list the root')
+  assert.equal(out.switchClearsFileSelection, true, 'a branch switch drops the Files tab selection')
 
   assert.ok(realInput !== null && realInput.before.rendered > realInput.before.natural, `real input: zooming past 100% grows the rendered image (${JSON.stringify(realInput?.before)})`)
   assert.ok(realInput !== null && realInput.after.left > realInput.before.left && realInput.after.top > realInput.before.top, `real input: a mouse drag pans the zoomed image (${JSON.stringify(realInput?.before)} -> ${JSON.stringify(realInput?.after)})`)

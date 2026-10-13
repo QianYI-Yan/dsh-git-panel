@@ -32,6 +32,10 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'revert-merge': return t('error.revertMerge')
     case 'index-busy': return t('error.indexBusy')
     case 'not-found': return t('error.notFound')
+    case 'branch-in-use': return t('error.branchInUse')
+    // The cause varies (branch in use, missing ref, conflict), so the raw git
+    // message rides along — the localized text alone would not say why.
+    case 'stash-switch-failed': return t('error.stashSwitchFailed', { reason: message ?? '' })
     case 'invalid-name':
     case 'invalid-index': return t('error.invalidName')
     default: return message ?? t('error.generic')

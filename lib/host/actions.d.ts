@@ -22,7 +22,9 @@ export declare function scrubCredentials(text: string): string;
  *    rule below (git keeps the stash entry on conflict → recoverable).
  *  - index.lock busy (another process holds the lock).
  *  - nothing-to-commit / no changes added (a real commit no-op).
- *  - not-found (missing ref / tag / stash).
+ *  - not-found (missing ref / tag / stash, or a checkout target that resolves
+ *    to neither a ref nor a path).
+ *  - branch-in-use (the target branch is checked out in another worktree).
  *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
  *    `git checkout` and `git stash apply`).
  *  - revert-merge (reverting a merge commit without a mainline parent — git

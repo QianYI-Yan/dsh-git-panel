@@ -145,6 +145,8 @@ export type GitAction = {
 } | {
     readonly kind: 'branch-checkout';
     readonly name: string;
+    readonly createFrom?: string;
+    readonly stashMessage?: string;
 } | {
     readonly kind: 'fetch';
 } | {
@@ -188,7 +190,7 @@ export type GitAction = {
 /** `git reset` modes, from least to most destructive. Single source so the
  * client dialog and the command builder cannot drift. */
 export type ResetMode = 'soft' | 'mixed' | 'hard';
-export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'not-ff' | 'push-rejected' | 'auth-failed' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'revert-merge' | 'not-found' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
+export type GitErrorCode = 'cwd-unavailable' | 'not-a-git-repo' | 'git-unavailable' | 'invalid-path' | 'invalid-name' | 'invalid-index' | 'git-error' | 'timeout' | 'cancelled' | 'empty-message' | 'local-changes-block' | 'not-ff' | 'push-rejected' | 'auth-failed' | 'conflict' | 'revert-conflict' | 'revert-stuck' | 'revert-merge' | 'not-found' | 'branch-in-use' | 'stash-switch-failed' | 'index-busy' | 'empty-diff' | 'llm-unavailable' | 'llm-error' | 'llm-output' | 'suggest-disabled';
 export type GitActionResult = {
     readonly ok: true;
     readonly snapshot: GitSnapshot;
