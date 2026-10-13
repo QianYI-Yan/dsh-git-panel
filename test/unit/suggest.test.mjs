@@ -263,6 +263,31 @@ test('runner stdout-cap truncation is flagged as truncated, not silently dropped
   }
 })
 
+test('lossy untracked-file diff is flagged as truncated too', async () => {
+  // `git diff HEAD` never carries untracked files; their content is folded in
+  // by appendUntracked via per-file `--no-index` runs. A lossy runner read
+  // there leaves a mid-file prefix — the suggestion must carry truncated=true
+  // instead of passing the cut file off as whole (the tracked diff alone is
+  // empty, so nothing else flags it).
+  const cappedRepo = mkdtempSync(join(tmpdir(), 'gp-suggest-cap-untracked-'))
+  try {
+    await runGit(cappedRepo, ['init', '-q'])
+    await runGit(cappedRepo, ['config', 'user.email', 't@t.co'])
+    await runGit(cappedRepo, ['config', 'user.name', 'Tester'])
+    await runGit(cappedRepo, ['commit', '--allow-empty', '-qm', 'init: empty'])
+    // ~3 KB of new-file content: comfortably over the 512-byte cap below.
+    writeFileSync(join(cappedRepo, 'new.txt'), Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n') + '\n')
+    const llm = stubLlm(OK_CHUNKS)
+    const capped = depsFor(cappedRepo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    capped.run = createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, 512)
+    const res = await runSuggest(capped, DEFAULT_CONFIG, { sessionId: SID })
+    assert.equal(res.ok, true)
+    if (res.ok) assert.equal(res.value.truncated, true)
+  } finally {
+    rmSync(cappedRepo, { recursive: true, force: true })
+  }
+})
+
 test('finish error maps to llm-error with the provider message, even with partial text', async () => {
   // The real chunk envelope is { type:'finish', reason:{ kind, failure } }; a
   // half-streamed message must NOT come back as success (review regression).

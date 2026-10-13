@@ -151,8 +151,9 @@ async function collectDiff(
  * otherwise reach the model as a bare path list. Each candidate runs
  * `git diff --no-index -- /dev/null <path>` (exit 1 merely means "differences";
  * only spawn failures/cancellation are skipped), a `--`-separated argv, with
- * paths re-validated by isSafePath. Stops at the cap or when budget runs out.
- */
+ * paths re-validated by isSafePath. Stops at the cap or when budget runs out;
+ * a lossy runner read (stdout cap with spill degraded) likewise stops the fold
+ * and flags the result truncated. */
 async function appendUntracked(
   deps: SnapshotDeps,
   root: string,
@@ -170,7 +171,11 @@ async function appendUntracked(
     if ('failure' in res || res.run.cancelled || res.run.timedOut) continue
     const chunk = res.run.stdout
     if (chunk === '') continue
-    if (Buffer.byteLength(chunk, 'utf8') > remaining) {
+    // A lossy runner read (stdout cap hit with spill degraded) leaves a
+    // mid-file prefix: keep what arrived, flag the loss, and stop folding —
+    // unrelated diffs after a cut file would only bury the truncation.
+    const lossy = res.run.stdoutLossy
+    if (lossy || Buffer.byteLength(chunk, 'utf8') > remaining) {
       text += truncateUtf8(chunk, remaining) + '\n... [diff truncated]'
       truncated = true
       break

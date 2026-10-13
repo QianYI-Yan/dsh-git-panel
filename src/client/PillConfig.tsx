@@ -40,9 +40,10 @@ type DiffView = 'unified' | 'split'
 const MAX_KIB = { min: SUGGEST_LIMITS.maxBytes.min / 1024, max: SUGGEST_LIMITS.maxBytes.max / 1024 }
 const TIMEOUT_S = { min: SUGGEST_LIMITS.timeoutMs.min / 1000, max: SUGGEST_LIMITS.timeoutMs.max / 1000 }
 
-/** Clamp a display value into its range, mirroring the host-side enforcement. */
+/** Clamp a display value into its range, mirroring the host-side enforcement
+ * (normalizeConfig floors, so the form floors too — same rounding everywhere). */
 function clampDisplay(v: number, range: { readonly min: number; readonly max: number }): number {
-  return Math.min(range.max, Math.max(range.min, Math.round(v)))
+  return Math.min(range.max, Math.max(range.min, Math.floor(v)))
 }
 
 /** Parse a numeric draft; null when blank/unparseable (caller keeps the current value). */
