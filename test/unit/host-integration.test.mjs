@@ -517,6 +517,186 @@ test('branch-checkout rejects a dash-prefixed name (would run git checkout -f)',
   assert.equal(res.error.code, 'invalid-name')
 })
 
+// ── branch switch (checkout) ─────────────────────────────────────────────
+/** A repo whose HEAD and the branch `other` differ on a.txt, so a local edit to
+ * a.txt is what git refuses to clobber on a switch. */
+async function switchRepo(prefix) {
+  const dir = await freshRepo(prefix)
+  const { writeFileSync } = await import('node:fs')
+  writeFileSync(join(dir, 'a.txt'), 'two\n')
+  await runGit(dir, ['add', 'a.txt'])
+  await runGit(dir, ['commit', '-qm', 'feat: two'])
+  await runGit(dir, ['branch', 'other', 'HEAD~1'])
+  return dir
+}
+
+test('branch-checkout into a conflicting dirty work tree is refused (local-changes-block)', async () => {
+  const dir = await switchRepo('gp-switch-dirty-')
+  try {
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'local edit\n')
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: 'other' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'local-changes-block')
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'local edit\n', 'a refused switch leaves the work tree untouched')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash-then-switch stashes the local changes and switches the branch', async () => {
+  const dir = await switchRepo('gp-switch-stash-')
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'a.txt'), 'local edit\n')
+    writeFileSync(join(dir, 'untracked.txt'), 'new\n')
+    const res = await runAction(d, DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'branch-checkout', name: 'other', stashMessage: 'gp: switch to other' },
+    })
+    assert.equal(res.ok, true, JSON.stringify(res.error ?? {}))
+    assert.equal(res.snapshot.branch, 'other')
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n', 'the switch landed on the target branch content')
+    await assert.rejects(stat(join(dir, 'untracked.txt')), 'the untracked file went into the stash (git -u) too')
+    const stash = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(stash.value.entries.length, 1, 'the changes are recoverable from the stash stack')
+    assert.match(stash.value.entries[0].message, /gp: switch to other/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash-then-switch with nothing stashable reports the block, not a stashed state', async () => {
+  const dir = await switchRepo('gp-switch-noop-')
+  try {
+    const d = depsAt(dir)
+    // A clean work tree: `git stash push -u` prints "No local changes to save"
+    // and exits 0, so the checkout that follows would be refused again —
+    // reporting a stash (or a plain refusal) here would both be misleading.
+    const res = await runAction(d, DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'branch-checkout', name: 'other', stashMessage: 'gp: switch' },
+    })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'local-changes-block')
+    const stash = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(stash.value.entries.length, 0, 'no stash entry was created')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash-then-switch keeps the stash and reports stash-switch-failed when the switch still fails', async () => {
+  const dir = await switchRepo('gp-switch-partial-')
+  const wt = mkdtempSync(join(tmpdir(), 'gp-switch-wt-'))
+  try {
+    const d = depsAt(dir)
+    const { writeFileSync } = await import('node:fs')
+    // `other` is checked out in a second worktree, so git refuses to switch to
+    // it here — but only after the stash step already moved the changes.
+    await runGit(dir, ['worktree', 'add', '-q', wt, 'other'])
+    writeFileSync(join(dir, 'a.txt'), 'local edit\n')
+    const res = await runAction(d, DEFAULT_CONFIG, {
+      sessionId: SID,
+      action: { kind: 'branch-checkout', name: 'other', stashMessage: 'gp: switch' },
+    })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'stash-switch-failed', JSON.stringify(res.error))
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'two\n', 'the stash took the local edit away')
+    const stash = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(stash.value.entries.length, 1, 'the stash is kept, so the changes are recoverable')
+  } finally {
+    await runGit(dir, ['worktree', 'remove', '--force', wt]).catch(() => {})
+    rmSync(wt, { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stash-then-switch reports stash-switch-failed when the switch step times out, is cancelled, or git is unavailable', async () => {
+  const dir = await switchRepo('gp-switch-transport-')
+  try {
+    const d = depsAt(dir)
+    const realRun = d.run.run.bind(d.run)
+    const { writeFileSync } = await import('node:fs')
+    // Transport-level failures are not git refusals, but the stash step has
+    // already moved the changes: all three must report the partial state (with
+    // the underlying cause riding along) instead of a plain timeout/cancel that
+    // reads as "nothing happened".
+    const stubCheckout = (impl) => ({ run: (argv, opts) => (argv.includes('checkout') ? impl() : realRun(argv, opts)) })
+    const idle = { exitCode: null, stdout: '', stderr: '', timedOut: false, cancelled: false, stdoutLossy: false }
+    const modes = [
+      { stub: stubCheckout(async () => ({ ...idle, timedOut: true })), reason: /timed out/ },
+      { stub: stubCheckout(async () => ({ ...idle, cancelled: true })), reason: /cancelled/ },
+      { stub: stubCheckout(async () => { throw new Error('spawn git ENOENT') }), reason: /spawn git ENOENT/ },
+    ]
+    for (const [i, mode] of modes.entries()) {
+      // Each attempt must really stash: the checkout is stubbed (HEAD never
+      // moves), so write a fresh edit that differs from HEAD every round —
+      // re-writing the same content would make `git stash push` a no-op.
+      writeFileSync(join(dir, 'a.txt'), `local edit ${i}\n`)
+      const res = await runAction({ ...d, run: mode.stub }, DEFAULT_CONFIG, {
+        sessionId: SID,
+        action: { kind: 'branch-checkout', name: 'other', stashMessage: 'gp: switch' },
+      })
+      assert.equal(res.ok, false, JSON.stringify(res.error ?? {}))
+      assert.equal(res.error.code, 'stash-switch-failed', JSON.stringify(res.error))
+      assert.match(res.error.message, mode.reason, 'the underlying cause rides along')
+      assert.match(res.error.message, /step 2\/2/, 'the failing step is identified')
+    }
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'two\n', 'the switch never landed')
+    const stash = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(stash.value.entries.length, modes.length, 'every attempt left its stash entry recoverable')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branch-checkout of a missing branch maps to not-found', async () => {
+  const dir = await freshRepo('gp-switch-missing-')
+  try {
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: 'nope' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'not-found')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branch-checkout with createFrom creates a local branch that tracks the remote ref', async () => {
+  const dir = await freshRepo('gp-switch-track-')
+  try {
+    const d = depsAt(dir)
+    await runGit(dir, ['remote', 'add', 'origin', 'https://example.invalid/x.git'])
+    await runGit(dir, ['update-ref', 'refs/remotes/origin/dev', 'HEAD'])
+    const res = await runAction(d, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: 'dev', createFrom: 'origin/dev' } })
+    assert.equal(res.ok, true, JSON.stringify(res.error ?? {}))
+    assert.equal(res.snapshot.branch, 'dev')
+    const upstream = execFileSync('git', ['config', '--get', 'branch.dev.merge'], { cwd: dir }).toString().trim()
+    assert.equal(upstream, 'refs/heads/dev', 'the new branch tracks the remote branch, not a detached HEAD')
+    assert.equal(execFileSync('git', ['config', '--get', 'branch.dev.remote'], { cwd: dir }).toString().trim(), 'origin')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('branch-checkout with createFrom on a stale remote ref fails without creating the branch', async () => {
+  const dir = await freshRepo('gp-switch-stale-')
+  try {
+    // A refs/remotes entry whose remote is no longer configured: git can create
+    // the branch but cannot set up tracking, so it aborts before switching.
+    await runGit(dir, ['update-ref', 'refs/remotes/origin/dev', 'HEAD'])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'branch-checkout', name: 'dev', createFrom: 'origin/dev' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'git-error')
+    assert.match(res.error.message, /tracking information/)
+    const branches = execFileSync('git', ['branch', '--list', 'dev'], { cwd: dir }).toString().trim()
+    assert.equal(branches, '', 'no half-created branch is left behind')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // ── snapshot edge states (T3) ────────────────────────────────────────────
 test('snapshot on an unborn repo reports unborn / null branch head', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-unborn-'))

@@ -1,6 +1,7 @@
 /**
  * Git overview tab (IDE-style three-column):
- *  left   = branch/tag list (click to filter history)
+ *  left   = branch/tag list (click to filter history; a row's switch button
+ *           checks the branch out after a confirm)
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
@@ -22,6 +23,8 @@ import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
 import { opErrorText, renderConfirmModal } from './ops-modals'
 import { renderResetModal, renderTagCreateModal } from './overview-modals'
+import { renderBranchSwitchConfirm } from './branch-switch'
+import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options'
 import { pullScopeNode, pushScopeNode, renderStatusBar } from './overview-statusbar'
 import type { DiffViewMode } from './types'
 
@@ -121,6 +124,10 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
+  // Branch switch: the row target awaiting confirmation, and an in-flight
+  // guard (a checkout moves the whole work tree).
+  const [switchTarget, setSwitchTarget] = useState<BranchOption | null>(null)
+  const [switchBusy, setSwitchBusy] = useState(false)
   // Compact branch/ref filter lives in a bottom sheet (a side column has no room
   // on a phone); the wide layout keeps the always-visible left column instead.
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -167,6 +174,15 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
   }, [pushConfirm, remote, sessionId])
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, effRefresh)
+  // Switch targets keyed like the branch rows (`local:<name>` / `remote:<ref>`);
+  // only rows with a selectable target get a switch button.
+  const switchOptions = useMemo(() => {
+    const map = new Map<string, BranchOption>()
+    if (tree === null) return map
+    for (const o of buildBranchOptions(tree)) if (isSelectable(o, tree.current)) map.set(o.key, o)
+    return map
+  }, [tree])
+  const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView)
   const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
     remote, sessionId, filter, effRefresh, detail.clearSelection,
@@ -283,6 +299,26 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       if (res.ok) setResetTarget(null)
       else setOpError(res.error ?? t('error.generic'))
     } finally { setOpBusy(false) }
+  }
+
+  // Branch switch. It moves HEAD *and* the whole work tree, so it goes through
+  // `onAction` (the fresh snapshot feeds the controller → refreshKey advances →
+  // history, branch list, changes and Files caches all reload). `stash` is the
+  // user's explicit choice in the confirm dialog for a dirty work tree.
+  const runBranchSwitch = async (stash: boolean): Promise<void> => {
+    if (switchTarget === null || switchBusy) return
+    setOpError(null)
+    setSwitchBusy(true)
+    try {
+      const res = await onAction({
+        kind: 'branch-checkout',
+        name: switchTarget.name,
+        ...(switchTarget.createFrom === undefined ? {} : { createFrom: switchTarget.createFrom }),
+        ...(stash ? { stashMessage: t('switch.stashMessage', { branch: switchTarget.name }) } : {}),
+      })
+      if (res.ok) { setSwitchTarget(null); reloadTree() }
+      else setOpError(res.error ?? t('error.generic'))
+    } finally { setSwitchBusy(false) }
   }
 
   // Sync check = `git fetch` routed through onAction so the fresh snapshot
@@ -438,6 +474,17 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       onClose: () => setPublishConfirm(false),
       t,
     }) : null,
+    switchTarget !== null ? renderBranchSwitchConfirm(switchTarget, {
+      from: snapshot.branch,
+      // The stash choice only makes sense when there is something to stash; the
+      // file count matches the changes page's own header.
+      dirty: snapshot.dirty ? Math.max(1, snapshot.stats.fileCount) : 0,
+      busy: switchBusy,
+      error: opError,
+      onConfirm: (stash) => void runBranchSwitch(stash),
+      onClose: () => setSwitchTarget(null),
+      t,
+    }) : null,
   ]
 
   // The history middle column: a toolbar (search / author / since / fetch, plus
@@ -559,6 +606,8 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
       renderStatusBar(snapshot, statusCbs),
       sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
+        switchOptions,
+        onSwitch: (option) => { setSheetOpen(false); openSwitch(option) },
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
@@ -575,6 +624,8 @@ export function OverviewTab({ remote, sessionId, refreshKey, defaultDiffView, sn
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, [
       h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => setRef(ref),
+        switchOptions,
+        onSwitch: openSwitch,
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
         t,
@@ -624,6 +675,10 @@ function renderHoverCard(
 
 interface BranchCbs {
   onFilter: (ref: string | null) => void
+  /** Switch targets by row key; a row without one (current branch, tags) has no switch button. */
+  switchOptions: ReadonlyMap<string, BranchOption>
+  /** Opens the switch confirm; the row click itself stays the history filter. */
+  onSwitch: (option: BranchOption) => void
   onToggle: (section: string) => void
   onRetry: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -647,10 +702,18 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
         const ref = prefix + b.name
         const isCurrent = tree.current === b.name
         const cls = `gp-branch-row${activeRef === ref ? ' gp-branch-row--active' : ''}${isCurrent ? ' gp-branch-row--current' : ''}`
+        const target = cb.switchOptions.get(`${key}:${b.name}`)
         return h('div', { key: b.name, className: cls, title: b.name, onClick: () => cb.onFilter(activeRef === ref ? null : ref) }, [
           h('span', { key: 'i', style: { display: 'inline-flex', width: 14 } }, icon),
           h('span', { key: 'n', className: 'gp-tree-name' }, b.name),
           (b.ahead || b.behind) ? h('span', { key: 't', className: 'gp-branch-row__track' }, `${b.ahead ? `↑${b.ahead}` : ''}${b.behind ? `↓${b.behind}` : ''}`) : null,
+          // Shown on hover (always on touch); stops propagation so switching
+          // never also toggles the row's history filter.
+          target === undefined ? null : h('button', {
+            key: 'sw', type: 'button', className: 'gp-branch-row__switch',
+            title: cb.t(target.createFrom === undefined ? 'switch.rowTitle' : 'switch.rowTitleTrack', { name: target.name, ref: target.label }),
+            onClick: (e: { stopPropagation: () => void }) => { e.stopPropagation(); cb.onSwitch(target) },
+          }, cb.t('switch.action')),
         ])
       }),
     ])

@@ -152,7 +152,18 @@ export type GitAction =
     /** True → git commit --amend (replace the previous commit). */
     readonly amend?: boolean
   }
-  | { readonly kind: 'branch-checkout'; readonly name: string }
+  // Switch the work tree to `name`. `createFrom` (a remote-tracking ref such as
+  // `origin/x`) means the local branch does not exist yet: it is created from
+  // that ref and set to track it (`git checkout -b x --track origin/x`) instead
+  // of detaching HEAD on the remote ref. `stashMessage` is the dirty-work-tree
+  // path: the local changes are stashed first (labelled with that message) so
+  // the switch can proceed — the UI only offers it on explicit user choice.
+  | {
+    readonly kind: 'branch-checkout'
+    readonly name: string
+    readonly createFrom?: string
+    readonly stashMessage?: string
+  }
   | { readonly kind: 'fetch' }
   // Fast-forward-only pull of the current branch from its upstream. `--ff-only`
   // refuses when local and remote diverged, so it can only ever advance the
@@ -219,6 +230,12 @@ export type GitErrorCode =
   | 'revert-merge'
   // A named tag / stash entry does not exist.
   | 'not-found'
+  // The target branch is checked out in another worktree of the same repo, so
+  // git refuses to switch to it here.
+  | 'branch-in-use'
+  // A stash-then-switch checkout stashed the local changes but the switch still
+  // failed: the work tree changed, and the stash is kept (recoverable).
+  | 'stash-switch-failed'
   // Another git process holds the index lock (.git/index.lock).
   | 'index-busy'
   // AI commit-message suggestion endpoint.

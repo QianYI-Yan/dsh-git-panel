@@ -91,6 +91,11 @@ const CSS = `
 .gp-branch-row--active,.gp-branch-row--active:hover{color:var(--dsw-alias-state-business-primary);background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-branch-row--current{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-branch-row__track{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-tertiary)}
+.gp-branch-row__switch{display:none;flex:none;margin:-2px 0 -2px auto;padding:0 7px;height:18px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.gp-branch-row__track+.gp-branch-row__switch{margin-left:0}
+.gp-branch-row:hover .gp-branch-row__switch{display:inline-block}
+.gp-branch-row__switch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
+.gp-branch-row__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 
 /* left-column footer status bar: repo icon (left) + branch sync (right) */
 .gp-statusbar{flex:none;display:flex;align-items:center;gap:8px;min-height:30px;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);font-size:11px}
@@ -371,6 +376,18 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-reset__ack{color:var(--dsw-alias-state-error-primary)}
 .gp-reset__dirtywarn{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,#e0982e)}
 
+/* branch-switch confirm: tracking note + dirty-work-tree warning + the switch mode radios */
+.gp-bpick__extra{display:flex;flex-direction:column;gap:8px}
+.gp-bpick__note{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary)}
+.gp-bpick__warn{font-size:11px;line-height:1.5;color:var(--dsw-alias-state-warn-primary,#e0982e)}
+.gp-bpick__modes{display:flex;flex-direction:column;gap:6px}
+.gp-bpick__mode{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;cursor:pointer}
+.gp-bpick__mode--on{border-color:var(--dsw-alias-state-business-primary);background:var(--dsw-alias-bg-layer-2)}
+.gp-bpick__mode .gp-check{margin-top:2px;flex:none}
+.gp-bpick__modetext{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gp-bpick__modelabel{font-size:12px;color:var(--dsw-alias-label-primary)}
+.gp-bpick__modehint{font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary)}
+
 /* commit detail action area: tag chips on their own wrapping row (shown only
  * when tags exist), action buttons on a second row below */
 .gp-detail__ops{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:10px}
@@ -521,6 +538,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
   .gp-btn{height:36px}
   .gp-tree-row{padding-top:7px;padding-bottom:7px}
   .gp-branch-row{padding-top:8px;padding-bottom:8px}
+  .gp-branch-row__switch{display:inline-block;height:26px;line-height:24px;padding:0 10px;margin-block:-4px}
 }
 
 /* Diff modal on a small viewport (it is portaled outside .gp-panel, so this is

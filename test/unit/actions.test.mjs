@@ -104,6 +104,37 @@ test('branch-checkout guards the name and passes it after --end-of-options', () 
   assert.equal(planAction({ kind: 'branch-checkout', name: '/abs' }, false).error, 'invalid-name')
 })
 
+test('branch-checkout with createFrom creates the local branch and tracks the remote ref', () => {
+  // A remote row must never run `git checkout origin/x` (that detaches HEAD);
+  // `-b <name> --track` is the deterministic create-and-track form.
+  assert.deepEqual(
+    planAction({ kind: 'branch-checkout', name: 'feature', createFrom: 'origin/feature' }, false).argv,
+    [['git', 'checkout', '-b', 'feature', '--track', '--end-of-options', 'origin/feature']],
+  )
+  assert.equal(
+    planAction({ kind: 'branch-checkout', name: 'x', createFrom: '--upload-pack=/tmp/pwn' }, false).error,
+    'invalid-name',
+    'the tracking ref is validated just like the branch name',
+  )
+  assert.equal(planAction({ kind: 'branch-checkout', name: 'x', createFrom: '-b' }, false).error, 'invalid-name')
+})
+
+test('branch-checkout with stashMessage stashes first (untracked included) and then switches', () => {
+  const plan = planAction(
+    { kind: 'branch-checkout', name: 'dev', createFrom: 'origin/dev', stashMessage: '  auto stash  ' },
+    false,
+  )
+  assert.deepEqual(plan.argv, [
+    ['git', 'stash', 'push', '-u', '-m', 'auto stash'],
+    ['git', 'checkout', '-b', 'dev', '--track', '--end-of-options', 'origin/dev'],
+  ])
+  assert.deepEqual(
+    planAction({ kind: 'branch-checkout', name: 'dev', stashMessage: '   ' }, false).argv,
+    [['git', 'checkout', '--end-of-options', 'dev']],
+    'a blank stash message is not a stash step',
+  )
+})
+
 test('tag-create builds a lightweight tag and guards name + commit', () => {
   assert.deepEqual(
     planAction({ kind: 'tag-create', name: 'v1.0', commit: 'abc123' }, false).argv,
@@ -170,5 +201,15 @@ test('classifyActionFailure orders conflict before nothing-to-commit, and maps c
   assert.equal(classifyActionFailure('', "error: tag 'nope' not found.", 1).code, 'not-found')
   assert.equal(classifyActionFailure('', 'is not a valid reference', 1).code, 'not-found')
   assert.equal(classifyActionFailure('', 'error: Your local changes to the following files would be overwritten by merge', 1).code, 'local-changes-block')
+  // A switch refused because the target branch is checked out in another worktree.
+  assert.equal(classifyActionFailure('', "fatal: 'dev' is already used by worktree at '/tmp/wt'", 128).code, 'branch-in-use')
+  assert.equal(classifyActionFailure('', "fatal: 'dev' is already checked out at '/tmp/wt'", 128).code, 'branch-in-use')
+  // A checkout target that is neither a ref nor a path. The sibling message git
+  // prints for `git add <missing path>` ("did not match any files") must NOT be
+  // swallowed by this rule — only the "known to git" form is a ref miss.
+  assert.equal(classifyActionFailure('', "error: pathspec 'nope' did not match any file(s) known to git", 1).code, 'not-found')
+  assert.equal(classifyActionFailure('', "fatal: pathspec 'a.txt' did not match any files", 128).code, 'git-error')
+  assert.equal(classifyActionFailure('', 'error: Your local changes would be overwritten by checkout', 1).code, 'local-changes-block')
+  assert.equal(classifyActionFailure('', 'error: The following untracked working tree files would be overwritten by checkout:\n\tdev.txt', 1).code, 'local-changes-block')
   assert.equal(classifyActionFailure('', 'something else entirely', 1).code, 'git-error')
 })

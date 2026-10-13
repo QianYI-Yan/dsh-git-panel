@@ -24,6 +24,10 @@ interface FilesTabProps {
   readonly sessionId: string
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
+  /** Work-tree generation (see Panel): a bump means a branch switch replaced the
+   * files under the root, so the preserved browser state and the per-directory
+   * cache are stale and must be dropped. */
+  readonly worktreeGen: number
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -92,7 +96,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -136,6 +140,23 @@ export function FilesTab({ remote, sessionId, compact, t }: FilesTabProps): JSX.
 
   // Load the root once on mount / when the session changes.
   useEffect(() => { loadDir('') }, [loadDir])
+
+  // A branch switch replaces every file under the root: drop the preserved
+  // state (and the sticky cache a remount would restore from) and start over
+  // from the new root listing. The first run only records the initial value —
+  // on mount the props are already current.
+  const genRef = useRef(worktreeGen)
+  useEffect(() => {
+    if (genRef.current === worktreeGen) return
+    genRef.current = worktreeGen
+    filesCache.delete(sessionId)
+    setDirs(new Map())
+    setOpen(new Set(['']))
+    setSelected(null)
+    setFile({ kind: 'idle' })
+    setPane('tree')
+    loadDir('')
+  }, [worktreeGen, sessionId, loadDir])
 
   const toggleDir = useCallback((path: string) => {
     setOpen((prev) => {

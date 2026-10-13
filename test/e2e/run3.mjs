@@ -41,6 +41,7 @@ await page.addScriptTag({ path: resolve(DIR, 'client.js') })
 
 const out = await page.evaluate(async (snap) => {
   const result = {}
+  const runActions = []
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -71,6 +72,7 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
         }
         if (endpoint === 'gitPanel/run') {
+          runActions.push(request?.action ?? {})
           // Delay the fast-forward pull so the busy overlay is observable; keep
           // the dirty fixture (ff pull doesn't touch the work tree) so later
           // Changes-tab assertions still see the change list — only the branch
@@ -147,6 +149,27 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 300))
   result.sheetClosedAfterPick = document.querySelector('.gp-sheet') === null
   result.filterButtonShowsRef = [...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => (b.textContent || '').includes('feature'))
+
+  // Branch switch in compact: the filter sheet's branch rows carry the switch
+  // button (no hover on touch, so the sheet keeps it reachable); using it closes
+  // the sheet and opens the confirm dialog, portaled and centered in both layouts.
+  result.ovNoToolbarSwitch = ![...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => b.getAttribute('title') === 'switch.entry')
+  filterBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  const sheetRow = (name) => [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent || '') === name) || null
+  result.sheetCurrentNoSwitch = sheetRow('main') !== null && sheetRow('main').querySelector('.gp-branch-row__switch') === null
+  const sheetSwitch = sheetRow('feature')?.querySelector('.gp-branch-row__switch') ?? null
+  result.sheetHasSwitch = sheetSwitch !== null
+  const filterBefore = [...document.querySelectorAll('.gp-toolbar .gp-btn')].map((b) => b.textContent).join('|')
+  sheetSwitch?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.switchSheetClosedAfterPick = document.querySelector('.gp-sheet') === null
+  result.sheetSwitchKeepsFilter = [...document.querySelectorAll('.gp-toolbar .gp-btn')].map((b) => b.textContent).join('|') === filterBefore
+  result.switchConfirmPortaled = document.querySelector('.gp-modal__path')?.textContent === 'switch.confirmTitle'
+  ;[...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirm'))?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.switchConfirmRan = runActions.some((a) => a.kind === 'branch-checkout' && a.name === 'feature')
+  result.switchConfirmClosed = document.querySelector('.gp-modal__path') === null
 
   // Drill into a commit → detail pane with a back button; back returns to list.
   const firstCommit = document.querySelector('.gp-commit-row')
@@ -264,8 +287,16 @@ try {
   assert.equal(out.ovHasFilterButton, true, 'compact overview exposes a branch-filter button')
   assert.equal(out.sheetOpened, true, 'the branch filter opens as a bottom sheet')
   assert.equal(out.sheetClosedByEscape, true, 'Escape dismisses the bottom sheet')
-  assert.equal(out.sheetClosedAfterPick, true, 'picking a branch closes the sheet')
+  assert.equal(out.sheetClosedAfterPick, true, 'the switch button closes the sheet')
   assert.equal(out.filterButtonShowsRef, true, 'the filter button reflects the active ref')
+  assert.equal(out.ovNoToolbarSwitch, true, 'compact has no separate toolbar switch button any more')
+  assert.equal(out.sheetHasSwitch, true, 'the filter sheet rows carry the switch button')
+  assert.equal(out.sheetCurrentNoSwitch, true, 'the checked-out branch has no switch button')
+  assert.equal(out.sheetSwitchKeepsFilter, true, 'the switch button does not change the history filter')
+  assert.equal(out.switchSheetClosedAfterPick, true, 'the switch button closes the sheet')
+  assert.equal(out.switchConfirmPortaled, true, 'the confirm step is a centered dialog, not a sheet')
+  assert.equal(out.switchConfirmRan, true, 'confirming runs the branch checkout')
+  assert.equal(out.switchConfirmClosed, true, 'a landed switch closes the confirm')
   assert.equal(out.ovDrilledToDetail, true, 'tapping a commit drills into the detail pane')
   assert.equal(out.ovDetailHasBack, true, 'the detail pane shows a back-to-list button')
   assert.equal(out.ovDetailShowsFiles, true, 'the detail pane lists the commit changed files')

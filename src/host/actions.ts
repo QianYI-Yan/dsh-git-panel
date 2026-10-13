@@ -56,9 +56,23 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       const commitCmd = ['git', 'commit', ...amendFlag, ...msgArgs, '--', ...action.paths]
       return { argv: [...staged.argv, commitCmd] }
     }
-    case 'branch-checkout':
+    case 'branch-checkout': {
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
-      return { argv: [['git', 'checkout', '--end-of-options', action.name]] }
+      let checkout = ['git', 'checkout', '--end-of-options', action.name]
+      if (action.createFrom !== undefined) {
+        // A remote row: create the local branch explicitly and set its upstream.
+        // `-b <name> --track <ref>` is deterministic — `git checkout <remote>/<x>`
+        // would detach HEAD instead, and DWIM name inference depends on config.
+        if (!isSafeBranchName(action.createFrom)) return { error: 'invalid-name', message: `unsafe tracking ref: ${action.createFrom}` }
+        checkout = ['git', 'checkout', '-b', action.name, '--track', '--end-of-options', action.createFrom]
+      }
+      const msg = action.stashMessage?.trim() ?? ''
+      // Stash-then-switch (the dirty-work-tree path the dialog offers): the
+      // checkout alone would be refused, so the changes go to the stash first.
+      // `-u` folds untracked files in as well — git also refuses a switch when
+      // an untracked file is one the target branch tracks.
+      return { argv: msg === '' ? [checkout] : [['git', 'stash', 'push', '-u', '-m', msg], checkout] }
+    }
     case 'fetch':
       return { argv: [['git', 'fetch', '--all', '--prune']] }
     case 'pull-ff':
@@ -143,7 +157,9 @@ export function scrubCredentials(text: string): string {
  *    rule below (git keeps the stash entry on conflict → recoverable).
  *  - index.lock busy (another process holds the lock).
  *  - nothing-to-commit / no changes added (a real commit no-op).
- *  - not-found (missing ref / tag / stash).
+ *  - not-found (missing ref / tag / stash, or a checkout target that resolves
+ *    to neither a ref nor a path).
+ *  - branch-in-use (the target branch is checked out in another worktree).
  *  - local-changes-block (a dirty-worktree refusal; neutral wording covers both
  *    `git checkout` and `git stash apply`).
  *  - revert-merge (reverting a merge commit without a mainline parent — git
@@ -165,8 +181,13 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   if (/nothing to commit|no changes added/i.test(combined)) {
     return { code: 'git-error', message: err || 'nothing to commit' }
   }
-  if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument/i.test(combined)) {
+  if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }
+  }
+  // The branch exists but is checked out in another worktree of this repo:
+  // git refuses the switch (detaching it there would corrupt that worktree).
+  if (/is already used by worktree|already checked out at/i.test(combined)) {
+    return { code: 'branch-in-use', message: err || 'branch is checked out in another worktree' }
   }
   // A network git command (fetch/pull/push) that failed because no usable
   // credentials were available. GIT_TERMINAL_PROMPT=0 turns an interactive
@@ -247,6 +268,10 @@ export async function runAction(
   const plan = planAction(request.action, unborn)
   if ('error' in plan) return { ok: false, error: { code: plan.error, ...(plan.message ? { message: plan.message } : {}) } }
 
+  // A "stash then switch" checkout is planned as [stash, checkout]; both the
+  // no-op stash guard below and the partial-failure code depend on knowing which
+  // step is the stash (step 0).
+  const stashing = request.action.kind === 'branch-checkout' && (request.action.stashMessage?.trim() ?? '') !== ''
   let lastOutput = ''
   // A per-path commit is two steps (add then commit); on failure include which
   // argv failed so the caller isn't left guessing whether the add or the commit
@@ -262,15 +287,30 @@ export async function runAction(
       outcome = await runCommand(deps.run, argv, root, 'action-retry', deps.signal)
     }
     const where = plan.argv.length > 1 ? ` (step ${step + 1}/${plan.argv.length}: ${argv.join(' ')})` : ''
+    // Stash-then-switch, step 2: the stash already succeeded, so the work tree
+    // changed no matter how this step fails — a git refusal, a timeout, a
+    // cancelled or unavailable git alike. Report every shape through the one
+    // code that tells the caller the changes are in the stash (recoverable),
+    // with the underlying reason riding along, rather than a plain error that
+    // reads as "nothing happened".
+    const stashChangedWorkTree = stashing && step > 0
     if ('failure' in outcome) {
       const message = outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure)
-      return { ok: false, error: { code: 'git-unavailable', message: message + where } }
+      return { ok: false, error: { code: stashChangedWorkTree ? 'stash-switch-failed' : 'git-unavailable', message: message + where } }
     }
-    if (outcome.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
-    if (outcome.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (outcome.run.cancelled) {
+      return { ok: false, error: stashChangedWorkTree ? { code: 'stash-switch-failed', message: 'cancelled' + where } : { code: 'cancelled' } }
+    }
+    if (outcome.run.timedOut) {
+      return { ok: false, error: stashChangedWorkTree ? { code: 'stash-switch-failed', message: 'timed out' + where } : { code: 'timeout' } }
+    }
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
       const failure = classifyActionFailure(outcome.run.stdout, outcome.run.stderr, outcome.run.exitCode ?? -1)
+      // A plain git refusal after a landed stash: same partial state, see above.
+      if (stashChangedWorkTree) {
+        return { ok: false, error: { code: 'stash-switch-failed', message: failure.message + where } }
+      }
       // A conflicting `git revert` leaves the repository in the "reverting"
       // state (REVERT_HEAD + sequencer), which the panel offers no way to
       // continue/skip and which also blocks the shared-worktree dsh AI's own
@@ -294,11 +334,15 @@ export async function runAction(
       }
       return { ok: false, error: { code: failure.code, message: failure.message + where } }
     }
-    // `git stash push` with nothing to stash (e.g. only untracked files) prints
-    // "No local changes to save" and exits 0 — a silent no-op that would look
-    // like a successful stash. Surface it as a failure so the UI reports it.
-    if (request.action.kind === 'stash-push' && /No local changes to save/i.test(outcome.run.stdout + outcome.run.stderr)) {
-      return { ok: false, error: { code: 'git-error', message: (outcome.run.stdout.trim() || 'No local changes to save') + where } }
+    // `git stash push` with nothing to stash (e.g. only untracked files, or only
+    // ignored ones) prints "No local changes to save" and exits 0 — a silent
+    // no-op that would look like a successful stash. Surface it as a failure so
+    // the UI reports it. For the stash-then-switch path the blocking changes are
+    // evidently not stashable by this flow, so report the block instead of
+    // jumping into a checkout that is about to be refused all over again.
+    if ((request.action.kind === 'stash-push' || stashing) && /No local changes to save/i.test(outcome.run.stdout + outcome.run.stderr)) {
+      const message = (outcome.run.stdout.trim() || 'No local changes to save') + where
+      return { ok: false, error: { code: stashing ? 'local-changes-block' : 'git-error', message } }
     }
   }
 
