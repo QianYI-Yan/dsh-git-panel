@@ -63,6 +63,9 @@ const out = await page.evaluate(async (snap) => {
   const runActions = []
   let runFailure = null
   let branchQueries = 0
+  // The suggest endpoint parks until the test releases it, so the in-flight
+  // lock on the commit box is observable.
+  let suggestRelease = null
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -135,6 +138,10 @@ const out = await page.evaluate(async (snap) => {
           // back from the returned snapshot.
           if (act.kind === 'branch-checkout') liveSnap = { ...liveSnap, branch: act.name }
           return { ok: true, value: { ok: true, snapshot: liveSnap } }
+        }
+        if (endpoint === 'gitPanel/suggest') {
+          await new Promise((r) => { suggestRelease = r })
+          return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: false } } }
         }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
@@ -257,6 +264,26 @@ const out = await page.evaluate(async (snap) => {
     msgBox.dispatchEvent(new Event('input', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 60))
   }
+
+  // AI suggest in flight: the message box and amend toggle lock so typing
+  // can't race the incoming message; both unlock once it lands.
+  const suggestBtn = [...document.querySelectorAll('.gp-commitbox__actions .gp-btn')].find((b) => !b.classList.contains('gp-btn--primary'))
+  if (suggestBtn && msgBox) {
+    suggestBtn.click()
+    await new Promise((r) => setTimeout(r, 60))
+    const amendCb = document.querySelector('.gp-commitbox__amend input')
+    result.suggestLocksMessage = msgBox.readOnly === true && msgBox.getAttribute('aria-busy') === 'true'
+    result.suggestLocksAmend = amendCb?.disabled === true
+    if (suggestRelease) suggestRelease()
+    await new Promise((r) => setTimeout(r, 80))
+    result.suggestUnlocksMessage = msgBox.readOnly === false && amendCb?.disabled === false
+    result.suggestFilled = msgBox.value === 'feat: suggested'
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+    setter.call(msgBox, '')
+    msgBox.dispatchEvent(new Event('input', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 60))
+  }
+
   // Image compare: opening a binary image renders old/new panes (not the
   // binary notice), and before/after modes collapse to a single labelled pane.
   const imgRow = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('img.png'))
@@ -987,6 +1014,10 @@ try {
   assert.equal(out.commitDisabledEmpty, true, 'commit button is disabled without a message')
   assert.equal(out.commitEnabledWithMessage, true, 'commit button enables once a message is typed')
   assert.equal(out.commitPrimaryHoverKeepsColor, true, 'primary button defines a hover style that keeps its color')
+  assert.equal(out.suggestLocksMessage, true, 'commit message box is read-only while AI suggest is in flight')
+  assert.equal(out.suggestLocksAmend, true, 'amend toggle is disabled while AI suggest is in flight')
+  assert.equal(out.suggestUnlocksMessage, true, 'message box and amend unlock once the suggestion lands')
+  assert.equal(out.suggestFilled, true, 'the suggestion fills the message box')
   assert.equal(out.changeRows, 5, 'five change rows (three text + one image + one svg)')
   assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')
   assert.equal(out.imageImgs, 2, 'both panes render an image')

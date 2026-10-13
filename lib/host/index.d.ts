@@ -22,21 +22,27 @@ export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository }
 export declare class GitPanelService extends TypertRemoteService {
     static inject: string[];
     /**
-     * Config schema surfaced on the plugin detail page. `showInputPill` and
-     * `defaultDiffView` are `.volatile()`, so the settings host renders them as
-     * live-editable controls; the operational limits stay profile-only and out
-     * of the UI form.
+     * Config schema surfaced on the plugin detail page. `showInputPill`,
+     * `defaultDiffView`, `graphStyle` and the suggest fields are `.volatile()`,
+     * so the settings host renders them as live-editable controls; the
+     * operational limits stay profile-only and out of the UI form.
      */
     static Config: Schema<Schemastery.ObjectS<NoInfer<{
         showInputPill: Schema<boolean, boolean, "volatile-defined">;
         defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
         graphStyle: Schema<"compact" | "parallel", "compact" | "parallel", "volatile-defined">;
         suggestEnabled: Schema<boolean, boolean, "volatile-defined">;
+        suggestMaxBytes: Schema<number, number, "volatile-defined">;
+        suggestMaxOutputTokens: Schema<number, number, "volatile-defined">;
+        suggestTimeoutMs: Schema<number, number, "volatile-defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         showInputPill: Schema<boolean, boolean, "volatile-defined">;
         defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
         graphStyle: Schema<"compact" | "parallel", "compact" | "parallel", "volatile-defined">;
         suggestEnabled: Schema<boolean, boolean, "volatile-defined">;
+        suggestMaxBytes: Schema<number, number, "volatile-defined">;
+        suggestMaxOutputTokens: Schema<number, number, "volatile-defined">;
+        suggestTimeoutMs: Schema<number, number, "volatile-defined">;
     }>>, "plain">;
     private readonly deps;
     private config;

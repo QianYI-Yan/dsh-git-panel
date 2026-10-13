@@ -117,18 +117,21 @@ function finishError(reason: FinishReason | undefined): SuggestFailure | undefin
   return { ok: false, error: { code: 'llm-error', message: failure?.message ?? `model stream finished abnormally (${reason.kind})` } }
 }
 
-/** Build the change diff: HEAD-based, or index+worktree for an unborn repo. */
+/** Build the change diff: HEAD-based, or index+worktree for an unborn repo.
+ * `lossy` marks a runner stdout-cap truncation so the caller can flag the
+ * suggestion as truncated — the model then sees a prefix of the diff. */
 async function collectDiff(
   deps: SnapshotDeps,
   root: string,
   hasHead: boolean,
   pathArgs: readonly string[],
-): Promise<string | SuggestFailure> {
+): Promise<{ diff: string; lossy: boolean } | SuggestFailure> {
   const cmds: readonly (readonly string[])[] = hasHead
     ? [['git', 'diff', 'HEAD', ...pathArgs]]
     : [['git', 'diff', '--cached', ...pathArgs], ['git', 'diff', ...pathArgs]]
   const runs = await Promise.all(cmds.map((argv) => runCommand(deps.run, argv, root, 'suggest-diff', deps.signal)))
   let diff = ''
+  let lossy = false
   for (const res of runs) {
     if ('failure' in res) return { ok: false, error: { code: 'git-unavailable', message: 'diff failed' } }
     if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
@@ -136,9 +139,10 @@ async function collectDiff(
     if (res.run.exitCode !== 0) {
       return { ok: false, error: { code: 'git-error', message: res.run.stderr.trim() || 'git diff failed' } }
     }
+    if (res.run.stdoutLossy) lossy = true
     diff += res.run.stdout
   }
-  return diff
+  return { diff, lossy }
 }
 
 /**
@@ -226,14 +230,16 @@ export async function runSuggest(
 
   // Round 2: the diff, then fold untracked contents in while budget remains.
   const collected = await collectDiff(deps, root, hasHead, pathArgs)
-  if (typeof collected !== 'string') return collected
+  if (!('diff' in collected)) return collected
 
-  if (files.length === 0 && collected.trim() === '') {
+  if (files.length === 0 && collected.diff.trim() === '') {
     return { ok: false, error: { code: 'empty-diff', message: 'no uncommitted changes to summarize' } }
   }
 
-  let diff = collected
-  let truncated = false
+  let diff = collected.diff
+  // A runner stdout-cap truncation (profile `maxBytes` below the diff size)
+  // is just as lossy as the model-input cap — flag it, not silently drop it.
+  let truncated = collected.lossy
   if (Buffer.byteLength(diff, 'utf8') > config.suggestMaxBytes) {
     diff = truncateUtf8(diff, config.suggestMaxBytes) + '\n... [diff truncated]'
     truncated = true

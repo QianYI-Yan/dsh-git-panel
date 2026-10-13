@@ -11,4 +11,4 @@ export type {
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind,
 } from '../host/types.js'
 
-export { imageMimeFor } from '../host/types.js'
+export { imageMimeFor, SUGGEST_LIMITS } from '../host/types.js'

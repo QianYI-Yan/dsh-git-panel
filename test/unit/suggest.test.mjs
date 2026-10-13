@@ -13,7 +13,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { runSuggest, createGitRunner, DEFAULT_CONFIG } from '../../lib/host/index.js'
+import { runSuggest, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
+import { SUGGEST_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let unborn
@@ -33,11 +34,20 @@ const subprocess = {
       child.on('error', reject)
       child.on('close', (code, signal) => resolve({ exitCode: code, signal }))
     })
+    // In-memory collect semantics of the real service, no spill (equivalent
+    // to its spill-unavailable degradation): over the per-stream cap the read
+    // is the truncated prefix and lossy.
     return {
       done,
       collected: {
-        stdout: { readFrom: () => ({ text: out, lossy: false }) },
-        stderr: { readFrom: () => ({ text: err, lossy: false }) },
+        stdout: { readFrom: () => {
+          const cap = spec.stdio.stdout.collect.maxBytes
+          return Buffer.byteLength(out) > cap ? { text: out.slice(0, cap), lossy: true } : { text: out, lossy: false }
+        } },
+        stderr: { readFrom: () => {
+          const cap = spec.stdio.stderr.collect.maxBytes
+          return Buffer.byteLength(err) > cap ? { text: err.slice(0, cap), lossy: true } : { text: err, lossy: false }
+        } },
       },
     }
   },
@@ -226,6 +236,33 @@ test('oversized diff is truncated and flagged', async () => {
   assert.ok(Buffer.byteLength(frame.diff, 'utf8') <= 64 + '\n... [diff truncated]'.length)
 })
 
+test('runner stdout-cap truncation is flagged as truncated, not silently dropped', async () => {
+  // The diff overruns the runner's per-command stdout cap (profile `maxBytes`
+  // below the diff size) while fitting the model-input budget: the suggestion
+  // must carry truncated=true, not pass the cut diff off as whole. The cap
+  // stays above the workspace-resolution outputs (`rev-parse --show-toplevel`
+  // is the longest) so only the diff is lossy.
+  const cappedRepo = mkdtempSync(join(tmpdir(), 'gp-suggest-cap-'))
+  try {
+    await runGit(cappedRepo, ['init', '-q'])
+    await runGit(cappedRepo, ['config', 'user.email', 't@t.co'])
+    await runGit(cappedRepo, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(cappedRepo, 'big.txt'), Array.from({ length: 200 }, (_, i) => `line ${i}`).join('\n') + '\n')
+    await runGit(cappedRepo, ['add', 'big.txt'])
+    await runGit(cappedRepo, ['commit', '-qm', 'feat: add big.txt'])
+    // ~2 KB of diff: comfortably over the 512-byte cap below.
+    writeFileSync(join(cappedRepo, 'big.txt'), Array.from({ length: 200 }, (_, i) => i < 100 ? `changed ${i}` : `line ${i}`).join('\n') + '\n')
+    const llm = stubLlm(OK_CHUNKS)
+    const capped = depsFor(cappedRepo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    capped.run = createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, 512)
+    const res = await runSuggest(capped, DEFAULT_CONFIG, { sessionId: SID })
+    assert.equal(res.ok, true)
+    if (res.ok) assert.equal(res.value.truncated, true)
+  } finally {
+    rmSync(cappedRepo, { recursive: true, force: true })
+  }
+})
+
 test('finish error maps to llm-error with the provider message, even with partial text', async () => {
   // The real chunk envelope is { type:'finish', reason:{ kind, failure } }; a
   // half-streamed message must NOT come back as success (review regression).
@@ -326,4 +363,61 @@ test('timeout: a stream that never finishes maps to llm-error', async () => {
     assert.equal(res.error.code, 'llm-error')
     assert.match(res.error.message ?? '', /timed out/)
   }
+})
+
+test('suggest defaults: 128 KiB diff budget, 4096 output tokens, 15 s timeout', () => {
+  // The output default mirrors dsh-base session-title-llm (maxOutputTokens
+  // 4096): reasoning a model cannot switch off counts against it.
+  assert.equal(DEFAULT_CONFIG.suggestMaxBytes, 128 * 1024)
+  assert.equal(DEFAULT_CONFIG.suggestMaxOutputTokens, 4096)
+  assert.equal(DEFAULT_CONFIG.suggestTimeoutMs, 15000)
+})
+
+test('normalizeConfig clamps suggest limits to their ranges', () => {
+  const base = normalizeConfig({})
+  assert.equal(base.suggestMaxBytes, 128 * 1024)
+  assert.equal(base.suggestMaxOutputTokens, 4096)
+  assert.equal(base.suggestTimeoutMs, 15000)
+  // Legal but out-of-range values clamp to the boundary (a typed 999999
+  // becomes 512 KiB instead of silently falling back to the default).
+  assert.equal(normalizeConfig({ suggestMaxBytes: 8 * 1024 }).suggestMaxBytes, 16 * 1024)
+  assert.equal(normalizeConfig({ suggestMaxBytes: 4 * 1024 * 1024 }).suggestMaxBytes, 512 * 1024)
+  assert.equal(normalizeConfig({ suggestMaxOutputTokens: 10 }).suggestMaxOutputTokens, 256)
+  assert.equal(normalizeConfig({ suggestMaxOutputTokens: 999999 }).suggestMaxOutputTokens, 16384)
+  assert.equal(normalizeConfig({ suggestTimeoutMs: 100 }).suggestTimeoutMs, 5000)
+  assert.equal(normalizeConfig({ suggestTimeoutMs: 9999999 }).suggestTimeoutMs, 120000)
+  // Fractional floors; non-numeric falls back to the default.
+  assert.equal(normalizeConfig({ suggestMaxOutputTokens: 2048.9 }).suggestMaxOutputTokens, 2048)
+  assert.equal(normalizeConfig({ suggestMaxBytes: 'bogus' }).suggestMaxBytes, 128 * 1024)
+  assert.equal(normalizeConfig({ suggestTimeoutMs: null }).suggestTimeoutMs, 15000)
+  // In-range values pass through untouched.
+  const kept = normalizeConfig({ suggestMaxBytes: 64 * 1024, suggestMaxOutputTokens: 1024, suggestTimeoutMs: 30000 })
+  assert.equal(kept.suggestMaxBytes, 64 * 1024)
+  assert.equal(kept.suggestMaxOutputTokens, 1024)
+  assert.equal(kept.suggestTimeoutMs, 30000)
+})
+
+test('normalizeConfig unwraps volatile refs for the suggest limits', () => {
+  // cordis resolveConfig wraps every .volatile() field in a { get() } ref —
+  // the shape rawConfig actually carries in production. Without the unwrap
+  // (readBool's unwrapVolatile), a live-edited value silently falls back to
+  // the default while the settings form echoes the written value.
+  assert.equal(normalizeConfig({ suggestMaxBytes: { get: () => 98304 } }).suggestMaxBytes, 98304)
+  assert.equal(normalizeConfig({ suggestMaxOutputTokens: { get: () => 2048 } }).suggestMaxOutputTokens, 2048)
+  assert.equal(normalizeConfig({ suggestTimeoutMs: { get: () => 45000 } }).suggestTimeoutMs, 45000)
+  // The unwrap runs before the range check: a ref to an out-of-range value
+  // clamps to the boundary rather than falling back to the default.
+  assert.equal(normalizeConfig({ suggestMaxBytes: { get: () => 4 * 1024 * 1024 } }).suggestMaxBytes, 512 * 1024)
+  // A ref yielding a non-number still falls back to the default.
+  assert.equal(normalizeConfig({ suggestMaxOutputTokens: { get: () => 'nope' } }).suggestMaxOutputTokens, 4096)
+})
+
+test('suggest limit display units divide exactly', () => {
+  // The client form derives its display units (KiB / seconds) from these
+  // host-unit constants; a non-multiple would make the derived range disagree
+  // with what normalizeConfig enforces.
+  assert.equal(SUGGEST_LIMITS.maxBytes.min % 1024, 0)
+  assert.equal(SUGGEST_LIMITS.maxBytes.max % 1024, 0)
+  assert.equal(SUGGEST_LIMITS.timeoutMs.min % 1000, 0)
+  assert.equal(SUGGEST_LIMITS.timeoutMs.max % 1000, 0)
 })

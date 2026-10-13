@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { readFile, readdir, realpath, rm, stat } from 'node:fs/promises'
 import { createGitRunner, type SubprocessLike } from './git.js'
-import { normalizeConfig, snapshotForSession, type GitPanelConfig, type SnapshotDeps } from './core.js'
+import { normalizeConfig, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
 import { runAction } from './actions.js'
 import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
@@ -49,10 +49,10 @@ export class GitPanelService extends TypertRemoteService {
   static inject = ['subprocess', 'sessions', 'sessionPersistence']
 
   /**
-   * Config schema surfaced on the plugin detail page. `showInputPill` and
-   * `defaultDiffView` are `.volatile()`, so the settings host renders them as
-   * live-editable controls; the operational limits stay profile-only and out
-   * of the UI form.
+   * Config schema surfaced on the plugin detail page. `showInputPill`,
+   * `defaultDiffView`, `graphStyle` and the suggest fields are `.volatile()`,
+   * so the settings host renders them as live-editable controls; the
+   * operational limits stay profile-only and out of the UI form.
    */
   static Config = Schema.object({
     showInputPill: Schema.boolean().default(true).volatile().description('显示输入框的 Git 分支标记'),
@@ -65,6 +65,11 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('compact').description('紧凑（git log 风格，共享祖先合并为一列）'),
     ]).default('parallel').volatile().description('提交历史图线条样式'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
+    // Defaults come from DEFAULT_CONFIG (which itself reads SUGGEST_LIMITS) —
+    // a literal here could silently drift from what normalizeConfig enforces.
+    suggestMaxBytes: Schema.number().default(DEFAULT_CONFIG.suggestMaxBytes).volatile().description('AI 生成输入预算（diff 字节上限，16–512 KiB）'),
+    suggestMaxOutputTokens: Schema.number().default(DEFAULT_CONFIG.suggestMaxOutputTokens).volatile().description('AI 生成输出上限（tokens，256–16384）'),
+    suggestTimeoutMs: Schema.number().default(DEFAULT_CONFIG.suggestTimeoutMs).volatile().description('AI 生成超时（毫秒，5–120 秒）'),
   })
 
   private readonly deps: SnapshotDeps
