@@ -287,20 +287,28 @@ export async function runAction(
       outcome = await runCommand(deps.run, argv, root, 'action-retry', deps.signal)
     }
     const where = plan.argv.length > 1 ? ` (step ${step + 1}/${plan.argv.length}: ${argv.join(' ')})` : ''
+    // Stash-then-switch, step 2: the stash already succeeded, so the work tree
+    // changed no matter how this step fails — a git refusal, a timeout, a
+    // cancelled or unavailable git alike. Report every shape through the one
+    // code that tells the caller the changes are in the stash (recoverable),
+    // with the underlying reason riding along, rather than a plain error that
+    // reads as "nothing happened".
+    const stashChangedWorkTree = stashing && step > 0
     if ('failure' in outcome) {
       const message = outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure)
-      return { ok: false, error: { code: 'git-unavailable', message: message + where } }
+      return { ok: false, error: { code: stashChangedWorkTree ? 'stash-switch-failed' : 'git-unavailable', message: message + where } }
     }
-    if (outcome.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
-    if (outcome.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (outcome.run.cancelled) {
+      return { ok: false, error: stashChangedWorkTree ? { code: 'stash-switch-failed', message: 'cancelled' + where } : { code: 'cancelled' } }
+    }
+    if (outcome.run.timedOut) {
+      return { ok: false, error: stashChangedWorkTree ? { code: 'stash-switch-failed', message: 'timed out' + where } : { code: 'timeout' } }
+    }
     lastOutput = outcome.run.stdout || outcome.run.stderr
     if (outcome.run.exitCode !== 0) {
       const failure = classifyActionFailure(outcome.run.stdout, outcome.run.stderr, outcome.run.exitCode ?? -1)
-      // Stash-then-switch, step 2: the stash already succeeded, so the work tree
-      // changed even though the switch failed. Say so — the caller must be able
-      // to tell the user their changes are in the stash (and recoverable) rather
-      // than report a plain refusal that reads as "nothing happened".
-      if (stashing && step > 0) {
+      // A plain git refusal after a landed stash: same partial state, see above.
+      if (stashChangedWorkTree) {
         return { ok: false, error: { code: 'stash-switch-failed', message: failure.message + where } }
       }
       // A conflicting `git revert` leaves the repository in the "reverting"

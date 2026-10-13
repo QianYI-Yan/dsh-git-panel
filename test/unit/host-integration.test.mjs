@@ -613,6 +613,45 @@ test('stash-then-switch keeps the stash and reports stash-switch-failed when the
   }
 })
 
+test('stash-then-switch reports stash-switch-failed when the switch step times out, is cancelled, or git is unavailable', async () => {
+  const dir = await switchRepo('gp-switch-transport-')
+  try {
+    const d = depsAt(dir)
+    const realRun = d.run.run.bind(d.run)
+    const { writeFileSync } = await import('node:fs')
+    // Transport-level failures are not git refusals, but the stash step has
+    // already moved the changes: all three must report the partial state (with
+    // the underlying cause riding along) instead of a plain timeout/cancel that
+    // reads as "nothing happened".
+    const stubCheckout = (impl) => ({ run: (argv, opts) => (argv.includes('checkout') ? impl() : realRun(argv, opts)) })
+    const idle = { exitCode: null, stdout: '', stderr: '', timedOut: false, cancelled: false, stdoutLossy: false }
+    const modes = [
+      { stub: stubCheckout(async () => ({ ...idle, timedOut: true })), reason: /timed out/ },
+      { stub: stubCheckout(async () => ({ ...idle, cancelled: true })), reason: /cancelled/ },
+      { stub: stubCheckout(async () => { throw new Error('spawn git ENOENT') }), reason: /spawn git ENOENT/ },
+    ]
+    for (const [i, mode] of modes.entries()) {
+      // Each attempt must really stash: the checkout is stubbed (HEAD never
+      // moves), so write a fresh edit that differs from HEAD every round —
+      // re-writing the same content would make `git stash push` a no-op.
+      writeFileSync(join(dir, 'a.txt'), `local edit ${i}\n`)
+      const res = await runAction({ ...d, run: mode.stub }, DEFAULT_CONFIG, {
+        sessionId: SID,
+        action: { kind: 'branch-checkout', name: 'other', stashMessage: 'gp: switch' },
+      })
+      assert.equal(res.ok, false, JSON.stringify(res.error ?? {}))
+      assert.equal(res.error.code, 'stash-switch-failed', JSON.stringify(res.error))
+      assert.match(res.error.message, mode.reason, 'the underlying cause rides along')
+      assert.match(res.error.message, /step 2\/2/, 'the failing step is identified')
+    }
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'two\n', 'the switch never landed')
+    const stash = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'stash-list' } })
+    assert.equal(stash.value.entries.length, modes.length, 'every attempt left its stash entry recoverable')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('branch-checkout of a missing branch maps to not-found', async () => {
   const dir = await freshRepo('gp-switch-missing-')
   try {
