@@ -7,6 +7,7 @@ import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { isSafePath } from './validate.js'
+import { SUGGEST_LIMITS } from './types.js'
 import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
@@ -23,9 +24,11 @@ export interface GitPanelConfig {
   readonly graphStyle: GraphStyle
   /** Whether the "AI suggest" button shows in the commit box. */
   readonly suggestEnabled: boolean
-  /** Max diff bytes sent to the model; beyond this the diff is truncated. */
+  /** Max diff bytes sent to the model; beyond this the diff is truncated. Range 16–512 KiB. */
   readonly suggestMaxBytes: number
+  /** Model output token budget (reasoning tokens count against it on thinking models). Range 256–16384. */
   readonly suggestMaxOutputTokens: number
+  /** Timeout for one suggest call. Range 5–120 s. */
   readonly suggestTimeoutMs: number
   /** Optional provider/model route override; absent → the agent default. */
   readonly suggestProvider?: string
@@ -41,9 +44,9 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   defaultDiffView: 'unified',
   graphStyle: 'parallel',
   suggestEnabled: true,
-  suggestMaxBytes: 64 * 1024,
-  suggestMaxOutputTokens: 200,
-  suggestTimeoutMs: 15000,
+  suggestMaxBytes: SUGGEST_LIMITS.maxBytes.default,
+  suggestMaxOutputTokens: SUGGEST_LIMITS.maxOutputTokens.default,
+  suggestTimeoutMs: SUGGEST_LIMITS.timeoutMs.default,
 }
 
 export function normalizeConfig(raw: unknown): GitPanelConfig {
@@ -52,6 +55,15 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
   // default, so a stray `maxChanges: 1.5` can't reach `slice(0, 1.5)`.
   const num = (v: unknown, d: number): number =>
     (typeof v === 'number' && Number.isFinite(v) && v >= 1 ? Math.floor(v) : d)
+  // Suggest limits are volatile, user-configurable fields: unwrap the
+  // schemastery `{ get() }` ref first (as readBool does — resolveConfig wraps
+  // every .volatile() field in one), then clamp a legal number into range;
+  // a silent default fallback would drop a live-edited value, and anything
+  // non-numeric falls back.
+  const clampLimit = (v: unknown, limit: { readonly min: number; readonly max: number; readonly default: number }): number => {
+    const raw = unwrapVolatile(v)
+    return typeof raw === 'number' && Number.isFinite(raw) ? Math.min(limit.max, Math.max(limit.min, Math.floor(raw))) : limit.default
+  }
   // Provider/model overrides must be supplied together; a lone half is ignored
   // so a mistyped profile degrades to the agent default route.
   const hasProvider = typeof c.suggestProvider === 'string' && c.suggestProvider !== ''
@@ -66,9 +78,9 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
     graphStyle: readGraphStyle(c.graphStyle, DEFAULT_CONFIG.graphStyle),
     suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
-    suggestMaxBytes: num(c.suggestMaxBytes, DEFAULT_CONFIG.suggestMaxBytes),
-    suggestMaxOutputTokens: num(c.suggestMaxOutputTokens, DEFAULT_CONFIG.suggestMaxOutputTokens),
-    suggestTimeoutMs: num(c.suggestTimeoutMs, DEFAULT_CONFIG.suggestTimeoutMs),
+    suggestMaxBytes: clampLimit(c.suggestMaxBytes, SUGGEST_LIMITS.maxBytes),
+    suggestMaxOutputTokens: clampLimit(c.suggestMaxOutputTokens, SUGGEST_LIMITS.maxOutputTokens),
+    suggestTimeoutMs: clampLimit(c.suggestTimeoutMs, SUGGEST_LIMITS.timeoutMs),
     ...route,
   }
 }

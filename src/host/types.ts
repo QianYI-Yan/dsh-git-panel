@@ -445,6 +445,20 @@ export interface GitQueryRequest {
 // ── AI commit-message suggestion ─────────────────────────────────────────
 
 /**
+ * Suggest-limit ranges and defaults, in host storage units (bytes / tokens /
+ * ms) — the single source shared by both plugin halves (the client bundle
+ * imports this value, like imageMimeFor below): the host's DEFAULT_CONFIG and
+ * normalizeConfig clamp every read into [min, max], and the detail-page form
+ * derives its display units from it (the /1024 and /1000 divisions are exact
+ * and guarded by test).
+ */
+export const SUGGEST_LIMITS = {
+  maxBytes: { min: 16 * 1024, max: 512 * 1024, default: 128 * 1024 },
+  maxOutputTokens: { min: 256, max: 16384, default: 4096 },
+  timeoutMs: { min: 5000, max: 120000, default: 15000 },
+} as const
+
+/**
  * Wire request for the suggest endpoint: ask the configured model to write a
  * commit message from the repository's uncommitted changes. `paths` restricts
  * the diff to the user's selection (bare repo-relative paths); absent means
@@ -462,7 +476,8 @@ export type GitSuggestResult =
       /** Actual provider/model route used (display only). */
       readonly provider?: string
       readonly model?: string
-      /** The diff exceeded the model input cap and was truncated. */
+      /** The diff reached the model truncated: over the input cap, or cut
+       * by the per-command runner stdout cap before it. */
       readonly truncated?: boolean
     } }
   | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }

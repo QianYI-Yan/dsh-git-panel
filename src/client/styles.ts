@@ -255,6 +255,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
 .gp-commitbox__msg{width:100%;min-height:72px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:8px;box-sizing:border-box}
+.gp-commitbox__msg[readonly]{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);cursor:progress}
 .gp-commitbox__msg:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbox__row{display:flex;align-items:center;gap:10px}
 .gp-commitbox__amend{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
@@ -452,6 +453,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-cfg__seg{align-self:flex-start}
 .gp-cfg__hint{margin:0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
 .gp-cfg__err{margin:0;font-size:12px;color:var(--dsw-alias-state-error-primary)}
+.gp-cfg__card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.gp-cfg__card-title{margin:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.gp-cfg__numrow{display:flex;align-items:center;gap:8px}
+.gp-cfg__numlabel{flex:1;min-width:0;font-size:13px;color:var(--dsw-alias-label-primary)}
+.gp-cfg__numinput{flex:none;width:76px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:right}
+.gp-cfg__numinput:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__numinput:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+.gp-cfg__numinput:disabled{opacity:.5;cursor:default}
+.gp-cfg__numunit{flex:none;width:44px;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__rangehint{margin:-4px 0 0;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
 
 /* status dot appended to the shell's Git view-tab button — shown only when the
  * input-bar marker is hidden; colour mirrors the pill branch (synced/dirty). */

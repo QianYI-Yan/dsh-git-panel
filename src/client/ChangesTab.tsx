@@ -364,11 +364,15 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
         placeholder: t('commit.placeholder'),
         value: message,
         ref: msgRef,
+        // Locked while a suggestion is in flight so typing can't race the
+        // incoming message (readOnly, not disabled: focus() lands on success).
+        readOnly: suggesting,
+        'aria-busy': suggesting,
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
       }),
       h('div', { key: 'row', className: 'gp-commitbox__row' }, [
         h('label', { key: 'amend', className: 'gp-commitbox__amend' }, [
-          h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),
+          h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, disabled: suggesting, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),
           t('commit.amend'),
         ]),
         h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [

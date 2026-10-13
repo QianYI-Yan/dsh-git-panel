@@ -15,9 +15,11 @@ export interface GitPanelConfig {
     readonly graphStyle: GraphStyle;
     /** Whether the "AI suggest" button shows in the commit box. */
     readonly suggestEnabled: boolean;
-    /** Max diff bytes sent to the model; beyond this the diff is truncated. */
+    /** Max diff bytes sent to the model; beyond this the diff is truncated. Range 16–512 KiB. */
     readonly suggestMaxBytes: number;
+    /** Model output token budget (reasoning tokens count against it on thinking models). Range 256–16384. */
     readonly suggestMaxOutputTokens: number;
+    /** Timeout for one suggest call. Range 5–120 s. */
     readonly suggestTimeoutMs: number;
     /** Optional provider/model route override; absent → the agent default. */
     readonly suggestProvider?: string;
