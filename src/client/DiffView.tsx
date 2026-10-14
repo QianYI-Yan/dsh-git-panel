@@ -11,13 +11,13 @@ import {
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans'
 import { memoizeHighlighter } from './highlight-cache'
-import { buildTops, windowRange } from './virtual-list'
+import { buildTops, findWindowRange, windowRange } from './virtual-list'
 import { useViewportTracker } from './use-viewport'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { GitQuery, GitQueryResult } from './types'
+import { DIFF_EXPAND_CONTEXT, type GitQuery, type GitQueryResult } from './types'
 import type { GitKey } from './locales'
 
 /** unified = single inline column; split = side-by-side; before/after show one
@@ -68,6 +68,12 @@ interface DiffViewProps {
    * not invalidated on every parent render. */
   readonly base?: DiffBase
   readonly commit?: string
+  /** True while the toolbar's "expand all" is engaged. Only then can hidden
+   * context be a surprise, so only then does the capped notice render. */
+  readonly expanded?: boolean
+  /** The host flagged the diff text as a truncated prefix (the runner dropped
+   * output at its cap): line numbers past the cut are wrong, so say so. */
+  readonly truncated?: boolean
   /** New-side total line count from the diff query — the only fact that can
    * tell whether hidden context follows the last hunk (git caps trailing
    * context at -U, so the text alone is ambiguous at the file end). Required:
@@ -81,7 +87,7 @@ type ImageState =
   | { readonly kind: 'idle' | 'loading' | 'failed' }
   | { readonly kind: 'ready'; readonly res: ImageDiffValue }
 
-export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, base, commit, newLines, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, base, commit, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
 
@@ -234,11 +240,12 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
 
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
   const { first, last } = windowRange(tops, Math.max(0, viewport.top - bodyOffset), effHeight, OVERSCAN_ROWS * EST_CODE_H)
-  // Keep the active Find match's row mounted before scrolling to it: widen the
-  // window to include its neighbourhood, so `scrollIntoView` has a node to hit.
+  // Keep the active Find match mounted so `scrollIntoView` has a node to hit.
+  // findWindowRange snaps onto a match lying outside the window instead of
+  // spanning the gap to it: a span mounts every row between the viewport and
+  // the match in one commit — the freeze this view exists to remove.
   const activeRow = activeKey === null ? -1 : cellRow(activeKey)
-  const windowFirst = activeRow >= 0 ? Math.min(first, Math.max(0, activeRow - OVERSCAN_ROWS)) : first
-  const windowLast = activeRow >= 0 ? Math.max(last, Math.min(count, activeRow + OVERSCAN_ROWS)) : last
+  const { first: windowFirst, last: windowLast } = findWindowRange({ first, last }, activeRow, count, OVERSCAN_ROWS)
 
   // Rows report their real height after every commit: wrapping makes a code row
   // taller than its estimate, and the prefix sums have to follow so the
@@ -339,8 +346,18 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
     onChange: setQuery, onToggleCase: () => setCaseSensitive((c) => !c),
     onStep: step, onClose: () => setFindOpen(false), t,
   }) : null
+  // The toolbar asked for a full expansion but hidden context remains → say so,
+  // and drop the notice the moment the last gap is consumed. Reading the parsed
+  // rows rather than the requested context size is what makes it exact: git can
+  // cover a whole file at 2000 lines of context when nearby edits merge their
+  // hunks, and can leave a gap short of 4000 lines when a hunk hugs one file edge.
+  const capped = expanded === true && rows.some((r) => r.kind === 'gap')
   const wrapped = h('div', { className: 'gp-diff__wrap', ref: containerRef }, [
     findBox,
+    truncated === true
+      ? h('div', { key: 'truncated', className: 'gp-notice' }, t('diff.truncated'))
+      : null,
+    capped ? h('div', { key: 'capped', className: 'gp-notice' }, t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })) : null,
     h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl }, body),
   ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped

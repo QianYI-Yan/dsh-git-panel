@@ -154,7 +154,7 @@ async function changesScenario(newLines) {
           if (endpoint === 'gitPanel/snapshot') return { ok: true, value: { ok: true, value: snap } }
           if (endpoint === 'gitPanel/query') {
             const q = request.query
-            if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: diff, newLines } } }
+            if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: diff, newLines, truncated: true } } }
             if (q.kind === 'file-lines') {
               fileLinesQueries.push({ start: q.start, end: q.end })
               const lines = Array.from({ length: q.end - q.start + 1 }, (_, i) => `hidden${q.start + i}`)
@@ -188,6 +188,9 @@ async function changesScenario(newLines) {
     await new Promise((r) => setTimeout(r, 400))
     result.fileLinesQueries = fileLinesQueries
     result.gapButtonsAfter = [...document.querySelectorAll('.gp-gap__btn')].map((b) => b.textContent || '')
+    // A host-flagged truncated diff must say so in the pane (the harness `t`
+    // returns the key, so this asserts the branch, not the copy).
+    result.truncatedNotice = document.querySelector('.gp-notice')?.textContent ?? null
     return result
   }, { snap, diff: DIFF, newLines })
   await page.close()
@@ -241,6 +244,11 @@ async function virtScenario() {
               // capped-expansion notice has to appear.
               return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: big, newLines: q.context !== undefined ? 9000 : lines } } }
             }
+            if (q.kind === 'file-lines') {
+              // Serve the hidden region so consuming the gap can be observed.
+              const slice = Array.from({ length: q.end - q.start + 1 }, (_, i) => `hidden ${q.start + i}`)
+              return { ok: true, value: { ok: true, value: { kind: 'file-lines', path: q.path, start: q.start, lines: slice, eof: q.end >= 9000 } } }
+            }
           }
           return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
         },
@@ -264,6 +272,9 @@ async function virtScenario() {
     await new Promise((r) => setTimeout(r, 400))
 
     const mounted = () => document.querySelectorAll('.gp-diff-uni__code').length
+    // DiffView unmounts while the modal re-queries (openFileDiff nulls the data),
+    // so the scroller element must be looked up again after any expand click.
+    const scrollerNow = () => document.querySelector('.gp-diff__scroll')
     const maxNo = () => Math.max(0, ...[...document.querySelectorAll('.gp-diff-no')].map((n) => Number(n.textContent) || 0))
     const scroller = document.querySelector('.gp-diff__scroll')
     result.mounted = mounted()
@@ -300,6 +311,9 @@ async function virtScenario() {
     result.beforeModeCells = await clickMode('diff.before')
     result.afterModeCells = await clickMode('diff.after')
     result.splitModeCells = await clickMode('diff.split')
+    // The capped notice is derived from the rows still hidden, so it must be
+    // absent before any expansion is asked for.
+    result.noticeBeforeExpand = document.querySelector('.gp-notice')?.textContent ?? null
     // 展开全部 must ask for a bounded context (never -U100000) and say so when
     // the window cannot reach the whole file.
     const expandBtn = document.querySelector('.gp-diff__expand')
@@ -307,6 +321,56 @@ async function virtScenario() {
     await new Promise((r) => setTimeout(r, 300))
     result.expandContext = diffQueries[diffQueries.length - 1]
     result.cappedNotice = document.querySelector('.gp-notice')?.textContent ?? null
+
+    // ...and it must disappear once the last hidden region is revealed: the
+    // trailing gap row is the last row, so scroll it into the window first.
+    const scAfterExpand = scrollerNow()
+    if (scAfterExpand) {
+      scAfterExpand.scrollTop = scAfterExpand.scrollHeight
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    result.gapButtonTexts = [...document.querySelectorAll('.gp-gap__btn')].map((b) => b.textContent)
+    result.gapRowCount = document.querySelectorAll('.gp-diff-row--gap').length
+    result.scrollTopAtGap = scAfterExpand ? Math.round(scAfterExpand.scrollTop) : -1
+    result.scrollHeightAtGap = scAfterExpand ? scAfterExpand.scrollHeight : -1
+    result.mountedAtGap = mounted()
+    const gapAll = [...document.querySelectorAll('.gp-gap__btn')].find((b) => (b.textContent || '') === 'diff.expandGap')
+    result.gapAllFound = gapAll !== undefined
+    gapAll?.click()
+    await new Promise((r) => setTimeout(r, 400))
+    result.noticeAfterConsumingGap = document.querySelector('.gp-notice')?.textContent ?? null
+
+    // Far Find jump: back to unified, at the top, then jump to a match ~550 rows
+    // down. The window must SNAP to the match's neighbourhood — sampling every
+    // frame so a one-commit span cannot hide between measurements.
+    await clickMode('diff.unified')
+    const scForFind = scrollerNow()
+    if (scForFind) {
+      scForFind.scrollTop = 0
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    }
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }))
+    await new Promise((r) => setTimeout(r, 80))
+    const findInput = document.querySelector('.gp-find__input')
+    result.findOpened = findInput !== null
+    if (findInput) {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      const t0 = performance.now()
+      setter.call(findInput, 'line 550')
+      findInput.dispatchEvent(new Event('input', { bubbles: true }))
+      let peak = 0
+      while (performance.now() - t0 < 700) {
+        await new Promise((r) => requestAnimationFrame(r))
+        peak = Math.max(peak, mounted())
+      }
+      result.findPeak = peak
+      result.findMatches = document.querySelectorAll('.gp-find-hit').length
+      const active = document.querySelector('.gp-find-hit--active')
+      result.findActiveInView = active !== null && scForFind !== null
+        && active.getBoundingClientRect().top >= scForFind.getBoundingClientRect().top - 1
+      findInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    }
     return result
   }, { snap, big, lines: LINES })
 
@@ -342,6 +406,7 @@ try {
   assert.deepEqual(changes.out.gapButtons, ['diff.expandGap'], 'exact trailing control on the changes tab')
   assert.deepEqual(changes.out.fileLinesQueries, [{ start: 11, end: 30 }], 'same exact range from the changes tab')
   assert.equal(changes.out.gapButtonsAfter.length, 0, 'consumed with no residual')
+  assert.equal(changes.out.truncatedNotice, 'diff.truncated', `a host-flagged truncated diff says so (got ${changes.out.truncatedNotice})`)
 
   // D: a 600-line "expand all" mounts only a window, and the window follows the
   // scrollbar instead of laying the whole file out at once.
@@ -363,10 +428,22 @@ try {
 
   assert.equal(virt.out.expandContext <= 2000, true, `expand all asks for a bounded context (got ${virt.out.expandContext})`)
   assert.equal(virt.out.expandContext > 0, true, 'expand all still asks for context')
+  // The notice is driven by the rows actually left hidden, not by the requested
+  // context size, so it must be absent before an expansion and present after one
+  // — and go away again once the last gap is consumed.
+  assert.equal(virt.out.noticeBeforeExpand, null, `no notice before expanding (got ${virt.out.noticeBeforeExpand})`)
   // The harness `t` returns the key (params are not interpolated there), so the
   // assertion is on the notice's presence and identity.
   assert.equal(virt.out.cappedNotice, 'diff.expandCapped', `a capped expansion says so: ${virt.out.cappedNotice}`)
-  console.log('e2e run5.mjs: PASS', JSON.stringify({ atEof: atEof.out.gapButtons, midFile: midFile.out.gapButtons, changes: changes.out.gapButtons, virt: { ctx: virt.out.expandContext, notice: virt.out.cappedNotice, mounted: virt.out.mounted, maxNoTop: virt.out.maxNoTop, maxNoBottom: virt.out.maxNoBottom } }))
+  assert.equal(virt.out.gapAllFound, true, 'the remaining hidden region offers its expand-all control: ' + JSON.stringify({ texts: virt.out.gapButtonTexts, rows: virt.out.gapRowCount, top: virt.out.scrollTopAtGap, sh: virt.out.scrollHeightAtGap, mounted: virt.out.mountedAtGap }))
+  assert.equal(virt.out.noticeAfterConsumingGap, null, `the notice clears once nothing is hidden (got ${virt.out.noticeAfterConsumingGap})`)
+  // A far Find jump must snap the window onto the match, never mount the span
+  // from the viewport to it (sampled every frame, so a one-commit span is caught).
+  assert.equal(virt.out.findOpened, true, 'Ctrl+F opens Find in the diff')
+  assert.equal(virt.out.findMatches > 0, true, 'the far token matches')
+  assert.equal(virt.out.findActiveInView, true, 'the jumped-to match ends up in view')
+  assert.equal(virt.out.findPeak < 100, true, `a far Find jump mounts only the match neighbourhood (peak ${virt.out.findPeak} rows)`)
+  console.log('e2e run5.mjs: PASS', JSON.stringify({ atEof: atEof.out.gapButtons, midFile: midFile.out.gapButtons, changes: changes.out.gapButtons, virt: { ctx: virt.out.expandContext, notice: virt.out.cappedNotice, mounted: virt.out.mounted, maxNoTop: virt.out.maxNoTop, maxNoBottom: virt.out.maxNoBottom, findPeak: virt.out.findPeak } }))
 } catch (e) {
   console.error('e2e run5.mjs: FAIL', e.message)
   process.exit(1)

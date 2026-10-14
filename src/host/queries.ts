@@ -172,6 +172,13 @@ async function queryDiff(
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
   if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  // A lossy run dropped output at the runner's collect/spill ceiling: what
+  // survived is a truncated prefix that still parses as a real diff, so the view
+  // would read wrong line numbers, wrong +/- counts and wrong gap sizes as if
+  // complete. Serve it (the partial hunks are still readable) but flag it, and
+  // let the view say so — `readNewSide` independently refuses the same read, so
+  // the count degrades to 0 and no trailing gap is offered.
+  let truncated = res.run.stdoutLossy
   let text = res.run.stdout
   // A truly untracked file produces no `git diff` output; synthesize one with
   // --no-index. Gate on the file being untracked (ls-files --error-unmatch
@@ -181,10 +188,20 @@ async function queryDiff(
     const isUntracked = !('run' in tracked) || tracked.run.exitCode !== 0
     if (isUntracked) {
       const noIndex = await runCommand(deps.run, ['git', 'diff', unified, '--no-index', '--', '/dev/null', q.path], root, 'diff-untracked', deps.signal)
-      if ('run' in noIndex) text = noIndex.run.stdout
+      if ('run' in noIndex) {
+        truncated = truncated || noIndex.run.stdoutLossy
+        text = noIndex.run.stdout
+      }
     }
   }
-  return { ok: true, value: { kind: 'diff', path: q.path, text, newLines: await countNewSideLines(deps, root, q, text) } }
+  return {
+    ok: true,
+    value: {
+      kind: 'diff', path: q.path, text,
+      newLines: await countNewSideLines(deps, root, q, text),
+      ...(truncated ? { truncated: true as const } : {}),
+    },
+  }
 }
 
 /**

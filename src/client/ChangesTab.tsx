@@ -11,7 +11,6 @@ import type { GitAction, GitChange, GitDiffPayload, GitErrorCode, GitSnapshot, S
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { expandIsCapped } from './diff'
 import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
@@ -159,7 +158,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
     if (seq !== diffSeq.current) return
     const diff = queryAs(res, 'diff')
-    setDiffData(diff !== null ? { text: diff.text, newLines: diff.newLines } : { text: '', newLines: 0 })
+    setDiffData(diff !== null ? { text: diff.text, newLines: diff.newLines, truncated: diff.truncated } : { text: '', newLines: 0 })
   }, [remote, sessionId])
 
   // Re-pull the open diff after snapshot changes (content may have shifted);
@@ -426,12 +425,9 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
         }
         return [back, path, sum, expand, seg]
       })()),
-      expandIsCapped(expanded, diffData?.newLines ?? 0)
-        ? h('div', { key: 'capped', className: 'gp-notice' }, t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT }))
-        : null,
       diffData === null
         ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, newLines: diffData.newLines, t }),
+        : h(DiffView, { key: 'diff', text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
     ])
 
   // Stash dialogs (push + drop confirm), portaled; included in both layouts.

@@ -370,12 +370,19 @@ export type GitQueryResult = {
  * the diff has no hunk at all, or the working file is above
  * DIFF_COUNT_READ_MAX. The view treats all of those the same way — no
  * trailing gap rather than a speculative one.
+ *
+ * `truncated` marks the one case where the text itself is incomplete: the
+ * runner dropped output at its collect/spill ceiling, so `text` is a prefix
+ * that still parses like a real diff. It is flagged rather than refused —
+ * the partial hunks stay readable — but the view must say so, because line
+ * numbers and +/- counts past the cut are simply wrong.
  */
  | {
     readonly kind: 'diff';
     readonly path: string;
     readonly text: string;
     readonly newLines: number;
+    readonly truncated?: true;
 } | {
     readonly kind: 'file-lines';
     readonly path: string;

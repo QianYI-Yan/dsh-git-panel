@@ -18,8 +18,6 @@ import { buildFileTree } from './file-tree'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time'
 import { statusChar, statusClass } from './status'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
-import { expandIsCapped } from './diff'
-import { DIFF_EXPAND_CONTEXT } from './types'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks'
 import { useResizableColumn } from './resizable'
 import { segButtons } from './seg'
@@ -949,12 +947,7 @@ function renderFileDiffModal(
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       data === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : [
-          expandIsCapped(expanded, data.newLines)
-            ? h('div', { key: 'capped', className: 'gp-notice' }, t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT }))
-            : null,
-          h(DiffView, { key: 'diff', text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, base: 'commit', commit: fileDiff.hash, newLines: data.newLines, t }),
-        ]),
+        : h(DiffView, { key: 'diff', text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, base: 'commit', commit: fileDiff.hash, expanded, truncated: data.truncated === true, newLines: data.newLines, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }
