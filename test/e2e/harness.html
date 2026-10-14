@@ -31,6 +31,21 @@
         return window.React.createElement('article', { 'data-markdown-rendered': '' },
           window.React.createElement('h1', null, text.replace(/^#\s*/, '').trim()));
       },
+      // Mirrors the platform's writeClipboard: the async Clipboard API when the
+      // context has it, else the execCommand fallback a remote plain-HTTP
+      // origin needs (there navigator.clipboard is undefined).
+      writeClipboard: async function (text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try { await navigator.clipboard.writeText(text); return true } catch { return false }
+        }
+        if (typeof document.execCommand !== 'function') return false;
+        var el = document.createElement('textarea');
+        el.value = text;
+        el.setAttribute('readonly', '');
+        document.body.appendChild(el);
+        el.select();
+        try { return document.execCommand('copy') } catch { return false } finally { el.remove() }
+      },
     },
   };
   var LOADED = null;

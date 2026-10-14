@@ -22,6 +22,9 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
   export type CodeHighlighter = (code: string) => HighlightSpan[][] | undefined
   export function languageForPath(path: string): string | undefined
   export function useCodeHighlighter(language: string | undefined): CodeHighlighter
+  /** Async Clipboard API with an `execCommand('copy')` fallback for insecure
+   * contexts (a remote plain-HTTP origin has no `navigator.clipboard`). */
+  export function writeClipboard(text: string): Promise<boolean>
   export const FileTypeIcon: (props: ({ readonly path: string } | { readonly kind: 'folder' }) & { readonly size?: number; readonly className?: string }) => JSX.Element | null
   export const MarkdownText: (props: {
     text: string
