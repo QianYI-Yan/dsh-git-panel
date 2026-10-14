@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSideBySide, retargetTrailingGap, summarize, isBinaryDiff, extractAddedContent, extractDeletedContent, isImagePath, isSvgPath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, GAP_STEP } from '../../lib/testkit.mjs'
+import { buildSideBySide, retargetTrailingGap, summarize, isBinaryDiff, extractAddedContent, extractDeletedContent, isImagePath, isSvgPath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, expandIsCapped, GAP_STEP } from '../../lib/testkit.mjs'
 
 const MODIFY = `diff --git a/a.txt b/a.txt
 index a29bdeb..c0d0fb4 100644
@@ -353,4 +353,14 @@ test('isSvgPath matches only .svg (case-insensitive) as the suffix', () => {
   assert.equal(isSvgPath('a.svg.png'), false, 'must be the suffix')
   assert.equal(isSvgPath('svg'), false)
   assert.equal(isSvgPath('no-extension'), false)
+})
+
+test('expandIsCapped warns only when an expand could not reach the whole file', () => {
+  // The expand window is `-U DIFF_EXPAND_CONTEXT` around each hunk, so it covers
+  // at most 2x that many lines; anything past it stays a collapsed gap.
+  assert.equal(expandIsCapped(true, 2 * 2000), false, 'exactly covered')
+  assert.equal(expandIsCapped(true, 2 * 2000 + 1), true, 'one line past the window')
+  assert.equal(expandIsCapped(true, 9000), true, 'a big file is capped')
+  assert.equal(expandIsCapped(false, 9000), false, 'a collapsed view never warns')
+  assert.equal(expandIsCapped(true, 0), false, 'an unknown new side cannot be judged')
 })

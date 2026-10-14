@@ -283,9 +283,14 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-seg__btn--active{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}
 .gp-diff__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px}
-/* DiffView wraps its Find bar + body so the bar can stick to the scroll top. */
-.gp-diff__wrap{display:flex;flex-direction:column;min-height:100%}
-.gp-diff__wrap .gp-find{position:sticky;top:0;z-index:2}
+/* DiffView owns its scroller (the wrap fills the pane, the Find bar sits above
+ * the scrolling body) so the row window knows its viewport height on the first
+ * paint. */
+.gp-diff__wrap{flex:1;min-height:0;display:flex;flex-direction:column}
+.gp-diff__wrap .gp-find{flex:none}
+/* Height band reserving the rows outside the mounted window; spans every grid
+ * column, so it takes a grid row of its own. */
+.gp-diff__spacer{pointer-events:none}
 .gp-diff__side{display:grid;grid-template-columns:38px 1fr 38px 1fr}
 /* unified (inline) layout: old|new line-number gutters + a sign column + one
  * shared code column; add/del tint the whole code cell, not one side. */
@@ -325,7 +330,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* SVG diff: render/source toggle bar above the rendered comparison or source diff */
 .gp-svgdiff{display:flex;flex-direction:column;height:100%;min-height:0}
 .gp-svgdiff__bar{flex:none;display:flex;justify-content:flex-end;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-svgdiff__body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain}
+.gp-svgdiff__body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
 .gp-notice{padding:6px 10px;font-size:12px;color:var(--dsw-alias-label-secondary);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);display:flex;align-items:center;gap:8px}
 
@@ -350,7 +355,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-modal__bar-row--controls .gp-seg{flex:1}
 .gp-modal__bar-row--controls .gp-seg__btn{flex:1;min-width:0}
 .gp-modal__bar-row--controls .gp-modal__close{margin-left:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
-.gp-modal__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}
+.gp-modal__scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}
 
 /* small dialog (tag create/delete, stash push/drop): auto-height form modal */
 .gp-modal--sm{width:min(460px,92vw);height:auto;max-height:min(560px,86vh)}

@@ -17,11 +17,15 @@ export type GraphStyle = 'compact' | 'parallel'
 /**
  * Diff context (-U) values shared by both halves. `DEFAULT` matches git's own
  * default and is what the host applies when a request omits `context`.
- * `MAX` is the host's clamp ceiling and doubles as the "expand all" request:
- * a -U window this wide covers any real file, so no context stays hidden.
+ * `MAX` is the host's clamp ceiling. `EXPAND` is what the "expand all" button
+ * asks for: deliberately bounded, because a -U window wide enough to cover a
+ * huge file makes the host emit that whole file as one hunk — megabytes of
+ * text, and past the runner's stdout cap a silently truncated diff. Whatever
+ * the window does not reach stays a collapsed gap the view reveals on demand.
  */
 export const DIFF_CONTEXT_DEFAULT = 3
 export const DIFF_CONTEXT_MAX = 100000
+export const DIFF_EXPAND_CONTEXT = 2000
 
 /**
  * Ceiling for the working-file read taken only to count the diff's new-side

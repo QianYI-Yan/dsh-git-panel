@@ -6,11 +6,12 @@ import { createElement as h, useCallback, useEffect, useMemo, useRef, useState }
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import { DIFF_CONTEXT_MAX } from './types'
+import { DIFF_EXPAND_CONTEXT } from './types'
 import type { GitAction, GitChange, GitDiffPayload, GitErrorCode, GitSnapshot, StashEntry } from './types'
 import type { GitKey } from './locales'
 import { ChangeStats } from './ChangeStats'
 import { DiffView, diffSummary, type DiffMode } from './DiffView'
+import { expandIsCapped } from './diff'
 import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon } from './icons'
 import { statusChar, statusClass } from './status'
 import { useResizableColumn } from './resizable'
@@ -155,7 +156,7 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     // the current text so a poll/snapshot tick doesn't flash "Loading".
     if (!keepPrevious) setDiffData(null)
     setExpanded(expand)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: DIFF_CONTEXT_MAX } : {}) } })
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
     if (seq !== diffSeq.current) return
     const diff = queryAs(res, 'diff')
     setDiffData(diff !== null ? { text: diff.text, newLines: diff.newLines } : { text: '', newLines: 0 })
@@ -425,8 +426,12 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
         }
         return [back, path, sum, expand, seg]
       })()),
-      h('div', { key: 'scroll', className: 'gp-diff__scroll' },
-        diffData === null ? h('div', { className: 'gp-empty' }, t('common.loading')) : h(DiffView, { text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, imageSpec: { base: diffPath.base }, newLines: diffData.newLines, t })),
+      expandIsCapped(expanded, diffData?.newLines ?? 0)
+        ? h('div', { key: 'capped', className: 'gp-notice' }, t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT }))
+        : null,
+      diffData === null
+        ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
+        : h(DiffView, { key: 'diff', text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, newLines: diffData.newLines, t }),
     ])
 
   // Stash dialogs (push + drop confirm), portaled; included in both layouts.

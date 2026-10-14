@@ -5,7 +5,7 @@
  * expand on demand (via a file-lines query), and modified line pairs carry
  * word-level change ranges for intra-line emphasis.
  */
-import { imageMimeFor } from './types'
+import { imageMimeFor, DIFF_EXPAND_CONTEXT } from './types'
 
 export type RowKind = 'context' | 'add' | 'del' | 'mod' | 'hunk' | 'gap' | 'meta'
 
@@ -285,6 +285,16 @@ export function contextRowsFromLines(delta: number, start: number, lines: readon
 
 /** How many lines one "expand up/down" step reveals. */
 export const GAP_STEP = 20
+
+/**
+ * Whether an "expand all" request could not reach the whole new side, so the
+ * view must say the expansion was capped and the rest stays expandable per gap.
+ * The window is `-U DIFF_EXPAND_CONTEXT` around each hunk, so it covers at most
+ * that many lines before and after one.
+ */
+export function expandIsCapped(expanded: boolean, newLines: number): boolean {
+  return expanded && newLines > 2 * DIFF_EXPAND_CONTEXT
+}
 
 /**
  * Flatten side-by-side rows into a single-column (unified / inline) sequence:
