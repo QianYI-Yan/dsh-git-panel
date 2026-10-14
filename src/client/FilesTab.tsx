@@ -13,7 +13,7 @@ import type { DirEntry } from './types'
 import type { GitKey } from './locales'
 import { ArrowLeftIcon, ChevronIcon } from './icons'
 import { useResizableColumn } from './resizable'
-import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
 import { ZoomableImage } from './ImageZoom'
 import { buildTops, windowRange } from './virtual-list'
@@ -207,26 +207,23 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTa
 
   const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
 
+  // Both copy actions go through the platform helper: its async Clipboard path
+  // is unavailable on a remote plain-HTTP origin (non-secure context, no
+  // `navigator.clipboard`), where it falls back to `execCommand('copy')`.
   const copyPath = async (): Promise<void> => {
     if (selected === null) return
     const seq = fileSeq.current
-    try {
-      await navigator.clipboard.writeText(selected)
-      if (seq === fileSeq.current) setCopyState('copied')
-    } catch {
-      if (seq === fileSeq.current) setCopyState('error')
-    }
+    const ok = await writeClipboard(selected)
+    if (seq !== fileSeq.current) return
+    setCopyState(ok ? 'copied' : 'error')
   }
 
   const copyContent = async (): Promise<void> => {
     if (file.kind !== 'text') return
     const seq = fileSeq.current
-    try {
-      await navigator.clipboard.writeText(file.content)
-      if (seq === fileSeq.current) setCopyContentState('copied')
-    } catch {
-      if (seq === fileSeq.current) setCopyContentState('error')
-    }
+    const ok = await writeClipboard(file.content)
+    if (seq !== fileSeq.current) return
+    setCopyContentState(ok ? 'copied' : 'error')
   }
 
   const treeBlock = h('div', { key: 'left', className: 'gp-files__tree', style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` } }, treeRows)
