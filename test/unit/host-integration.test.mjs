@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat, lstat, readlink } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -209,13 +209,15 @@ test('diff reports the new-side line count so the trailing gap can be exact', as
 })
 
 test('diff constants are pinned: they drive both halves and the poll cost', () => {
-  // DIFF_CONTEXT_DEFAULT is what the host applies when the request omits
-  // `context`, DIFF_CONTEXT_MAX is both the clamp ceiling and the client's
-  // expand-all request, and DIFF_COUNT_READ_MAX bounds the working-file read
-  // that only feeds the count. A silent edit here changes behaviour on both
-  // sides, so the magnitudes are asserted (as SUGGEST_LIMITS is).
+  // DIFF_CONTEXT_DEFAULT is what the host applies when a request omits
+  // `context`, DIFF_EXPAND_CONTEXT is what the client asks for on "expand all"
+  // (DIFF_CONTEXT_MAX stays the host's clamp ceiling), and DIFF_COUNT_READ_MAX
+  // bounds the working-file read that only feeds the count. A silent edit here
+  // changes behaviour on both sides, so the magnitudes are asserted (as
+  // SUGGEST_LIMITS is).
   assert.equal(DIFF_CONTEXT_DEFAULT, 3, "matches git's own -U default")
-  assert.equal(DIFF_CONTEXT_MAX, 100000)
+  assert.equal(DIFF_CONTEXT_MAX, 100000, 'host clamp ceiling')
+  assert.equal(DIFF_EXPAND_CONTEXT, 2000, "client's expand-all request")
   assert.equal(DIFF_COUNT_READ_MAX, 8 * 1024 * 1024)
 })
 
@@ -423,6 +425,7 @@ test('a truncated (lossy) git-show read is refused, not reported as a count', as
   const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'a.txt', base: 'staged' } })
   assert.equal(diff.ok, true)
   assert.equal(diff.value.newLines, 0, 'truncated read → unknown → no trailing control')
+  assert.equal(diff.value.truncated, true, 'a truncated diff is flagged so the view can say so')
   const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'staged', start: 1, end: 3 } })
   assert.equal(slice.ok, false, 'expansion must not serve a truncated prefix')
   assert.equal(slice.error.code, 'git-error')

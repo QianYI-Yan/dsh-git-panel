@@ -197,6 +197,8 @@ export const zh = {
   'diff.expandGap': '展开全部 {n} 行',
   'diff.expandUp': '向上展开 {n} 行',
   'diff.expandDown': '向下展开 {n} 行',
+  'diff.expandCapped': '文件较大，已展开 {n} 行上下文，其余保持折叠，可逐段展开',
+  'diff.truncated': 'git 输出超出上限，以下差异被截断，行号与增删统计可能不完整',
   // time
   'time.justNow': '刚刚',
   'time.minutesAgo': '{n} 分钟前',
@@ -469,6 +471,8 @@ export const en: Record<GitKey, string> = {
   'diff.expandGap': 'Expand all {n} lines',
   'diff.expandUp': 'Expand up {n} lines',
   'diff.expandDown': 'Expand down {n} lines',
+  'diff.expandCapped': 'Large file: expanded {n} lines of context; the rest stays collapsed and can be expanded in place',
+  'diff.truncated': 'git output exceeded the output cap: this diff is truncated, so line numbers and +/- counts past the cut may be wrong',
   'time.justNow': 'just now',
   'time.minutesAgo': '{n}m ago',
   'time.hoursAgo': '{n}h ago',

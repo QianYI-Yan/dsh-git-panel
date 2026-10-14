@@ -1,6 +1,8 @@
 /** Side-by-side diff renderer with lazy syntax highlighting, on-demand gap
- * expansion, and word-level intra-line emphasis. */
-import { createElement as h, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ * expansion, and word-level intra-line emphasis. Rows are windowed: only the
+ * viewport (plus overscan) is mounted, so an "expand all" on a large file does
+ * not tokenize and lay out the whole file at once. */
+import { createElement as h, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import {
   buildSideBySide, flattenToUnified, isBinaryDiff, retargetTrailingGap,
@@ -8,20 +10,41 @@ import {
 } from './diff'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans'
+import { memoizeHighlighter } from './highlight-cache'
+import { buildTops, findWindowRange, windowRange } from './virtual-list'
+import { useViewportTracker } from './use-viewport'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
 import { ImageCompare } from './ImageCompare'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { GitQuery, GitQueryResult } from './types'
+import { DIFF_EXPAND_CONTEXT, type GitQuery, type GitQueryResult } from './types'
 import type { GitKey } from './locales'
 
 /** unified = single inline column; split = side-by-side; before/after show one
  * side's full content. */
 export type DiffMode = 'unified' | 'split' | 'before' | 'after'
 
-// Bound the match set so a pathological query (e.g. a single space) on a large
-// diff cannot build an unbounded array or paint tens of thousands of marks.
-// (MAX_MATCHES is shared from ./find.)
+/** Diff base for the compared sides — selects the image panes and the source
+ * the hidden-context expansion reads from. */
+export type DiffBase = 'worktree' | 'staged' | 'commit'
+
+// --- row virtualization ---
+// Code rows are exactly one line box tall; hunk and gap bands carry their own
+// padding. Wrapping is the only thing that makes a code row taller, and every
+// mounted row reports its real height back (see the measurement effect), so the
+// estimates below only have to be close for the rows that were never on screen.
+const EST_CODE_H = 20
+const EST_HUNK_H = 27
+const EST_GAP_H = 29
+/** Rows kept mounted beyond the viewport on each side. */
+const OVERSCAN_ROWS = 12
+/** Viewport height assumed before the scroller reports its own, so the first
+ * paint is already windowed rather than full. */
+const VIEWPORT_FALLBACK = 600
+
+/** Bound the match set so a pathological query (e.g. a single space) on a large
+ * diff cannot build an unbounded array or paint tens of thousands of marks.
+ * (MAX_MATCHES is shared from ./find.) */
 
 /** Search state threaded into the code cells while Find is active. */
 interface FindCtx {
@@ -31,23 +54,26 @@ interface FindCtx {
   readonly activeRef: { current: HTMLElement | null }
 }
 
-/** Which comparison the diff shows — image sides and gap-expansion source
- * both mirror it. */
-export interface ImageDiffSpec {
-  readonly base: 'worktree' | 'staged' | 'commit'
-  readonly commit?: string
-}
-
 interface DiffViewProps {
   readonly text: string
   readonly mode: DiffMode
   /** File path, used to pick a syntax-highlighting grammar. */
   readonly path?: string
-  /** Present with imageSpec → a binary image fetches old/new panes instead;
+  /** Present with base → a binary image fetches old/new panes instead;
    * also the source for on-demand gap (hidden-context) expansion. */
   readonly remote?: GitPanelRemote
   readonly sessionId?: string
-  readonly imageSpec?: ImageDiffSpec
+  /** Diff base and, for `commit`, the commit to compare against. Kept as plain
+   * values (never an object built during render) so the memoized component is
+   * not invalidated on every parent render. */
+  readonly base?: DiffBase
+  readonly commit?: string
+  /** True while the toolbar's "expand all" is engaged. Only then can hidden
+   * context be a surprise, so only then does the capped notice render. */
+  readonly expanded?: boolean
+  /** The host flagged the diff text as a truncated prefix (the runner dropped
+   * output at its cap): line numbers past the cut are wrong, so say so. */
+  readonly truncated?: boolean
   /** New-side total line count from the diff query — the only fact that can
    * tell whether hidden context follows the last hunk (git caps trailing
    * context at -U, so the text alone is ambiguous at the file end). Required:
@@ -61,11 +87,14 @@ type ImageState =
   | { readonly kind: 'idle' | 'loading' | 'failed' }
   | { readonly kind: 'ready'; readonly res: ImageDiffValue }
 
-export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, imageSpec, newLines, t }: DiffViewProps): JSX.Element {
+export const DiffView = memo(function DiffView({ text, mode, path, remote, sessionId, base, commit, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
 
   const hl = useCodeHighlighter(path === undefined ? undefined : languageForPath(path))
+  // Rows re-render as the window moves and whenever an ancestor re-renders;
+  // tokenizing the same line twice is the most expensive thing this view does.
+  const hlCached = useMemo(() => memoizeHighlighter(hl), [hl])
 
   // Rows are stateful so revealed gap context can be spliced in. Reseed only
   // when the diff text itself changes: a newer line count for the same text (a
@@ -83,7 +112,7 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
     }
     setRows((prev) => retargetTrailingGap(prev, newLines) ?? baseRows)
   }, [text, newLines, baseRows])
-  const expand = useGapExpander(rows, setRows, remote, sessionId, path, imageSpec)
+  const expand = useGapExpander(rows, setRows, remote, sessionId, path, base, commit)
 
   // An SVG is both an image (rendered old/new comparison) and text (a source
   // diff). It gets a render/source toggle, defaulting to the rendered view;
@@ -93,13 +122,17 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   useEffect(() => { setSvgView('render') }, [path])
 
   const imageable = (binary || svg) && path !== undefined && isImagePath(path)
-    && remote !== undefined && sessionId !== undefined && imageSpec !== undefined
+    && remote !== undefined && sessionId !== undefined && base !== undefined
   // An SVG showing its source diff doesn't need the image fetch.
   const wantImage = imageable && (!svg || svgView === 'render')
-  const image = useImageDiff(wantImage ? remote : undefined, wantImage ? sessionId : undefined, wantImage ? path : undefined, wantImage ? imageSpec : undefined)
+  const image = useImageDiff(
+    wantImage ? remote : undefined, wantImage ? sessionId : undefined, wantImage ? path : undefined,
+    wantImage ? base : undefined, wantImage ? commit : undefined,
+  )
 
-  // In-diff Find (Ctrl/Cmd+F): matches are computed over the currently visible
-  // code cells for the active mode, so next/prev walks them in reading order.
+  // In-diff Find (Ctrl/Cmd+F): matches are computed over every row of the
+  // active mode — not just the mounted window — so the count and next/prev walk
+  // stay complete while only visible matches render marks.
   const [findOpen, setFindOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
@@ -109,7 +142,15 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   const activeRef = useRef<HTMLElement | null>(null)
   useEffect(() => { setFindOpen(false); setQuery(''); setActiveIndex(0) }, [text, path])
 
-  const cells = useMemo(() => collectCells(mode, rows), [mode, rows])
+  // The two per-mode render lists: `unified`/`split` walk SideRows, `before`/
+  // `after` walk the one-sided line projection. Both are indexed by the same
+  // key scheme the code cells use, so a Find match's key names its row.
+  const unified = useMemo(() => (mode === 'unified' ? flattenToUnified(rows) : null), [mode, rows])
+  const numbered = useMemo(
+    () => (mode === 'before' ? beforeLines(rows) : mode === 'after' ? afterLines(rows) : null),
+    [mode, rows],
+  )
+  const cells = useMemo(() => collectCells(rows, unified, numbered), [rows, unified, numbered])
   // Cache a lowercased copy of every visible cell once per (mode, rows); a
   // case-insensitive scan reuses it instead of re-lowercasing on each query.
   const lowerCells = useMemo(() => cells.map((c) => ({ key: c.key, text: c.text.toLowerCase() })), [cells])
@@ -119,7 +160,9 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   const matches = useMemo(() => findMatches(scanCells, needle), [scanCells, needle])
   useEffect(() => { setActiveIndex(0) }, [needle])
   const safeActive = matches.length === 0 ? 0 : Math.min(activeIndex, matches.length - 1)
-  const active = matches.length > 0 ? matches[safeActive] : null
+  const active = matches.length > 0 ? matches[safeActive]! : null
+  const activeKey = active?.cellKey ?? null
+  const activeStart = active?.start ?? -1
 
   const perCell = useMemo(() => {
     const map = new Map<string, Array<readonly [number, number]>>()
@@ -130,6 +173,20 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
     }
     return map
   }, [matches])
+
+  // Keep the active match scrolled into view as navigation moves. rAF waits for
+  // the widened window to mount the row before scrolling to it. Declared with
+  // the rest of the Find state: the image early-return below must not change the
+  // hook count when the SVG render/source toggle flips.
+  useEffect(() => {
+    if (activeKey === null) return
+    const id = requestAnimationFrame(() => activeRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' }))
+    return () => cancelAnimationFrame(id)
+  }, [safeActive, matches, activeKey, activeStart])
+
+  const step = useCallback((delta: number) => {
+    setActiveIndex((cur) => matches.length === 0 ? 0 : (cur + delta + matches.length) % matches.length)
+  }, [matches.length])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -144,15 +201,80 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  useEffect(() => { activeRef.current?.scrollIntoView({ block: 'center', inline: 'nearest' }) }, [safeActive, matches])
+  // --- windowing ---
+  // DiffView owns the scroller: the window math needs the viewport height on
+  // the very first paint, which a caller-owned container could not provide.
+  const { setEl: setViewportEl, viewport, elRef: scrollerRef } = useViewportTracker()
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  /** Body offset inside the scroller's content box (0 unless the scroller is
+   * given a header); subtracted from scrollTop to get the visible row range. */
+  const [bodyOffset, setBodyOffset] = useState(0)
+  const [measureTick, setMeasureTick] = useState(0)
 
-  const step = useCallback((delta: number) => {
-    setActiveIndex((cur) => matches.length === 0 ? 0 : (cur + delta + matches.length) % matches.length)
-  }, [matches.length])
+  // Measured row heights, dropped when the row list or the layout changes shape
+  // (a gap splice, a new diff, another mode) — derived during render so the
+  // first render after the change never mixes in stale heights.
+  const heightState = useRef<{ mode: DiffMode; rows: readonly SideRow[]; heights: number[] }>({ mode, rows, heights: [] })
+  if (heightState.current.mode !== mode || heightState.current.rows !== rows) {
+    heightState.current = { mode, rows, heights: [] }
+  }
+  const heights = heightState.current.heights
 
-  const find: FindCtx | null = findOpen && needle !== '' ? {
-    perCell, activeKey: active?.cellKey ?? null, activeRange: active ? [active.start, active.end] : null, activeRef,
-  } : null
+  const count = unified !== null ? unified.length : numbered !== null ? numbered.length : rows.length
+  const estimateAt = useCallback((i: number): number => {
+    const row: SideRow | null = unified !== null ? unified[i] ?? null : numbered === null ? rows[i] ?? null : null
+    if (row === null) return EST_CODE_H
+    return row.kind === 'hunk' ? EST_HUNK_H : row.kind === 'gap' ? EST_GAP_H : EST_CODE_H
+  }, [unified, numbered, rows])
+  // `heights` is mutated in place by the measurement effect below; measureTick
+  // is the signal that it changed.
+  const allHeights = useMemo(() => {
+    const out = new Array<number>(count)
+    for (let i = 0; i < count; i++) {
+      const measured = heights[i]
+      out[i] = measured !== undefined && measured > 0 ? measured : estimateAt(i)
+    }
+    return out
+  }, [count, heights, estimateAt, measureTick])
+  const tops = useMemo(() => buildTops(allHeights), [allHeights])
+
+  const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
+  const { first, last } = windowRange(tops, Math.max(0, viewport.top - bodyOffset), effHeight, OVERSCAN_ROWS * EST_CODE_H)
+  // Keep the active Find match mounted so `scrollIntoView` has a node to hit.
+  // findWindowRange snaps onto a match lying outside the window instead of
+  // spanning the gap to it: a span mounts every row between the viewport and
+  // the match in one commit — the freeze this view exists to remove.
+  const activeRow = activeKey === null ? -1 : cellRow(activeKey)
+  const { first: windowFirst, last: windowLast } = findWindowRange({ first, last }, activeRow, count, OVERSCAN_ROWS)
+
+  // Rows report their real height after every commit: wrapping makes a code row
+  // taller than its estimate, and the prefix sums have to follow so the
+  // scrollbar and the window stay honest. Corrections are applied only when
+  // they differ by more than a sub-pixel, so this settles after one pass.
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    const scroller = scrollerRef.current
+    if (body === null || scroller === null) return
+    const bodyTop = body.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+    if (Math.abs(bodyTop - bodyOffset) > 0.5) setBodyOffset(bodyTop)
+    const seen = new Map<number, number>()
+    for (const node of body.querySelectorAll<HTMLElement>('[data-r]')) {
+      const i = Number(node.dataset.r)
+      const height = node.getBoundingClientRect().height
+      if (!Number.isFinite(height) || height <= 0) continue
+      const prev = seen.get(i)
+      if (prev === undefined || height > prev) seen.set(i, height)
+    }
+    let changed = false
+    for (const [i, height] of seen) {
+      const current = heights[i]
+      if (current === undefined || Math.abs(current - height) > 0.5) {
+        heights[i] = height
+        changed = true
+      }
+    }
+    if (changed) setMeasureTick((n) => n + 1)
+  })
 
   // Rendered comparison (raster binary always; SVG in 'render' mode).
   if (wantImage) {
@@ -176,16 +298,47 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
   // Raster binary with no usable rendered comparison.
   if (binary && !svg) return h('div', { className: 'gp-empty' }, t('diff.binary'))
 
-  // Text diff (regular files, and an SVG in 'source' mode).
+  const find: FindCtx | null = findOpen && needle !== '' ? {
+    perCell, activeKey, activeRange: active !== null ? [active.start, active.end] : null, activeRef,
+  } : null
+
+  /** A band reserving the height of the rows outside the mounted window; it
+   * spans every grid column so it occupies a row of its own. */
+  const spacer = (key: string, height: number): JSX.Element | null =>
+    height > 0.5
+      ? h('div', { key, className: 'gp-diff__spacer', style: { gridColumn: '1 / -1', height: `${height}px` } })
+      : null
+  const leadPad = spacer('lead', tops[windowFirst]!)
+  const tailPad = spacer('tail', tops[count]! - tops[windowLast]!)
+
+  // Text diff (regular files, and an SVG in 'source' mode). Each mode renders
+  // only [windowFirst, windowLast) of its own row list.
   const body = ((): JSX.Element => {
     if (text.trim() === '') return h('div', { className: 'gp-empty' }, t('diff.empty'))
-    if (mode === 'before') return singleColumn(beforeLines(rows), hl, find)
-    if (mode === 'after') return singleColumn(afterLines(rows), hl, find)
-    if (mode === 'unified') {
-      const uni = flattenToUnified(rows)
-      return h('div', { className: 'gp-diff__unified' }, uni.flatMap((row, i) => renderUnifiedRow(row, i, hl, expand, find, t)))
+    if (numbered !== null) {
+      const lines: Array<JSX.Element | null> = [leadPad]
+      for (let i = windowFirst; i < windowLast; i++) {
+        const line = numbered[i]!
+        lines.push(h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''))
+        lines.push(codeCell('gp-diff-cell', `c${i}`, line.text, hlCached, find, i))
+      }
+      lines.push(tailPad)
+      return h('div', { className: 'gp-diff__single', ref: bodyRef }, lines)
     }
-    return h('div', { className: 'gp-diff__side' }, rows.flatMap((row, i) => renderRow(row, i, hl, expand, find, t)))
+    if (unified !== null) {
+      const out: Array<JSX.Element | null> = [leadPad]
+      for (let i = windowFirst; i < windowLast; i++) {
+        out.push(...renderUnifiedRow(unified[i]!, i, hlCached, expand, find, t))
+      }
+      out.push(tailPad)
+      return h('div', { className: 'gp-diff__unified', ref: bodyRef }, out)
+    }
+    const out: Array<JSX.Element | null> = [leadPad]
+    for (let i = windowFirst; i < windowLast; i++) {
+      out.push(...renderRow(rows[i]!, i, hlCached, expand, find, t))
+    }
+    out.push(tailPad)
+    return h('div', { className: 'gp-diff__side', ref: bodyRef }, out)
   })()
 
   const findBox = findOpen ? h(FindBar, {
@@ -193,20 +346,42 @@ export const DiffView = memo(function DiffView({ text, mode, path, remote, sessi
     onChange: setQuery, onToggleCase: () => setCaseSensitive((c) => !c),
     onStep: step, onClose: () => setFindOpen(false), t,
   }) : null
-  const wrapped = h('div', { className: 'gp-diff__wrap', ref: containerRef }, [findBox, body])
+  // The toolbar asked for a full expansion but hidden context remains → say so,
+  // and drop the notice the moment the last gap is consumed. Reading the parsed
+  // rows rather than the requested context size is what makes it exact: git can
+  // cover a whole file at 2000 lines of context when nearby edits merge their
+  // hunks, and can leave a gap short of 4000 lines when a hunk hugs one file edge.
+  const capped = expanded === true && rows.some((r) => r.kind === 'gap')
+  const wrapped = h('div', { className: 'gp-diff__wrap', ref: containerRef }, [
+    findBox,
+    truncated === true
+      ? h('div', { key: 'truncated', className: 'gp-notice' }, t('diff.truncated'))
+      : null,
+    capped ? h('div', { key: 'capped', className: 'gp-notice' }, t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })) : null,
+    h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl }, body),
+  ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
 })
 
 /** A single match location within the diff, addressed by visible cell key. */
 interface DiffMatch { readonly cellKey: string; readonly start: number; readonly end: number }
 
+/** Row index encoded in a cell key (`c12`, `l3`, `r3`), or -1 when unparseable. */
+function cellRow(key: string): number {
+  const n = Number(key.slice(1))
+  return Number.isFinite(n) ? n : -1
+}
+
 /** Ordered visible code cells for the active mode, keyed as their render fns. */
-function collectCells(mode: DiffMode, rows: readonly SideRow[]): Array<{ key: string; text: string }> {
+function collectCells(
+  rows: readonly SideRow[],
+  unified: readonly SideRow[] | null,
+  numbered: readonly NumberedLine[] | null,
+): Array<{ key: string; text: string }> {
   const cells: Array<{ key: string; text: string }> = []
-  if (mode === 'before') { beforeLines(rows).forEach((l, i) => cells.push({ key: `c${i}`, text: l.text })); return cells }
-  if (mode === 'after') { afterLines(rows).forEach((l, i) => cells.push({ key: `c${i}`, text: l.text })); return cells }
-  if (mode === 'unified') {
-    flattenToUnified(rows).forEach((row, i) => {
+  if (numbered !== null) { numbered.forEach((l, i) => cells.push({ key: `c${i}`, text: l.text })); return cells }
+  if (unified !== null) {
+    unified.forEach((row, i) => {
       if (row.kind === 'hunk' || row.kind === 'gap') return
       const content = row.rightText ?? row.leftText ?? ''
       if (content !== '') cells.push({ key: `c${i}`, text: content })
@@ -263,7 +438,7 @@ interface GapExpander {
 
 /**
  * On-demand hidden-context expansion. Clicking a gap control fetches the
- * revealed slice (file-lines query, source mirrors imageSpec) and splices it
+ * revealed slice (file-lines query, source mirrors the diff base) and splices it
  * into the row list. A generation guard drops a stale response if the rows
  * were reseeded (diff text changed) mid-flight.
  */
@@ -273,7 +448,8 @@ function useGapExpander(
   remote: GitPanelRemote | undefined,
   sessionId: string | undefined,
   path: string | undefined,
-  spec: ImageDiffSpec | undefined,
+  base: DiffBase | undefined,
+  commit: string | undefined,
 ): GapExpander {
   const [busy, setBusy] = useState<string | null>(null)
   const gen = useRef(0)
@@ -281,16 +457,16 @@ function useGapExpander(
   useEffect(() => { gen.current += 1; setBusy(null) }, [rows])
 
   const run = useCallback((gap: GapInfo, direction: 'all' | 'up' | 'down') => {
-    if (remote === undefined || sessionId === undefined || path === undefined || spec === undefined) return
+    if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
     const key = `${gap.rightStart}:${direction}`
     setBusy(key)
     const my = ++gen.current
     // Which slice to request. 'up'/'down' reveal one GAP_STEP window; 'all'
     // (and any bounded gap) reveal the whole hidden region.
     const { start, end } = sliceRequest(gap, direction)
-    const query: GitQuery = spec.base === 'commit' && spec.commit !== undefined
-      ? { kind: 'file-lines', path, base: 'commit', commit: spec.commit, start, end }
-      : spec.base === 'staged'
+    const query: GitQuery = base === 'commit' && commit !== undefined
+      ? { kind: 'file-lines', path, base: 'commit', commit, start, end }
+      : base === 'staged'
         ? { kind: 'file-lines', path, base: 'staged', start, end }
         : { kind: 'file-lines', path, base: 'worktree', start, end }
     void remote.query({ sessionId, query }).then((res) => {
@@ -300,7 +476,7 @@ function useGapExpander(
       if (fl === null) return
       setRows((prev) => spliceGap(prev, gap.rightStart, direction, fl.start, fl.lines, fl.eof))
     }).catch(() => { if (my === gen.current) setBusy(null) })
-  }, [remote, sessionId, path, spec, setRows])
+  }, [remote, sessionId, path, base, commit, setRows])
 
   return { busy, run }
 }
@@ -320,18 +496,17 @@ function sliceRequest(gap: GapInfo, direction: 'all' | 'up' | 'down'): { start: 
 
 /**
  * Fetch the old/new image sides for a binary image path. Identity-stable
- * primitives only (the spec object may be rebuilt every render); a generation
- * guard drops a response that a newer path/base took over.
+ * primitives only (base/commit are plain values), and a generation guard drops a
+ * response that a newer path/base took over.
  */
 function useImageDiff(
   remote: GitPanelRemote | undefined,
   sessionId: string | undefined,
   path: string | undefined,
-  spec: ImageDiffSpec | undefined,
+  base: DiffBase | undefined,
+  commit: string | undefined,
 ): ImageState {
   const [state, setState] = useState<ImageState>({ kind: 'idle' })
-  const base = spec?.base
-  const commit = spec?.commit
   useEffect(() => {
     if (remote === undefined || sessionId === undefined || path === undefined || base === undefined) return
     let alive = true
@@ -347,7 +522,6 @@ function useImageDiff(
       setState(img !== null ? { kind: 'ready', res: img } : { kind: 'failed' })
     }).catch(() => { if (alive) setState({ kind: 'failed' }) })
     return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remote, sessionId, path, base, commit])
   return state
 }
@@ -369,13 +543,18 @@ function withFindMarks(
 }
 
 /** A highlighted code cell, or plain text until its grammar loads. Find
- * matches (when active) are marked in place, preserving syntax colors. */
-function codeCell(className: string, key: string, content: string, hl: CodeHighlighter, find: FindCtx | null = null): JSX.Element {
-  if (content === '') return h('div', { key, className }, '\u00a0')
+ * matches (when active) are marked in place, preserving syntax colors.
+ * `row` marks the element for the row-height measurement. */
+function codeCell(
+  className: string, key: string, content: string, hl: CodeHighlighter,
+  find: FindCtx | null = null, row = -1,
+): JSX.Element {
+  const attrs = { key, className, 'data-r': row >= 0 ? row : undefined }
+  if (content === '') return h('div', attrs, '\u00a0')
   const spans = hl(content)?.[0]
   const marked = withFindMarks(content, key, find, spans)
-  if (marked !== null) return h('div', { key, className }, marked)
-  return h('div', { key, className }, spans === undefined ? content : syntaxRuns(spans))
+  if (marked !== null) return h('div', attrs, marked)
+  return h('div', attrs, spans === undefined ? content : syntaxRuns(spans))
 }
 
 /** Highlight the whole line once, then split runs at the word-diff boundaries.
@@ -383,13 +562,14 @@ function codeCell(className: string, key: string, content: string, hl: CodeHighl
  * word-diff emphasis (both are just spans; the search overlay wins visually). */
 function wordCell(
   className: string, key: string, content: string, range: readonly [number, number],
-  wordCls: string, hl: CodeHighlighter, find: FindCtx | null = null,
+  wordCls: string, hl: CodeHighlighter, find: FindCtx | null = null, row = -1,
 ): JSX.Element {
+  const attrs = { key, className, 'data-r': row >= 0 ? row : undefined }
   const spans = hl(content)?.[0] ?? [{ text: content, style: {} }]
   const marked = withFindMarks(content, key, find, spans)
-  if (marked !== null) return h('div', { key, className }, marked)
+  if (marked !== null) return h('div', attrs, marked)
   const [pre, changed, post] = splitHighlightSpans(spans, range)
-  return h('div', { key, className }, [
+  return h('div', attrs, [
     ...syntaxRuns(pre, 'p'),
     h('span', { key: 'w', className: wordCls }, changed.length === 0 ? '\u00a0' : syntaxRuns(changed)),
     ...syntaxRuns(post, 's'),
@@ -411,19 +591,12 @@ function afterLines(rows: readonly SideRow[]): NumberedLine[] {
   return rows.filter((r) => r.rightText !== null).map((r) => ({ no: r.rightNo, text: r.rightText as string }))
 }
 
-function singleColumn(lines: readonly NumberedLine[], hl: CodeHighlighter, find: FindCtx | null = null): JSX.Element {
-  return h('div', { className: 'gp-diff__single' }, lines.flatMap((line, i) => [
-    h('div', { key: `n${i}`, className: 'gp-diff-no' }, line.no ?? ''),
-    codeCell('gp-diff-cell', `c${i}`, line.text, hl, find),
-  ]))
-}
-
 function renderRow(
   row: SideRow, i: number, hl: CodeHighlighter,
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
-    return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' } }, row.text ?? '')]
+    return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
   }
   if (row.kind === 'gap') {
     return [renderGap(row.gap!, i, expand, t)]
@@ -433,13 +606,13 @@ function renderRow(
   const leftCell = row.leftText === null
     ? h('div', { key: `l${i}`, className: `gp-diff-cell ${leftCls}` })
     : row.kind === 'mod' && row.leftWord !== undefined
-      ? wordCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', hl, find)
-      : codeCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, hl, find)
+      ? wordCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, row.leftWord, 'gp-diff-word gp-diff-word--del', hl, find, i)
+      : codeCell(`gp-diff-cell ${leftCls}`, `l${i}`, row.leftText, hl, find, i)
   const rightCell = row.rightText === null
     ? h('div', { key: `r${i}`, className: `gp-diff-cell ${rightCls}` })
     : row.kind === 'mod' && row.rightWord !== undefined
-      ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl, find)
-      : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl, find)
+      ? wordCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, row.rightWord, 'gp-diff-word gp-diff-word--add', hl, find, i)
+      : codeCell(`gp-diff-cell ${rightCls}`, `r${i}`, row.rightText, hl, find, i)
   return [
     h('div', { key: `ln${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
     leftCell,
@@ -458,7 +631,7 @@ function renderUnifiedRow(
   expand: GapExpander, find: FindCtx | null, t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element[] {
   if (row.kind === 'hunk') {
-    return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' } }, row.text ?? '')]
+    return [h('div', { key: `h${i}`, className: 'gp-diff-row--hunk gp-diff-cell', style: { gridColumn: '1 / -1' }, 'data-r': i }, row.text ?? '')]
   }
   if (row.kind === 'gap') {
     return [renderGap(row.gap!, i, expand, t)]
@@ -472,8 +645,8 @@ function renderUnifiedRow(
   const wordCls = isAdd ? 'gp-diff-word gp-diff-word--add' : 'gp-diff-word gp-diff-word--del'
   const codeCls = `gp-diff-cell gp-diff-uni__code ${rowCls}`
   const code = wordRange !== undefined
-    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl, find)
-    : codeCell(codeCls, `c${i}`, content, hl, find)
+    ? wordCell(codeCls, `c${i}`, content, wordRange, wordCls, hl, find, i)
+    : codeCell(codeCls, `c${i}`, content, hl, find, i)
   return [
     h('div', { key: `ol${i}`, className: 'gp-diff-no' }, row.leftNo ?? ''),
     h('div', { key: `nl${i}`, className: 'gp-diff-no' }, row.rightNo ?? ''),
@@ -509,7 +682,7 @@ function renderGap(
     controls.push(btn('all', t('diff.expandGap', { n: total }), busyAll))
     controls.push(btn('down', t('diff.expandDown', { n: GAP_STEP }), busyDown))
   }
-  return h('div', { key: `g${i}`, className: 'gp-diff-row--gap', style: { gridColumn: '1 / -1' } }, controls)
+  return h('div', { key: `g${i}`, className: 'gp-diff-row--gap', style: { gridColumn: '1 / -1' }, 'data-r': i }, controls)
 }
 
 /** Diff +/- summary from unified text (exported for the toolbar). */

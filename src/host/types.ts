@@ -17,11 +17,15 @@ export type GraphStyle = 'compact' | 'parallel'
 /**
  * Diff context (-U) values shared by both halves. `DEFAULT` matches git's own
  * default and is what the host applies when a request omits `context`.
- * `MAX` is the host's clamp ceiling and doubles as the "expand all" request:
- * a -U window this wide covers any real file, so no context stays hidden.
+ * `MAX` is the host's clamp ceiling. `EXPAND` is what the "expand all" button
+ * asks for: deliberately bounded, because a -U window wide enough to cover a
+ * huge file makes the host emit that whole file as one hunk — megabytes of
+ * text, and past the runner's stdout cap a silently truncated diff. Whatever
+ * the window does not reach stays a collapsed gap the view reveals on demand.
  */
 export const DIFF_CONTEXT_DEFAULT = 3
 export const DIFF_CONTEXT_MAX = 100000
+export const DIFF_EXPAND_CONTEXT = 2000
 
 /**
  * Ceiling for the working-file read taken only to count the diff's new-side
@@ -396,8 +400,14 @@ export type GitQueryResult =
    * the diff has no hunk at all, or the working file is above
    * DIFF_COUNT_READ_MAX. The view treats all of those the same way — no
    * trailing gap rather than a speculative one.
+   *
+   * `truncated` marks the one case where the text itself is incomplete: the
+   * runner dropped output at its collect/spill ceiling, so `text` is a prefix
+   * that still parses like a real diff. It is flagged rather than refused —
+   * the partial hunks stay readable — but the view must say so, because line
+   * numbers and +/- counts past the cut are simply wrong.
    */
-  | { readonly kind: 'diff'; readonly path: string; readonly text: string; readonly newLines: number }
+  | { readonly kind: 'diff'; readonly path: string; readonly text: string; readonly newLines: number; readonly truncated?: true }
   // A slice of a file's post-change content for on-demand context expansion:
   // `lines` are 1-based new-side numbers `start..end` (clamped to the file);
   // `eof` marks that `end` reached the last line (no more to reveal below).

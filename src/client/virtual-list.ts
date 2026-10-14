@@ -47,3 +47,26 @@ export function windowRange(
   const last = Math.min(count, lowerBound(tops, top + height + overscanPx) + 1)
   return { first, last }
 }
+
+/**
+ * Window to mount for an active Find match. Inside the current window the match
+ * is already mounted, so only the overscan margin extends it; outside, SNAP onto
+ * the match's neighbourhood instead of spanning the gap — a span would mount
+ * every row between the viewport and the match in a single commit, which is the
+ * very freeze virtualization exists to remove. `activeRow < 0` (no active match)
+ * leaves the window as it is.
+ */
+export function findWindowRange(
+  range: { first: number; last: number },
+  activeRow: number,
+  count: number,
+  overscanRows: number,
+): { first: number; last: number } {
+  if (activeRow < 0) return range
+  const inside = activeRow >= range.first && activeRow < range.last
+  if (!inside) return { first: Math.max(0, activeRow - overscanRows), last: Math.min(count, activeRow + overscanRows) }
+  return {
+    first: Math.min(range.first, Math.max(0, activeRow - overscanRows)),
+    last: Math.max(range.last, Math.min(count, activeRow + overscanRows)),
+  }
+}

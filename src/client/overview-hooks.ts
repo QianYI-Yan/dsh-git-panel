@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import { DIFF_CONTEXT_MAX } from './types'
+import { DIFF_EXPAND_CONTEXT } from './types'
 import type { GitBranch, GitCommit, GitDiffPayload, GitFileStat, GraphCommit } from './types'
 import type { DiffMode } from './DiffView'
 import type { DiffViewMode } from './types'
@@ -262,10 +262,10 @@ export function useCommitDetail(remote: GitPanelRemote, sessionId: string, defau
     setFileDiffData(null)
     setFileDiffError(false)
     setFileDiffExpanded(expand)
-    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: DIFF_CONTEXT_MAX } : {}) } })
+    const res = await remote.query({ sessionId, query: { kind: 'diff', path, base: 'commit', commit: hash, ...(expand ? { context: DIFF_EXPAND_CONTEXT } : {}) } })
     if (seq !== fileDiffSeq.current) return
     const diff = queryAs(res, 'diff')
-    if (diff !== null) setFileDiffData({ text: diff.text, newLines: diff.newLines })
+    if (diff !== null) setFileDiffData({ text: diff.text, newLines: diff.newLines, truncated: diff.truncated })
     else setFileDiffError(true)
   }, [remote, sessionId])
 

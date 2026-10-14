@@ -947,7 +947,7 @@ function renderFileDiffModal(
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
       data === null
         ? h('div', { className: 'gp-empty' }, error ? t('overview.diffFailed') : t('common.loading'))
-        : h(DiffView, { text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, imageSpec: { base: 'commit', commit: fileDiff.hash }, newLines: data.newLines, t })),
+        : h(DiffView, { key: 'diff', text: data.text, mode: effMode, path: fileDiff.path, remote, sessionId, base: 'commit', commit: fileDiff.hash, expanded, truncated: data.truncated === true, newLines: data.newLines, t })),
   ]))
   return createPortal(modal, document.body, 'file-diff-modal')
 }

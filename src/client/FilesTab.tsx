@@ -16,7 +16,7 @@ import { useResizableColumn } from './resizable'
 import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
 import { ZoomableImage } from './ImageZoom'
-import { buildTops, windowRange } from './virtual-list'
+import { buildTops, findWindowRange, windowRange } from './virtual-list'
 import { useViewportTracker } from './use-viewport'
 
 interface FilesTabProps {
@@ -454,11 +454,11 @@ function CodePreview({ content, path, t }: { content: string; path: string; t: (
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
   const { first, last } = windowRange(tops, viewport.top, effHeight, OVERSCAN * ROW_HEIGHT)
 
-  // Keep the active match's row inside the mounted window before scrolling to
-  // it: expand the window to include it, so scrollIntoView has a node to hit.
+  // Keep the active match mounted so scrollIntoView has a node to hit;
+  // findWindowRange snaps onto a match outside the window instead of spanning
+  // the gap to it — a span would mount every intervening row in one commit.
   const activeLine = matches.length > 0 ? matches[safeActive].line : -1
-  const windowFirst = activeLine >= 0 ? Math.min(first, Math.max(0, activeLine - OVERSCAN)) : first
-  const windowLast = activeLine >= 0 ? Math.max(last, Math.min(total, activeLine + OVERSCAN)) : last
+  const { first: windowFirst, last: windowLast } = findWindowRange({ first, last }, activeLine, total, OVERSCAN)
 
   // Keep the active match scrolled into view as navigation moves. rAF waits for
   // the widened window to mount the row before scrolling to it.
