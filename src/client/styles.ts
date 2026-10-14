@@ -264,6 +264,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* diff view */
 .gp-diff{flex:1;min-height:0;display:flex;flex-direction:column}
 .gp-diff__toolbar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+/* Compact diff pane: controls (expand-all + mode seg) live on their own
+ * second row — one row cannot fit them at phone widths without the seg
+ * buttons wrapping into a squeezed stack. */
+.gp-diff__toolbar--compact{flex-wrap:wrap;row-gap:6px}
+.gp-diff__toolbar-row{display:flex;align-items:center;gap:8px;min-width:0}
+.gp-diff__toolbar-row:first-child{flex:1 1 100%}
+.gp-diff__toolbar-row--controls{flex:1 1 100%}
+.gp-diff__toolbar-row--controls .gp-diff__expand{flex:none}
+.gp-diff__toolbar-row--controls .gp-seg{flex:1}
+.gp-diff__toolbar-row--controls .gp-seg__btn{flex:1;min-width:0}
 .gp-diff__path{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
@@ -333,6 +343,13 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-modal__hash{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);padding:2px 7px;border-radius:6px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1));flex:none}
 .gp-modal__sum{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-family:var(--dsw-font-mono,ui-monospace,monospace);flex:none}
 .gp-modal__close{flex:none}
+/* Compact modal bar: two rows (header / mode seg + close), mirroring the
+ * changes-pane toolbar. The seg stretches evenly and the bordered close
+ * button pins to the row's far right. */
+.gp-modal__bar-row{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 100%}
+.gp-modal__bar-row--controls .gp-seg{flex:1}
+.gp-modal__bar-row--controls .gp-seg__btn{flex:1;min-width:0}
+.gp-modal__bar-row--controls .gp-modal__close{margin-left:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-modal__scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}
 
 /* small dialog (tag create/delete, stash push/drop): auto-height form modal */
@@ -554,10 +571,17 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 
 /* Diff modal on a small viewport (it is portaled outside .gp-panel, so this is
  * keyed on the viewport, not the panel attribute): near-fullscreen, wrapping
- * toolbar. The base rule already uses vw/vh, so this only tightens the fit. */
+ * toolbar. The base rule already uses vw/vh, so this only tightens the fit.
+ * The tall height applies to the full-size diff modal only — small confirm
+ * dialogs (.gp-modal--sm) stay content-sized, and the vertical inset leaves a
+ * tappable backdrop strip above/below the diff modal. The --sm override states
+ * height only: its base max-height:min(560px,86vh) already fits inside
+ * viewport-48px at every phone height, and re-declaring it here would raise the
+ * content cap to 100dvh-48px (~796px at 390×844). */
 @media (max-width:640px){
-  .gp-modal-backdrop{padding:10px}
-  .gp-modal{width:96vw;height:90vh;border-radius:12px}
+  .gp-modal-backdrop{padding:24px 12px}
+  .gp-modal{width:96vw;height:min(90dvh,calc(100dvh - 48px));border-radius:12px}
+  .gp-modal--sm{height:auto}
   .gp-modal__bar{flex-wrap:wrap;row-gap:6px}
 }
 
