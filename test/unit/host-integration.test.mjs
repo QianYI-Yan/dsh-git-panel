@@ -552,6 +552,9 @@ test('file-content returns a text file body + line count', async () => {
   assert.equal(res.value.variant, 'text')
   assert.ok(res.value.content.includes('line10-changed'))
   assert.equal(res.value.lines, 20)
+  // The properties dialog rides on the stat the read already performed.
+  assert.equal(res.value.size, Buffer.byteLength(res.value.content))
+  assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
 })
 
 test('file-content flags an over-cap file as tooLarge', async () => {
@@ -559,6 +562,10 @@ test('file-content flags an over-cap file as tooLarge', async () => {
   const res = await runQuery(deps(), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'a.txt' } })
   assert.equal(res.ok, true)
   assert.equal(res.value.tooLarge, true)
+  // size/mtimeMs survive the over-cap early return — a large file is exactly
+  // when the user wants to see its size.
+  assert.ok(res.value.size > 4)
+  assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
 })
 
 test('file-content serves an image as a data URL', async () => {
@@ -566,6 +573,8 @@ test('file-content serves an image as a data URL', async () => {
   assert.equal(res.ok, true)
   assert.equal(res.value.variant, 'image')
   assert.ok(res.value.dataUrl.startsWith('data:image/png;base64,'))
+  assert.equal(res.value.size, Buffer.from('PNG-v2-bytes').length)
+  assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
 })
 
 test('file-content marks a NUL-containing file as binary', async () => {
@@ -575,6 +584,8 @@ test('file-content marks a NUL-containing file as binary', async () => {
   assert.equal(res.ok, true)
   assert.equal(res.value.variant, 'binary')
   assert.equal(res.value.content, undefined)
+  assert.equal(res.value.size, 5)
+  assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
 })
 
 test('file-content rejects an unsafe path', async () => {

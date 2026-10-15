@@ -20,17 +20,20 @@ const FIXTURE_ROOT = 'fixture-repo'
 
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
-  staged: 0, modified: 3, untracked: 1, ahead: 0, behind: 0, hasUpstream: true,
+  staged: 0, modified: 3, untracked: 2, ahead: 0, behind: 0, hasUpstream: true,
   remote: { name: 'origin', url: 'git@github.com:owner/repo.git', webUrl: 'https://github.com/owner/repo', host: 'github.com', hostKind: 'github' },
   lastCommit: null,
   changes: [
     { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'd.txt', status: 'untracked', staged: false, isDirectory: false },
+    // Porcelain collapses an untracked directory into one `?? newdir/` entry —
+    // the files inside carry no change of their own.
+    { path: 'newdir', status: 'untracked', staged: false, isDirectory: true },
     { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
     { path: 'icon.svg', status: 'modified', staged: false, isDirectory: false },
   ],
-  stats: { fileCount: 5, staged: 0, modified: 4, untracked: 1, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
+  stats: { fileCount: 6, staged: 0, modified: 4, untracked: 2, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
@@ -58,6 +61,9 @@ const out = await page.evaluate(async (snap) => {
   // fit ratio (the square fixture is height-constrained instead).
   const MOCK_PNG_WIDE = 'iVBORw0KGgoAAAANSUhEUgAABLAAAAEsCAIAAABc390HAAAGB0lEQVR42u3XQQ0AIBDEwJODJpSgEwc4QAI6uJ1kFPTXGmsCAAAQqCQAAAAwhAAAABhCAAAAooZwnwsAAEBjhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMISGEAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAgCE0hAAAAIbQEAIAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAADCEhhAAAMAQGkIAAABDaAgBAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAAAYQkMIAABgCA0hAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAAQ2gIAQAADKEhBAAAMITSAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAMISGEAAAwBAaQgAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAAIbQEAIAABhCQwgAAGAI1QEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAGAIDSEAAIAhNIQAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAMoSEEAAAwhIYQAADAEKoDAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAAAAQwgAAIAhBAAAwBACAABgCAEAADCEAAAAGEIAAAAMIQAAAIYQAADAEBpCAAAAQ2gIAQAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAYAgBAAAwhAAAABhCAAAADCEAAACGEAAAAEMIAACAIQQAAMAQAgAAGEJDCAAAYAgNIQAAgCEEAADAEAIAAGAIAQAAMIQAAAAYQgAAAAwhAAAAhhAAAID/hhAAAIAchhAAAMAQAgAAYAgBAABo7wH350/iheM7iwAAAABJRU5ErkJggg=='
   const fileQueries = []
+  // One fixed mtime for every mocked file-content response, so the properties
+  // dialog can assert a real absolute timestamp without pinning a date.
+  const MOCK_MTIME = Date.now() - 60_000
   // Branch-switch probes: every `run` action lands here, and `branchQueries`
   // counts the branch-list reloads a landed checkout must trigger.
   const runActions = []
@@ -97,15 +103,18 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'dir-list') {
             fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
             ] } } }
+            if (q.path === 'newdir') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'newdir', truncated: false, entries: [
+              { name: 'note.txt', dir: false, size: 10 },
+            ] } } }
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
           }
           if (q.kind === 'file-content') {
-            if (q.path.endsWith('.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# Hello Markdown\n', lines: 1 } } }
+            if (q.path.endsWith('.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# Hello Markdown\n', lines: 1, size: 1536, mtimeMs: MOCK_MTIME } } }
             if (q.path.endsWith('.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><p id="hi">Hello HTML</p>', lines: 1 } } }
             // A big text file exercises both source-view guards: >5000 lines
             // (highlight off) with one >5000-char line (truncation).
@@ -116,8 +125,8 @@ const out = await page.evaluate(async (snap) => {
             }
             if (q.path.endsWith('wide.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_WIDE}` } } }
             if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
-            if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}` } } }
-            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2 } } }
+            if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}`, size: 64, mtimeMs: MOCK_MTIME } } }
+            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2, size: 24, mtimeMs: MOCK_MTIME } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
           if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
@@ -899,6 +908,90 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 60))
   result.findClosed = document.querySelector('.gp-find__input') === null
 
+  // File properties dialog (`.gp-files__props`): opens from the preview toolbar
+  // on a loaded file, derives everything from data already on screen, and
+  // closes on Escape. The footer chips state the Git facts — in particular a
+  // file inside a collapsed, untracked `?? dir/` entry must read untracked
+  // (regression: it used to read tracked) and untracked must appear once. The
+  // harness `t` returns the key (params are not interpolated), so assertions
+  // read keys and raw values.
+  const pickFile = async (name, ms = 300) => {
+    const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes(name))
+    if (row) { row.click(); await new Promise((r) => setTimeout(r, ms)) }
+  }
+  const propsRow = (labelKey) => [...document.querySelectorAll('.gp-props__row')].find((r) => r.querySelector('.gp-props__label')?.textContent === labelKey) ?? null
+  const propsValue = (labelKey) => propsRow(labelKey)?.querySelector('.gp-props__value') ?? null
+  const propsBadges = () => [...document.querySelectorAll('.gp-props__badge')].map((b) => b.textContent)
+  const openProps = async () => {
+    document.querySelector('.gp-files__props')?.click()
+    await new Promise((r) => setTimeout(r, 120))
+  }
+  const closeProps = async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await new Promise((r) => setTimeout(r, 120))
+  }
+
+  // a.txt is selected and loaded from the Find phase above.
+  result.propsBtnShown = document.querySelector('.gp-files__props') !== null
+  await openProps()
+  result.propsOpened = document.querySelector('.gp-props__statusbar') !== null
+  result.propsTitle = document.querySelector('.gp-modal--sm .gp-modal__path')?.textContent
+  result.propsGroups = [...document.querySelectorAll('.gp-props__group-title')].map((n) => n.textContent)
+  result.propsName = propsValue('files.propsName')?.textContent
+  result.propsTypeKey = propsValue('files.propsType')?.textContent
+  result.propsRelPath = propsRow('files.propsRelPath')?.querySelector('.gp-props__copy')?.textContent
+  result.propsAbsPath = propsRow('files.propsAbsPath')?.querySelector('.gp-props__copy')?.textContent
+  result.propsSize = propsRow('files.propsSize')?.querySelector('.gp-props__strong')?.textContent
+  result.propsSizeSub = propsRow('files.propsSize')?.querySelector('.gp-props__sub')?.textContent ?? null
+  result.propsLines = propsValue('files.propsLines')?.textContent
+  result.propsMtime = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(propsValue('files.propsMtime')?.textContent ?? '')
+  result.propsBadges = propsBadges()
+  // Copying the absolute-path row must hand over the browse-root-prefixed path.
+  let copiedAbs = null
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { copiedAbs = text } } })
+  propsRow('files.propsAbsPath')?.querySelector('.gp-props__copy')?.click()
+  await new Promise((r) => setTimeout(r, 60))
+  result.propsCopiedAbs = copiedAbs
+  result.propsCopyFeedback = document.querySelector('.gp-props__copied')?.textContent
+  await closeProps()
+  result.propsClosed = document.querySelector('.gp-props__statusbar') === null
+
+  // An untracked file: exactly one 未跟踪 chip (the tracked-state chip doubles
+  // as the untracked fact; the state badges must not repeat it).
+  await pickFile('d.txt')
+  await openProps()
+  result.propsUntrackedBadges = propsBadges()
+  await closeProps()
+
+  // newdir is collapsed into one `?? newdir/` porcelain row; note.txt inside
+  // matches no change of its own and must still read untracked, not tracked.
+  await pickFile('newdir')
+  await pickFile('note.txt')
+  await openProps()
+  result.propsUntrackedDirBadges = propsBadges()
+  await closeProps()
+
+  // An ignored file: the chip states the ignored fact and nothing else.
+  await pickFile('ignored.log')
+  await openProps()
+  result.propsIgnoredBadges = propsBadges()
+  await closeProps()
+
+  // An image: the natural size is probed from the already-loaded data URL.
+  await pickFile('logo.png')
+  await openProps()
+  await new Promise((r) => setTimeout(r, 150))
+  result.propsImageDimsRow = propsRow('files.propsImageSize') !== null
+  result.propsImageBadges = propsBadges()
+  await closeProps()
+
+  // A file at >= 1 KiB: the rounded size carries the raw byte count parenthetical.
+  await pickFile('README.md')
+  await openProps()
+  result.propsSizeKiB = propsRow('files.propsSize')?.querySelector('.gp-props__strong')?.textContent
+  result.propsSizeKiBSub = propsRow('files.propsSize')?.querySelector('.gp-props__sub')?.textContent
+  await closeProps()
+
   // Sticky restore: on the Files tab with `src` expanded and a file selected,
   // a view-tab switch unmounts the panel; returning within the window must
   // restore the Files tab, the expanded dir, and the selection (not reset to
@@ -1018,7 +1111,7 @@ try {
   assert.equal(out.suggestLocksAmend, true, 'amend toggle is disabled while AI suggest is in flight')
   assert.equal(out.suggestUnlocksMessage, true, 'message box and amend unlock once the suggestion lands')
   assert.equal(out.suggestFilled, true, 'the suggestion fills the message box')
-  assert.equal(out.changeRows, 5, 'five change rows (three text + one image + one svg)')
+  assert.equal(out.changeRows, 6, 'six change rows (two modified text + untracked file + untracked dir + image + svg)')
   assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')
   assert.equal(out.imageImgs, 2, 'both panes render an image')
   assert.equal(out.imageSrcOk, true, 'panes carry data URL images')
@@ -1151,6 +1244,29 @@ try {
   assert.equal(out.findCaseSensitiveHits, 0, 'enabling Match case drops mismatched-case matches')
   assert.equal(out.findCaseSensitiveLabel, 'files.findNoMatch', 'case-sensitive no-match shows the no-match label')
   assert.equal(out.findClosed, true, 'Esc closes the find box')
+  assert.equal(out.propsBtnShown, true, 'the preview toolbar shows the properties entry')
+  assert.equal(out.propsOpened, true, 'the properties dialog opens from the toolbar')
+  assert.equal(out.propsTitle, 'files.propsTitle', 'the dialog bar carries the properties title')
+  assert.deepEqual(out.propsGroups, ['files.propsGroupStats', 'files.propsGroupTime'], 'a text file gets the size/stats and time groups')
+  assert.equal(out.propsName, 'a.txt', 'the name row shows the file name')
+  assert.equal(out.propsTypeKey, 'files.propsTypeFmt', 'the type row renders the language/ext label')
+  assert.equal(out.propsRelPath, 'a.txt', 'the relative-path row copies the browse-relative path')
+  assert.equal(out.propsAbsPath, 'fixture-repo/a.txt', 'the absolute-path row shows the root-prefixed path')
+  assert.equal(out.propsSize, '24 B', 'a sub-KiB size stays exact')
+  assert.equal(out.propsSizeSub, null, 'a sub-KiB size omits the raw-byte parenthetical')
+  assert.equal(out.propsLines, '2', 'the stats block shows the line count')
+  assert.equal(out.propsMtime, true, 'the time group shows an absolute timestamp')
+  assert.deepEqual(out.propsBadges, ['files.propsTrackedYes', 'files.stModified'], 'the footer states tracked + modified once')
+  assert.equal(out.propsCopiedAbs, 'fixture-repo/a.txt', 'copying the path row writes the root-prefixed path')
+  assert.equal(out.propsCopyFeedback, 'files.pathCopied', 'the footer confirms the copy')
+  assert.equal(out.propsClosed, true, 'Escape closes the properties dialog')
+  assert.deepEqual(out.propsUntrackedBadges, ['files.propsUntracked'], 'an untracked file states untracked exactly once')
+  assert.deepEqual(out.propsUntrackedDirBadges, ['files.propsUntracked'], 'a file inside a collapsed untracked directory reads untracked, not tracked')
+  assert.deepEqual(out.propsIgnoredBadges, ['files.ignored'], 'an ignored file states only the ignored fact')
+  assert.equal(out.propsImageDimsRow, true, 'an image gets its natural size probed onto the dialog')
+  assert.deepEqual(out.propsImageBadges, ['files.propsTrackedYes'], 'an unchanged tracked image carries no working-tree chip')
+  assert.equal(out.propsSizeKiB, '1.5 KB', 'a rounded size steps to the display unit')
+  assert.equal(out.propsSizeKiBSub, 'files.propsSizeBytes', 'a rounded size carries the raw byte count parenthetical')
   assert.equal(out.preUnmountFilesActive, true, 'before the switch the Files tab is active')
   assert.ok(out.preUnmountSelected, 'before the switch a file is selected')
   assert.equal(out.preUnmountChildVisible, true, 'before the switch the expanded dir shows its child')

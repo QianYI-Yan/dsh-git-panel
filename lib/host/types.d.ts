@@ -473,6 +473,10 @@ export type GitQueryResult = {
     readonly dataUrl?: string;
     /** The file exceeded the byte cap, so no content is returned. */
     readonly tooLarge?: true;
+    /** Byte size from the stat the read already performs (all variants). */
+    readonly size?: number;
+    /** Modification time (epoch ms) from the same stat (all variants). */
+    readonly mtimeMs?: number;
 };
 export type GitQueryResponse = {
     readonly ok: true;
