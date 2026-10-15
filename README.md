@@ -20,7 +20,7 @@ dsh plugin --profile web add github:xbzbing/dsh-git-panel
 
 安装或更新后，重启 `dsh web` 服务再刷新页面，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板。插件分 host 与 client 两半，宿主挂载和 client bundle 清单都在服务启动时定型，因此代码更新（安装、`add` 覆盖 `lib`）通常需要重启服务，仅刷新页面可能看不到变化。面板内的配置项（详情页的输入框标记开关、差异默认视图）走配置热写，改动即时生效、无需重启。
 
-> **兼容性**：已在 `dsh@0.2.1-alpha.3` 上实测，安装、Git 面板、输入框标记与 host RPC 均可正常使用。
+> **兼容性**：已在 `dsh@0.2.1-alpha.4` 上实测，安装、Git 面板、输入框标记与 host RPC 均可正常使用。
 
 ## 功能
 

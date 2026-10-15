@@ -20,7 +20,7 @@ dsh plugin --profile web add github:xbzbing/dsh-git-panel
 
 After installing or updating, restart the `dsh web` service and refresh the page; the **Git** panel then appears in the workspace tab bar (after Chat and Trajectory). The plugin has a host half and a client half, and both the host mount and the client bundle manifest are fixed when the service starts, so code updates (installing, or an `add` that overwrites `lib`) usually need a service restart — a page refresh alone may not pick them up. In-panel settings (the input-bar marker toggle and the default diff view on the detail page) are hot-written and apply immediately without a restart.
 
-> **Compatibility**: verified on `dsh@0.2.1-alpha.3` — installation, the Git panel, the input-bar marker, and the host RPC all work normally.
+> **Compatibility**: verified on `dsh@0.2.1-alpha.4` — installation, the Git panel, the input-bar marker, and the host RPC all work normally.
 
 ## Features
 
