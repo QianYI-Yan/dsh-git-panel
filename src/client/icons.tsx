@@ -107,6 +107,11 @@ export function SyncIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M12.5 7a4.5 4.5 0 0 0-8-2.3' }), h('path', { key: 'b', d: 'M3.5 9a4.5 4.5 0 0 0 8 2.3' }), h('path', { key: 'c', d: 'M4.3 2.2v2.5h2.5' }), h('path', { key: 'd', d: 'M11.7 13.8v-2.5H9.2' })], size)
 }
 
+/** Circled "i" — the file-properties entry in the preview toolbar. */
+export function InfoIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'a', cx: 8, cy: 8, r: 6 }), h('path', { key: 'b', d: 'M8 7.2v3.6' }), h('circle', { key: 'c', cx: 8, cy: 5.2, r: 0.5, fill: 'currentColor', stroke: 'none' })], size)
+}
+
 /** Five-point star glyph. `filled` paints it solid (the "starred" state). */
 export function StarIcon({ size = 15, filled }: IconProps & { filled?: boolean }): JSX.Element {
   const d = 'M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.78l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57z'

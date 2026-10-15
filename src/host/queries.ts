@@ -567,7 +567,7 @@ async function queryFileContent(
   const inside = await isInsideRoot(deps, root, file, true)
   if (!inside) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   const cap = config.maxBytes
-  let info: { size: number }
+  let info: { size: number; mtimeMs: number }
   try {
     info = await deps.fs.stat(file)
   } catch (error) {
@@ -575,8 +575,11 @@ async function queryFileContent(
   }
   const mime = imageMimeFor(q.path)
   // Same over-cap response whether the size trips at stat or after read (the
-  // post-read length guards a grow-during-read race).
-  const tooLarge: GitQueryResponse = { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true } }
+  // post-read length guards a grow-during-read race). size/mtimeMs ride along
+  // on every variant (incl. tooLarge) — the properties dialog needs them and
+  // the stat has already run.
+  const statFields = { size: info.size, mtimeMs: Math.round(info.mtimeMs) }
+  const tooLarge: GitQueryResponse = { ok: true, value: { kind: 'file-content', path: q.path, variant: mime !== null ? 'image' : 'text', tooLarge: true, ...statFields } }
   if (info.size > cap) return tooLarge
   let buf: Buffer
   try {
@@ -586,12 +589,12 @@ async function queryFileContent(
   }
   if (buf.length > cap) return tooLarge
   if (mime !== null) {
-    return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}` } }
+    return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}`, ...statFields } }
   }
-  if (isBinaryBuffer(buf)) return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary' } }
+  if (isBinaryBuffer(buf)) return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary', ...statFields } }
   const content = buf.toString('utf8')
   const lines = content === '' ? 0 : content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
-  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines } }
+  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines, ...statFields } }
 }
 
 /** Do not expose Git metadata even through an explicit RPC path. */

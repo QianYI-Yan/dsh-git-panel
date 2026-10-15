@@ -135,7 +135,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, t }) : null
+      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot: null, t }) : null
       // git-not-installed inside a repo: stack a notice above the browser.
       if (gitMissingInRepo) {
         return h('div', { className: 'gp-files-wrap' }, [
@@ -161,7 +161,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       // until the user opens it), then stays mounted to retain its tree state.
       filesVisited
         ? h('div', { key: 'files', style: activeTab === 'files' ? { display: 'contents' } : { display: 'none' } },
-          h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, t }))
+          h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot, t }))
         : null,
     ])
   })()

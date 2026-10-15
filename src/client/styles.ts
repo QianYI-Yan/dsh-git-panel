@@ -188,6 +188,13 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
+/* Icon-only properties entry at the toolbar's far right. The path's flex-grow
+ * already pins the trailing cluster to the right edge; a margin-left:auto here
+ * would steal that free space and collapse the path to its 120px basis. */
+.gp-files__props{flex:none;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.gp-files__props:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.gp-files__props:disabled{opacity:0.5;cursor:default}
+.gp-files__props:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__mode{display:flex;gap:4px}
 .gp-files__mode-btn{border:0;border-radius:6px;padding:4px 10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__mode-btn--active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}
@@ -380,6 +387,39 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-btn--sm{height:24px;padding:0 8px;font-size:11px}
 .gp-btn--danger{border-color:transparent;background:var(--dsw-alias-state-error-primary);color:#fff}
 .gp-btn--danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 85%,#000);color:#fff}
+
+/* file properties dialog: grouped label/value rows. Emphasis comes from
+ * weight/color (bold name & numbers, tinted Git chips), not from layout.
+ * Groups after the first are separated by a hairline so the section titles
+ * read as dividers instead of floating among the rows. */
+.gp-props__group{display:flex;flex-direction:column;gap:2px}
+.gp-props__group + .gp-props__group{border-top:1px solid var(--dsw-alias-border-l2);padding-top:10px;margin-top:2px}
+.gp-props__group-title{font-size:12px;font-weight:650;letter-spacing:0.01em;color:var(--dsw-alias-label-primary);margin-bottom:5px}
+.gp-props__row{display:flex;align-items:baseline;gap:12px;min-height:22px}
+.gp-props__label{flex:none;width:84px;color:var(--dsw-alias-label-secondary);font-size:12px}
+.gp-props__value{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-end;gap:6px;color:var(--dsw-alias-label-primary);font-size:12px;text-align:right;overflow-wrap:anywhere}
+.gp-props__strong{font-weight:650;font-variant-numeric:tabular-nums}
+.gp-props__sub{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.gp-props__mono{font-family:var(--dsw-font-mono,monospace);font-size:11px;user-select:all}
+/* Path values are copy targets (hover shows the affordance). */
+.gp-props__copy{border:0;background:transparent;padding:2px 4px;margin:-2px 0;font:inherit;color:inherit;text-align:right;cursor:pointer;border-radius:5px;min-width:0}
+.gp-props__copy:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-props__copy:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}
+.gp-props__copy .gp-props__mono{font-size:11px}
+/* Footer status bar: Git chips pinned left, copy feedback right, both
+ * vertically centered; always rendered (fixed height) so feedback never
+ * resizes the dialog. */
+.gp-props__statusbar{min-height:34px;padding:6px 14px;justify-content:space-between;align-items:center;border-top:1px solid var(--dsw-alias-border-l2)}
+.gp-props__footer-chips{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+/* Copy feedback: info blue at reduced presence — success green would clash
+ * with the green "tracked" chip on the same bar. */
+.gp-props__copied{font-size:12px;font-weight:600;color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 60%,transparent);white-space:nowrap}
+.gp-props__copied--err{color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 75%,transparent)}
+/* Git chips: status colors arrive via gp-status--* (currentColor-based),
+ * painted as a soft tinted pill so states pop without shouting. */
+.gp-props__badge{display:inline-block;padding:1.5px 9px;border-radius:999px;font-size:11px;font-weight:600;line-height:1.5;border:1px solid color-mix(in srgb,currentColor 30%,transparent);background:color-mix(in srgb,currentColor 12%,transparent);white-space:nowrap}
+.gp-props__badge--ok{color:var(--dsw-alias-state-success-primary)}
+.gp-props__badge--muted{color:var(--dsw-alias-label-tertiary)}
 
 /* reset dialog: mode radios + hard-mode lost-files warning */
 .gp-reset__modes{display:flex;flex-direction:column;gap:6px}

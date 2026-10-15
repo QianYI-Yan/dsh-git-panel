@@ -9,13 +9,14 @@ import { createElement as h, useCallback, useEffect, useMemo, useRef, useState }
 import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc'
 import { queryAs } from './rpc'
-import type { DirEntry } from './types'
+import type { DirEntry, GitSnapshot } from './types'
 import type { GitKey } from './locales'
-import { ArrowLeftIcon, ChevronIcon } from './icons'
+import { ArrowLeftIcon, ChevronIcon, InfoIcon } from './icons'
 import { useResizableColumn } from './resizable'
 import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find'
 import { ZoomableImage } from './ImageZoom'
+import { FilePropsModal, type FilePropsInput } from './FilePropsModal'
 import { buildTops, findWindowRange, windowRange } from './virtual-list'
 import { useViewportTracker } from './use-viewport'
 
@@ -28,6 +29,8 @@ interface FilesTabProps {
    * files under the root, so the preserved browser state and the per-directory
    * cache are stale and must be dropped. */
   readonly worktreeGen: number
+  /** Panel snapshot; null in the non-git degrade (properties then skip Git). */
+  readonly snapshot: GitSnapshot | null
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -58,10 +61,10 @@ const VIEWPORT_FALLBACK = 600
 type FileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading'; readonly path: string }
-  | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number }
-  | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string }
-  | { readonly kind: 'binary'; readonly path: string }
-  | { readonly kind: 'tooLarge'; readonly path: string }
+  | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'error'; readonly path: string }
 
 /**
@@ -96,7 +99,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -110,6 +113,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTa
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const [showProps, setShowProps] = useState(false)
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
@@ -176,16 +180,18 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTa
     setRenderMarkdown(!isHtmlPath(path))
     setCopyState('idle')
     setCopyContentState('idle')
+    setShowProps(false)
     const seq = ++fileSeq.current
     setFile({ kind: 'loading', path })
     void remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
       if (seq !== fileSeq.current) return
       const fc = queryAs(res, 'file-content')
       if (fc === null) { setFile({ kind: 'error', path }); return }
-      if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path }); return }
-      if (fc.variant === 'image' && fc.dataUrl !== undefined) { setFile({ kind: 'image', path, dataUrl: fc.dataUrl }); return }
-      if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0 }); return }
-      setFile({ kind: 'binary', path })
+      const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
+      if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path, ...stat }); return }
+      if (fc.variant === 'image' && fc.dataUrl !== undefined) { setFile({ kind: 'image', path, dataUrl: fc.dataUrl, ...stat }); return }
+      if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat }); return }
+      setFile({ kind: 'binary', path, ...stat })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
   }, [remote, sessionId, compact])
 
@@ -226,6 +232,29 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTa
     setCopyContentState(ok ? 'copied' : 'error')
   }
 
+  // Properties dialog input: the loaded preview already carries path/size/
+  // mtime/lines; the ignored flag comes from the parent dir's listing entry.
+  const propsInput: FilePropsInput | null = (() => {
+    if (selected === null) return null
+    if (file.kind !== 'text' && file.kind !== 'image' && file.kind !== 'binary' && file.kind !== 'tooLarge') return null
+    const slash = selected.lastIndexOf('/')
+    const parent = slash < 0 ? '' : selected.slice(0, slash)
+    const name = slash < 0 ? selected : selected.slice(slash + 1)
+    const parentListing = dirs.get(parent)
+    const entry: DirEntry | undefined = parentListing?.status === 'ready'
+      ? parentListing.entries.find((e) => !e.dir && e.name === name)
+      : undefined
+    return {
+      path: selected,
+      kind: file.kind,
+      ...(file.size !== undefined ? { size: file.size } : {}),
+      ...(file.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
+      ...(file.kind === 'text' ? { lines: file.lines } : {}),
+      ...(file.kind === 'image' ? { dataUrl: file.dataUrl } : {}),
+      ignored: entry?.ignored === true,
+    }
+  })()
+
   const treeBlock = h('div', { key: 'left', className: 'gp-files__tree', style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` } }, treeRows)
 
   const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
@@ -248,8 +277,17 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, t }: FilesTa
           'aria-live': 'polite', onClick: () => { void copyContent() },
         }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
         : null,
+      // Icon-only properties entry, pinned to the toolbar's far right edge.
+      h('button', {
+        key: 'props', type: 'button', className: 'gp-files__props',
+        title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
+        disabled: propsInput === null, onClick: () => setShowProps(true),
+      }, h(InfoIcon, { size: 14 })),
     ]) : null,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t)),
+    propsInput !== null && showProps
+      ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
+      : null,
   ])
 
   // Compact: a single column drilling from the tree into the file preview.
