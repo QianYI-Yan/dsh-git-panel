@@ -5,10 +5,10 @@
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
-import type { GitSnapshot } from './types'
-import type { GitKey } from './locales'
-import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons'
-import { useHoverTip } from './tip'
+import type { GitSnapshot } from './types.js'
+import type { GitKey } from './locales.js'
+import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
+import { useHoverTip } from './tip.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -47,6 +47,7 @@ export function pushScopeNode(preview: 'loading' | PullPreview | null, t: Transl
 
 export interface StatusBarCbs {
   readonly syncBusy: boolean
+  readonly syncError: string | null
   readonly pullBusy: boolean
   readonly pushBusy: boolean
   readonly publishBusy: boolean
@@ -121,6 +122,9 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     else if (ahead > 0 && behind > 0) { text = t('status.diverged', { ahead, behind }); tone = ' gp-statusbar__state--warn' }
     else if (behind > 0) { text = t('status.behind', { n: behind }); tone = ' gp-statusbar__state--warn' }
     else { text = t('status.ahead', { n: ahead }) }
+    if (cb.syncError !== null) {
+      return h('span', { key: 'error', className: 'gp-statusbar__state gp-statusbar__state--warn', role: 'alert', title: cb.syncError }, cb.syncError)
+    }
     return h('span', { key: 's', className: `gp-statusbar__state${tone}` }, text)
   })()
 
