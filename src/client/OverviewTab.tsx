@@ -8,6 +8,7 @@
 import { createElement as h, useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
+import { IconChevronDownOutlineRegular, Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
@@ -38,6 +39,15 @@ const EMPTY_DIRS: ReadonlySet<string> = new Set()
  * column for a nested label to stay right of its dir's label. */
 const BRANCH_BASE = 22
 const BRANCH_INDENT = 24
+
+/** Time-filter rows: git's relative date value → its locale key. One source for
+ * both the menu items and the trigger label, so they cannot drift apart. */
+const SINCE_OPTIONS: ReadonlyArray<readonly [string, GitKey]> = [
+  ['', 'overview.allTime'],
+  ['1 day ago', 'overview.today'],
+  ['7 days ago', 'overview.last7d'],
+  ['30 days ago', 'overview.last30d'],
+]
 
 interface OverviewProps {
   readonly remote: GitPanelRemote
@@ -97,6 +107,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
+  /** Menu open state per filter: Menu is controlled and never closes itself. */
+  const [authorOpen, setAuthorOpen] = useState(false)
+  const [sinceOpen, setSinceOpen] = useState(false)
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
   /** Rows whose open state differs from its default (sections and top-level ref
@@ -502,6 +515,32 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
 
   // The history middle column: a toolbar (search / author / since / fetch, plus
   // a filter trigger in compact) over the scrolling commit list.
+  // The two filters are the platform Menu — the same dropdown surface the shell
+  // uses for its own selectors — instead of a native <select>. The trigger is
+  // ours (Menu only wraps it), and Menu never closes itself, so onSelect closes.
+  const authorItems: readonly MenuItem[] = [
+    { id: '', label: t('overview.allUsers') },
+    ...authors.map((a) => ({ id: a, label: a })),
+  ]
+  const sinceItems: readonly MenuItem[] = SINCE_OPTIONS.map(([value, key]) => ({ id: value, label: t(key) }))
+  const sinceLabel = t(SINCE_OPTIONS.find(([value]) => value === filter.since)?.[1] ?? 'overview.allTime')
+  const authorLabel = filter.author === '' ? t('overview.allUsers') : filter.author
+  const renderFilterTrigger = (
+    open: boolean,
+    label: string,
+    toggle: () => void,
+  ): JSX.Element => h('button', {
+    type: 'button',
+    className: 'gp-select-trigger',
+    'aria-haspopup': 'menu',
+    'aria-expanded': open,
+    title: label,
+    onClick: toggle,
+  }, [
+    h('span', { key: 'l', className: 'gp-select-trigger__label' }, label),
+    h(IconChevronDownOutlineRegular, { key: 'c', className: 'gp-select-trigger__chevron', size: 14 }),
+  ])
+
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
     h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, [
       compact ? h('button', {
@@ -513,22 +552,36 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         key: 'search', className: 'gp-search', placeholder: t(searchNarrow || compact ? 'overview.searchShort' : 'overview.search'), value: searchInput,
         onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
       }),
-      h('select', {
-        key: 'author', className: 'gp-select', value: filter.author,
-        onChange: (e: { target: { value: string } }) => setFilter((prev) => ({ ...prev, author: e.target.value })),
-      }, [
-        h('option', { key: '', value: '' }, t('overview.allUsers')),
-        ...authors.map((a) => h('option', { key: a, value: a }, a)),
-      ]),
-      h('select', {
-        key: 'since', className: 'gp-select', value: filter.since,
-        onChange: (e: { target: { value: string } }) => setFilter((prev) => ({ ...prev, since: e.target.value })),
-      }, [
-        h('option', { key: '', value: '' }, t('overview.allTime')),
-        h('option', { key: 'today', value: '1 day ago' }, t('overview.today')),
-        h('option', { key: '7d', value: '7 days ago' }, t('overview.last7d')),
-        h('option', { key: '30d', value: '30 days ago' }, t('overview.last30d')),
-      ]),
+      h(Menu, {
+        key: 'author',
+        open: authorOpen,
+        onClose: () => setAuthorOpen(false),
+        items: authorItems,
+        selectedId: filter.author,
+        onSelect: (id: string) => {
+          setAuthorOpen(false)
+          setFilter((prev) => ({ ...prev, author: id }))
+        },
+        align: 'start',
+        portal: true,
+        className: 'gp-filter',
+        anchor: renderFilterTrigger(authorOpen, authorLabel, () => setAuthorOpen((v) => !v)),
+      }),
+      h(Menu, {
+        key: 'since',
+        open: sinceOpen,
+        onClose: () => setSinceOpen(false),
+        items: sinceItems,
+        selectedId: filter.since,
+        onSelect: (id: string) => {
+          setSinceOpen(false)
+          setFilter((prev) => ({ ...prev, since: id }))
+        },
+        align: 'start',
+        portal: true,
+        className: 'gp-filter',
+        anchor: renderFilterTrigger(sinceOpen, sinceLabel, () => setSinceOpen((v) => !v)),
+      }),
       h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), disabled: syncBusy, onClick: () => void runCheckSync() }, h(RefreshIcon, { size: 14 })),
     ]),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },

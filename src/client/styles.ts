@@ -105,7 +105,6 @@ const CSS = `
 .gp-branch-row__ic{display:inline-flex;flex:none;width:14px;align-items:center;justify-content:center}
 .gp-branch-row--dir{color:var(--dsw-alias-label-secondary)}
 .gp-branch-row--dir .gp-tree-name{font-weight:600}
-.gp-select{height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
 
 /* left-column footer status bar: repo icon (left) + branch sync (right) */
 .gp-statusbar{flex:none;display:flex;align-items:center;gap:8px;min-height:30px;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);font-size:11px}
@@ -143,6 +142,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-graph-svg{display:block}
 .gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* Filter dropdowns are the platform Menu: the wrapper is the Menu's own anchor
+ * span (inline-flex, so it still lays out as a toolbar item), and the trigger
+ * mirrors the shell's own selector chip — transparent until hover/expanded. */
+.gp-filter{display:inline-flex;align-items:center;min-width:0;max-width:100%}
+.gp-select-trigger{display:inline-flex;align-items:center;gap:4px;min-height:28px;max-width:180px;padding:0 8px;border:none;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}
+.gp-select-trigger:not(:disabled):hover,.gp-select-trigger[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-select-trigger:disabled{cursor:default;color:var(--dsw-alias-label-quaternary)}
+.gp-select-trigger:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-select-trigger__label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-select-trigger__chevron{flex:none;color:var(--dsw-alias-label-caption)}
 
 /* commit detail (right pane): the changed-file tree and the commit message
  * split the column in half, each scrolling on its own. Equal halves keep the

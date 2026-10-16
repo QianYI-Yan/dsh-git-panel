@@ -8,6 +8,7 @@
  */
 import { chromium } from 'playwright-core'
 import { assertPanelResults } from './assert-panel-results.mjs'
+import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -52,6 +53,16 @@ await page.addScriptTag({ path: resolve(DIR, 'confirmation-state-helper.mjs') })
 const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
   const { fixture, connection } = window.createGitPanelMock(snap)
+  // Record the full history query objects (fixture.queries keeps kinds only) so
+  // the filter-menu assertions can see the author/since params that actually
+  // reach the RPC. Patched before apply() so the client's captured caller wraps it.
+  const historyQueries = []
+  const mockCall = connection.rpc.call
+  connection.rpc.call = async (channel, endpoint, payload) => {
+    const q = payload && payload.args && payload.args.request && payload.args.request.query
+    if (endpoint === 'gitPanel/query' && q && q.kind === 'history') historyQueries.push(q)
+    return mockCall(channel, endpoint, payload)
+  }
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -313,6 +324,56 @@ const out = await page.evaluate(async (snap) => {
 
   // ── branch switch (wide): row switch button → confirm → run payload ──
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+
+  // ── filter dropdowns: the official Menu primitive, not a native <select> ──
+  // Opening shows a role="menu" surface; picking an author reaches the next
+  // history query (the params, not just the kind) and closes the menu; Escape
+  // and an outside pointerdown close without applying anything; the trigger
+  // label reflects the current value. Asserted on observable DOM + RPC only.
+  result.filterMenu = await (async () => {
+    const toolbar = document.querySelector('.gp-history .gp-toolbar')
+    const triggers = [...(toolbar?.querySelectorAll('.gp-select-trigger') || [])]
+    const menu = () => document.querySelector('[role="menu"]')
+    const itemWith = (text) => [...(menu()?.querySelectorAll('[role="menuitem"]') || [])]
+      .find((b) => (b.textContent || '') === text) || null
+    const out = {
+      nativeSelects: document.querySelectorAll('.gp-history .gp-toolbar select').length,
+      triggerCount: triggers.length,
+      fetchStillDirect: toolbar?.querySelector(':scope > button[title="overview.fetch"]') != null,
+    }
+    const [authorTrigger, sinceTrigger] = triggers
+    if (authorTrigger === undefined || sinceTrigger === undefined) return out
+    out.initialAuthor = authorTrigger.textContent || ''
+    out.initialSince = sinceTrigger.textContent || ''
+
+    authorTrigger.click(); await wait(150)
+    out.openShowsMenu = menu() !== null
+    out.openAriaExpanded = authorTrigger.getAttribute('aria-expanded')
+    out.itemsListed = [...(menu()?.querySelectorAll('[role="menuitem"]') || [])].map((b) => b.textContent)
+
+    const queriesBefore = historyQueries.length
+    itemWith('Tester')?.click(); await wait(300)
+    out.pickClosesMenu = menu() === null
+    out.pickAriaExpanded = authorTrigger.getAttribute('aria-expanded')
+    out.authorLabelAfterPick = authorTrigger.textContent || ''
+    out.historyCarriedAuthor = historyQueries.slice(queriesBefore).some((q) => q.author === 'Tester')
+
+    const sinceBefore = historyQueries.length
+    sinceTrigger.click(); await wait(150)
+    out.sinceMenuOpened = menu() !== null
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wait(200)
+    out.escapeClosesMenu = menu() === null
+    out.escapeKeepsFilter = (sinceTrigger.textContent || '') === out.initialSince
+    out.escapeAppliedNothing = !historyQueries.slice(sinceBefore).some((q) => q.since !== undefined)
+
+    sinceTrigger.click(); await wait(150)
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await wait(200)
+    out.outsideClickClosesMenu = menu() === null
+    out.outsideClickKeepsFilter = (sinceTrigger.textContent || '') === out.initialSince
+    return out
+  })()
 
   // Rows are matched by the full ref name in `title`: a ref nested in a
   // directory row shows only its last path segment, while the directory row
@@ -1135,6 +1196,30 @@ await browser.close()
 
 try {
   assertPanelResults(out, realInput, errors)
+  // The two Overview filters are the official Menu, not native <select>: opening
+  // shows the surface, picking applies + closes, Escape/outside dismiss without
+  // applying. Kept in this runner (rather than assert-panel-results.mjs) so the
+  // change stays inside this task's declared write scope.
+  assert.deepEqual(out.filterMenu, {
+    nativeSelects: 0,
+    triggerCount: 2,
+    fetchStillDirect: true,
+    initialAuthor: 'overview.allUsers',
+    initialSince: 'overview.allTime',
+    openShowsMenu: true,
+    openAriaExpanded: 'true',
+    itemsListed: ['overview.allUsers', 'Tester'],
+    pickClosesMenu: true,
+    pickAriaExpanded: 'false',
+    authorLabelAfterPick: 'Tester',
+    historyCarriedAuthor: true,
+    sinceMenuOpened: true,
+    escapeClosesMenu: true,
+    escapeKeepsFilter: true,
+    escapeAppliedNothing: true,
+    outsideClickClosesMenu: true,
+    outsideClickKeepsFilter: true,
+  }, 'the author/since filters are the official Menu (open / pick / Escape / outside click)')
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
   console.error('e2e run.mjs: FAIL', e.message)

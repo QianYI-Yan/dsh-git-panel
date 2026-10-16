@@ -31,6 +31,55 @@
         return window.React.createElement('article', { 'data-markdown-rendered': '' },
           window.React.createElement('h1', null, text.replace(/^#\s*/, '').trim()));
       },
+      // Official dsh Menu: a controlled anchored dropdown. The stub keeps the
+      // observable contract the plugin relies on — a role="menu" surface with
+      // role="menuitem" rows, onSelect(id), and onClose on Escape or an outside
+      // pointerdown — so the e2e can drive open/pick/dismiss for real. The
+      // anchor is rendered as-is; the plugin owns its aria-haspopup/aria-expanded.
+      Menu: function (props) {
+        window.React.useEffect(function () {
+          if (!props.open) return undefined;
+          var onKey = function (event) { if (event.key === 'Escape') props.onClose(); };
+          var onDown = function (event) {
+            var target = event.target;
+            var inside = target && target.closest
+              && (target.closest('.dsh-menu-root') || target.closest('.dsh-menu-list'));
+            if (!inside) props.onClose();
+          };
+          document.addEventListener('keydown', onKey);
+          document.addEventListener('pointerdown', onDown);
+          return function () {
+            document.removeEventListener('keydown', onKey);
+            document.removeEventListener('pointerdown', onDown);
+          };
+        }, [props.open, props.onClose]);
+        var items = props.items || [];
+        var list = props.open ? window.React.createElement('div', {
+          className: 'dsh-menu-list', role: 'menu', 'data-menu-surface': '',
+        }, items.map(function (item) {
+          var selected = item.id === props.selectedId;
+          return window.React.createElement('button', {
+            key: item.id, type: 'button', role: 'menuitem',
+            className: selected ? 'dsh-menu-item dsh-menu-item--selected' : 'dsh-menu-item',
+            'aria-checked': selected, disabled: item.disabled === true,
+            onClick: function () { if (props.onSelect) props.onSelect(item.id); },
+          }, item.label);
+        })) : null;
+        // Positional children, not an array: no key warnings from a wrapper.
+        return window.React.createElement('span', { className: 'dsh-menu-root' }, props.anchor, list);
+      },
+      MenuItemButton: function (props) {
+        return window.React.createElement('button', {
+          type: 'button', role: 'menuitem', className: 'dsh-menu-item',
+          disabled: props.disabled === true, onClick: props.onSelect,
+        }, props.children);
+      },
+      IconChevronDownOutlineRegular: function (props) {
+        return window.React.createElement('svg', {
+          'data-chevron': '', 'aria-hidden': 'true', className: props.className,
+          width: props.size || 14, height: props.size || 14,
+        });
+      },
       // Mirrors the platform's writeClipboard: the async Clipboard API when the
       // context has it, else the execCommand fallback a remote plain-HTTP
       // origin needs (there navigator.clipboard is undefined).
