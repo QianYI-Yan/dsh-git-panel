@@ -86,7 +86,9 @@ const CSS = `
 /* branch list */
 .gp-branch-group{padding:2px 0}
 .gp-branch-group__head{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
-.gp-branch-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;cursor:pointer;border-radius:6px;font-size:12px;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Left corners stay square so the row highlight (and its inset accent bar)
+ * sits flush against the panel edge; only the right end is rounded. */
+.gp-branch-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;cursor:pointer;border-radius:0 6px 6px 0;font-size:12px;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gp-branch-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-branch-row--active,.gp-branch-row--active:hover{color:var(--dsw-alias-state-business-primary);background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-branch-row--current{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
@@ -96,6 +98,14 @@ const CSS = `
 .gp-branch-row:hover .gp-branch-row__switch{display:inline-block}
 .gp-branch-row__switch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .gp-branch-row__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
+/* Refs sharing a '/'-prefix fold into a collapsible directory row: the chevron
+ * keeps its own column and the folder glyph shares the 14px icon box, so a dir
+ * label lines up with the leaf labels of the same level. */
+.gp-branch-row__chev{display:inline-flex;flex:none;width:11px;align-items:center;justify-content:center}
+.gp-branch-row__ic{display:inline-flex;flex:none;width:14px;align-items:center;justify-content:center}
+.gp-branch-row--dir{color:var(--dsw-alias-label-secondary)}
+.gp-branch-row--dir .gp-tree-name{font-weight:600}
+.gp-select{height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
 
 /* left-column footer status bar: repo icon (left) + branch sync (right) */
 .gp-statusbar{flex:none;display:flex;align-items:center;gap:8px;min-height:30px;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);font-size:11px}
@@ -133,7 +143,6 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-graph-svg{display:block}
 .gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-select{height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}
 
 /* commit detail (right pane): the changed-file tree and the commit message
  * split the column in half, each scrolling on its own. Equal halves keep the

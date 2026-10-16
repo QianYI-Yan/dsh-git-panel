@@ -313,17 +313,59 @@ const out = await page.evaluate(async (snap) => {
 
   // ── branch switch (wide): row switch button → confirm → run payload ──
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-  const leftRow = (name) => [...document.querySelectorAll('.gp-col--left .gp-branch-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent || '') === name) || null
+
+  // Rows are matched by the full ref name in `title`: a ref nested in a
+  // directory row shows only its last path segment, while the directory row
+  // carries the directory path.
+  const leftRow = (name) => [...document.querySelectorAll('.gp-col--left .gp-branch-row')].find((r) => (r.getAttribute('title') || '') === name) || null
   const switchBtnOf = (name) => leftRow(name)?.querySelector('.gp-branch-row__switch') ?? null
   result.switchNoFixedEntry = document.querySelector('.gp-switch-row') === null
   // The remote section starts collapsed; expand it so its rows are listed.
   ;[...document.querySelectorAll('.gp-col--left .gp-branch-group__head')].find((el) => (el.textContent || '').includes('overview.remote'))?.click()
   await wait(60)
+  // Remote refs sharing the `origin/` prefix fold into one collapsible dir row
+  // that carries a folder glyph instead of a branch icon; deeper dirs start
+  // closed so a remote with many `origin/feat/*` refs does not unfold at once.
+  const originDir = leftRow('origin')
+  result.branchDirRow = originDir?.classList.contains('gp-branch-row--dir') === true
+  result.branchDirLabel = originDir?.querySelector('.gp-tree-name')?.textContent ?? null
+  result.branchDirHasFolder = originDir?.querySelector('.gp-branch-row__ic--folder') !== null
+  result.branchLeafHasNoFolder = leftRow('origin/main')?.querySelector('.gp-branch-row__ic--folder') === null
+  result.branchDirHasNoCount = document.querySelectorAll('.gp-branch-dir__count').length === 0
+  result.branchDirExpandedDefault = originDir?.getAttribute('aria-expanded') === 'true'
+  // A dir row is a child of its section head, so its chevron must sit to the
+  // right of the section chevron — never flush with it.
+  const leftOf = (el) => el?.getBoundingClientRect().left ?? -1
+  const remoteHead = [...document.querySelectorAll('.gp-col--left .gp-branch-group__head')].find((el) => (el.textContent || '').includes('overview.remote'))
+  result.branchDirIndentedFromSection = leftOf(originDir?.querySelector('.gp-branch-row__chev svg')) > leftOf(remoteHead?.querySelector('svg'))
+  // Labels are compared by their laid-out x so the indent is real, not just padding.
+  const labelX = (name) => leftRow(name)?.querySelector('.gp-tree-name')?.getBoundingClientRect().left ?? -1
+  result.branchLeafIndented = labelX('origin/main') > labelX('origin')
+  const nestedDir = leftRow('origin/feat')
+  result.branchNestedDirCollapsed = nestedDir?.getAttribute('aria-expanded') === 'false' && leftRow('origin/feat/branch-tree') === null
+  nestedDir?.click()
+  await wait(60)
+  result.branchNestedDirExpands = leftRow('origin/feat/branch-tree') !== null && leftRow('origin/feat')?.getAttribute('aria-expanded') === 'true'
+  result.branchNestedLeafIndented = labelX('origin/feat/branch-tree') > labelX('origin/feat')
+  leftRow('origin/feat')?.click()
+  await wait(60)
+  result.branchNestedDirRecollapses = leftRow('origin/feat/branch-tree') === null
+  // The row's left corners are square (flush against the panel edge, so the
+  // highlight and its inset accent bar reach it) while the right end is rounded.
+  const rowStyle = getComputedStyle(leftRow('origin/main'))
+  result.branchRowLeftSquare = rowStyle.borderTopLeftRadius === '0px' && rowStyle.borderBottomLeftRadius === '0px'
+  result.branchRowRightRounded = rowStyle.borderTopRightRadius === '6px' && rowStyle.borderBottomRightRadius === '6px'
+  originDir?.click()
+  await wait(60)
+  result.branchDirCollapsedHidesChild = leftRow('origin/main') === null && leftRow('origin')?.getAttribute('aria-expanded') === 'false'
+  leftRow('origin')?.click()
+  await wait(60)
+  result.branchDirReexpanded = leftRow('origin/main') !== null
   // Only rows with a real target carry the button: not the checked-out branch,
-  // not the remote ref resolving to it, never tags.
+  // not the remote ref resolving to it, never tags, never a directory row.
   result.switchBtnRows = [...document.querySelectorAll('.gp-col--left .gp-branch-row')]
     .filter((r) => r.querySelector('.gp-branch-row__switch') !== null)
-    .map((r) => r.querySelector('.gp-tree-name')?.textContent)
+    .map((r) => r.getAttribute('title'))
   // Hidden until hover (no pointer in the headless run), revealed by a hover rule.
   result.switchBtnHidden = switchBtnOf('feature') !== null && getComputedStyle(switchBtnOf('feature')).display === 'none'
   result.switchBtnHoverRule = [...document.styleSheets].some((sheet) => {

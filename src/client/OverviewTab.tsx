@@ -11,8 +11,9 @@ import type { JSX } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
+import { buildBranchTree, type BranchTreeNode } from './branch-tree.js'
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
 import { statusChar, statusClass } from './status.js'
@@ -30,6 +31,13 @@ import type { QueryKey } from './query-key.js'
 
 /** Stable empty collapsed-dirs set; shared so a fully-expanded tree never allocates. */
 const EMPTY_DIRS: ReadonlySet<string> = new Set()
+
+/** Branch-tree geometry (px): the left padding of a depth-0 row and the step per
+ * level. A dir row starts exactly where a leaf row of the same depth starts and
+ * spends its extra width on the chevron column, so the step must exceed that
+ * column for a nested label to stay right of its dir's label. */
+const BRANCH_BASE = 22
+const BRANCH_INDENT = 24
 
 interface OverviewProps {
   readonly remote: GitPanelRemote
@@ -91,6 +99,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const [searchInput, setSearchInput] = useState('')
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
+  /** Rows whose open state differs from its default (sections and top-level ref
+   * dirs open, deeper dirs closed); `onToggle` flips membership. */
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
   // Tag write ops (create/delete) don't change the work tree, so they never bump
   // the business snapshot; a local counter folds into the query key so the
@@ -695,31 +705,69 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
     ])
   }
   if (tree === null) return h('div', { className: 'gp-empty' }, cb.t('common.loading'))
-  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, prefix = ''): JSX.Element =>
-    h('div', { key, className: 'gp-branch-group' }, [
+  /** One branch row. `label` is the last path segment; `title` keeps the full ref. */
+  const branchRow = (b: GitBranch, label: string, depth: number, sectionKey: string, icon: JSX.Element): JSX.Element => {
+    const ref = b.name
+    const isCurrent = tree.current === b.name
+    const cls = `gp-branch-row${activeRef === ref ? ' gp-branch-row--active' : ''}${isCurrent ? ' gp-branch-row--current' : ''}`
+    const target = cb.switchOptions.get(`${sectionKey}:${b.name}`)
+    return h('div', { key: b.name, className: cls, style: { paddingLeft: BRANCH_BASE + depth * BRANCH_INDENT }, title: b.name, onClick: () => cb.onFilter(activeRef === ref ? null : ref) }, [
+      h('span', { key: 'i', className: 'gp-branch-row__ic' }, icon),
+      h('span', { key: 'n', className: 'gp-tree-name' }, label),
+      (b.ahead || b.behind) ? h('span', { key: 't', className: 'gp-branch-row__track' }, `${b.ahead ? `↑${b.ahead}` : ''}${b.behind ? `↓${b.behind}` : ''}`) : null,
+      // Shown on hover (always on touch); stops propagation so switching
+      // never also toggles the row's history filter.
+      target === undefined ? null : h('button', {
+        key: 'sw', type: 'button', className: 'gp-branch-row__switch',
+        title: cb.t(target.createFrom === undefined ? 'switch.rowTitle' : 'switch.rowTitleTrack', { name: target.name, ref: target.label }),
+        onClick: (e: { stopPropagation: () => void }) => { e.stopPropagation(); cb.onSwitch(target) },
+      }, cb.t('switch.action')),
+    ])
+  }
+  /** Slash-delimited refs fold into directories: `feat/a` + `feat/b` → `feat/`. */
+  const walk = (list: readonly BranchTreeNode[], depth: number, sectionKey: string, icon: JSX.Element, rows: JSX.Element[]): void => {
+    for (const node of list) {
+      if (node.kind === 'leaf') { rows.push(branchRow(node.branch, node.label, depth, sectionKey, icon)); continue }
+      const dirKey = `${sectionKey}:${node.path}`
+      // Membership means "the user toggled this row away from its default":
+      // sections and top-level dirs start open, deeper dirs start closed so a
+      // remote with many `origin/feat/*` refs does not unfold the whole tree.
+      const defaultOpen = depth === 0
+      const open = closed.has(dirKey) ? !defaultOpen : defaultOpen
+      rows.push(h('div', {
+        key: dirKey,
+        className: 'gp-branch-row gp-branch-row--dir',
+        style: { paddingLeft: BRANCH_BASE + depth * BRANCH_INDENT },
+        title: node.path,
+        role: 'button',
+        tabIndex: 0,
+        'aria-expanded': open,
+        onClick: () => cb.onToggle(dirKey),
+        onKeyDown: (e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.onToggle(dirKey) }
+        },
+      }, [
+        h('span', { key: 'c', className: 'gp-branch-row__chev' }, h(ChevronIcon, { size: 11, open })),
+        h('span', { key: 'i', className: 'gp-branch-row__ic gp-branch-row__ic--folder' }, h(FolderIcon, { size: 13 })),
+        h('span', { key: 'n', className: 'gp-tree-name' }, node.label),
+      ]))
+      if (!open) continue
+      // A branch whose name equals the dir path renders as its first child.
+      if (node.self !== null) rows.push(branchRow(node.self, node.path, depth + 1, sectionKey, icon))
+      walk(node.children, depth + 1, sectionKey, icon, rows)
+    }
+  }
+  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element): JSX.Element => {
+    const rows: JSX.Element[] = []
+    if (!closed.has(key)) walk(buildBranchTree(items), 0, key, icon, rows)
+    return h('div', { key, className: 'gp-branch-group' }, [
       h('div', { key: 'head', className: 'gp-branch-group__head', onClick: () => cb.onToggle(key) }, [
         h(ChevronIcon, { key: 'c', size: 11, open: !closed.has(key) }),
         `${cb.t(labelKey)} (${items.length})`,
       ]),
-      closed.has(key) ? null : items.map((b) => {
-        const ref = prefix + b.name
-        const isCurrent = tree.current === b.name
-        const cls = `gp-branch-row${activeRef === ref ? ' gp-branch-row--active' : ''}${isCurrent ? ' gp-branch-row--current' : ''}`
-        const target = cb.switchOptions.get(`${key}:${b.name}`)
-        return h('div', { key: b.name, className: cls, title: b.name, onClick: () => cb.onFilter(activeRef === ref ? null : ref) }, [
-          h('span', { key: 'i', style: { display: 'inline-flex', width: 14 } }, icon),
-          h('span', { key: 'n', className: 'gp-tree-name' }, b.name),
-          (b.ahead || b.behind) ? h('span', { key: 't', className: 'gp-branch-row__track' }, `${b.ahead ? `↑${b.ahead}` : ''}${b.behind ? `↓${b.behind}` : ''}`) : null,
-          // Shown on hover (always on touch); stops propagation so switching
-          // never also toggles the row's history filter.
-          target === undefined ? null : h('button', {
-            key: 'sw', type: 'button', className: 'gp-branch-row__switch',
-            title: cb.t(target.createFrom === undefined ? 'switch.rowTitle' : 'switch.rowTitleTrack', { name: target.name, ref: target.label }),
-            onClick: (e: { stopPropagation: () => void }) => { e.stopPropagation(); cb.onSwitch(target) },
-          }, cb.t('switch.action')),
-        ])
-      }),
+      ...rows,
     ])
+  }
   return h('div', {}, [
     h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
     section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 })),

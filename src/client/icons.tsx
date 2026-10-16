@@ -58,6 +58,11 @@ export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }
 
+/** Folder glyph marking a ref directory row (a group of refs, not a file). */
+export function FolderIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2 12.5V3.5h4l1.5 2H14v7z' })], size)
+}
+
 /** Archive box glyph for the stash action. */
 export function StashIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M2 5.5h12V13H2z' }), h('path', { key: 'b', d: 'M1.5 3h13v2.5h-13z' }), h('path', { key: 'c', d: 'M6.5 8.5h3' })], size)
