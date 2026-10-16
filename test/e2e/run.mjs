@@ -408,6 +408,9 @@ const out = await page.evaluate(async (snap) => {
     out.pickAriaExpanded = authorTrigger.getAttribute('aria-expanded')
     out.authorLabelAfterPick = authorTrigger.textContent || ''
     out.historyCarriedAuthor = historyQueries.slice(queriesBefore).some((q) => q.author === 'Tester')
+    // An author filter breaks the parent chain, so the graph is dropped rather
+    // than drawn as one dangling lane per filtered-out parent.
+    result.graphHiddenOnAuthorFilter = document.querySelector('.gp-history .gp-graph-svg') === null
 
     const sinceBefore = historyQueries.length
     sinceTrigger.click(); await wait(150)

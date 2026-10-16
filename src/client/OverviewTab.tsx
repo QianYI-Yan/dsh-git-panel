@@ -218,10 +218,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  const searching = filter.search !== ''
-  const rows: GraphRow[] = useMemo(() => (searching ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits, snapshot.graphStyle)), [commits, searching, snapshot.graphStyle])
-  const laneCount = useMemo(() => (searching ? 0 : graphWidth(rows)), [rows, searching])
-  const graphW = searching ? 12 : Math.max(LANE_W, laneCount * LANE_W)
+  // Any history filter (search / author / since) breaks the parent chain: the
+  // parents of the shown commits are usually filtered out too, so every lane
+  // would dangle. Such a subset has no meaningful topology — draw no graph.
+  const filtered = filter.search !== '' || filter.author !== '' || filter.since !== ''
+  const rows: GraphRow[] = useMemo(() => (filtered ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits, snapshot.graphStyle)), [commits, filtered, snapshot.graphStyle])
+  const laneCount = useMemo(() => (filtered ? 0 : graphWidth(rows)), [rows, filtered])
+  const graphW = filtered ? 12 : Math.max(LANE_W, laneCount * LANE_W)
   const rowH = compact ? ROW_H_COMPACT : ROW_H
   // Wide: graph | subject | hash | author | date. Compact: graph | stacked text.
   const gridTpl = compact ? `${graphW}px minmax(0,1fr)` : `${graphW}px minmax(120px,1fr) 72px 120px 96px`
@@ -589,7 +592,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
         : rows.map((row) => renderCommitRow(row, {
           selected: selected?.hash === row.commit.hash,
-          gridTpl, graphW, laneCount, searching, now, compact, rowH,
+          gridTpl, graphW, laneCount, filtered, now, compact, rowH,
           onSelect: () => selectCommit(row.commit),
           onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
           t,
@@ -866,7 +869,8 @@ interface RowCbs {
   gridTpl: string
   graphW: number
   laneCount: number
-  searching: boolean
+  /** A history filter is active: the filtered subset has no drawable topology. */
+  filtered: boolean
   now: number
   compact: boolean
   rowH: number
@@ -882,7 +886,7 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     key: r.name,
     className: `gp-ref-chip${r.head ? ' gp-ref-chip--head' : ''}${r.kind === 'remote' ? ' gp-ref-chip--remote' : ''}${r.kind === 'tag' ? ' gp-ref-chip--tag' : ''}`,
   }, r.name))
-  const graphCell = h('div', { key: 'g', className: 'gp-graph-cell' }, cb.searching ? null : renderGraphCell(row, cb.laneCount, cb.rowH))
+  const graphCell = h('div', { key: 'g', className: 'gp-graph-cell' }, cb.filtered ? null : renderGraphCell(row, cb.laneCount, cb.rowH))
   // Compact: two stacked lines (subject / hash·author·time) beside the graph,
   // taller rows for touch, and no hover handlers (tap drills into the detail).
   if (cb.compact) {

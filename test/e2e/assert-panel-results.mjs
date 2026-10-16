@@ -267,6 +267,7 @@ export function assertPanelResults(out, realInput, errors) {
   // run payload, refusal kept in the dialog.
   assert.equal(out.switchNoFixedEntry, true, 'the left column has no fixed switch entry any more')
   assert.equal(out.branchPrimaryFirst, true, 'the primary branch (main) leads the local list')
+  assert.equal(out.graphHiddenOnAuthorFilter, true, 'an author filter drops the graph instead of dangling lanes')
   assert.equal(out.branchDirRow, true, 'refs sharing a path prefix fold into a directory row')
   assert.equal(out.branchDirLabel, 'origin', 'the directory row is labelled with the directory name')
   assert.equal(out.branchDirHasFolder, true, 'a directory row carries a folder glyph, not a branch icon')
