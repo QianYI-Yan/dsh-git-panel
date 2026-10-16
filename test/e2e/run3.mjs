@@ -119,7 +119,7 @@ const out = await page.evaluate(async (snap) => {
   const rootFits = (el) => el != null && el.scrollWidth <= el.clientWidth
 
   // Dirty workspace defaults to Changes; go to the Overview tab first.
-  const tabByText = (txt) => [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes(txt))
+  const tabByText = (txt) => [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes(txt))
   tabByText('tab.overview')?.click()
   await new Promise((r) => setTimeout(r, 400))
 

@@ -178,7 +178,7 @@ async function changesScenario(newLines) {
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(document.getElementById('panel')).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
     await new Promise((r) => setTimeout(r, 500))
-    const tab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))
+    const tab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.changes'))
     if (tab) { tab.click(); await new Promise((r) => setTimeout(r, 400)) }
     const row = [...document.querySelectorAll('.gp-file-row')].find((r) => (r.textContent || '').includes('f.txt'))
     result.rowShown = row !== undefined

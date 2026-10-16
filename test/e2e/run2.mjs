@@ -68,11 +68,11 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const cleanPanelRoot = ReactDOM.createRoot(cleanPanel)
   cleanPanelRoot.render(registered['conversation.view'].component({ sessionId: 'clean-default' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.cleanDefault = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
+  result.cleanDefault = cleanPanel.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.overview') ?? false
   result.cleanAvoidsFileListing = cleanFileListings === 0
   cleanPanelRoot.render(registered['conversation.view'].component({ sessionId: 'clean-second' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
+  result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.overview') ?? false
 
   // Fake tab bar → the pill click should click a role=tab button labeled panel.tab.
   // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here,
@@ -113,8 +113,8 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const view2 = registered['conversation.view']
   ReactDOM.createRoot(document.getElementById('panel')).render(view2.component({ sessionId: 's2' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.notGitFilesOnly = document.querySelectorAll('#panel .gp-tab').length === 1
-    && document.querySelector('#panel .gp-tab--active')?.textContent?.includes('tab.files')
+  result.notGitFilesOnly = document.querySelectorAll('#panel .gp-panel [role="tab"]').length === 1
+    && document.querySelector('#panel .gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.files')
   result.notGitFileListed = document.querySelector('#panel .gp-files__tree')?.textContent?.includes('note.md')
 
   // Case 3: showInputPill=false → the input-bar marker is hidden and the Git

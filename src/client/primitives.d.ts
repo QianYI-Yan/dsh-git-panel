@@ -97,4 +97,23 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     readonly size?: number
     readonly className?: string
   }) => JSX.Element
+
+  /** One equal-width tab: its label plus the caller-owned tab/panel DOM ids. */
+  export interface SegmentedTab {
+    value: string
+    label: ReactNode
+    id: string
+    panelId: string
+  }
+  /** Equal-width controlled tabs with a sliding selection indicator (the
+   * indicator span carries the animation); the panels stay caller-owned. The
+   * real signature returns ReactNode and takes a non-empty tuple of items —
+   * narrowed here so `h()` accepts it, and we always pass 1 or 3 tabs. */
+  export function SegmentedTabs(props: {
+    items: readonly SegmentedTab[]
+    value: string
+    onChange: (value: string) => void
+    label: string
+    className?: string | undefined
+  }): JSX.Element
 }

@@ -77,7 +77,7 @@ const out = await page.evaluate(async ({ snap, diff }) => {
   ReactDOM.createRoot(panelHost).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 500))
 
-  const tabByText = (t) => [...document.querySelectorAll('.gp-tab')].find((x) => (x.textContent || '').includes(t))
+  const tabByText = (t) => [...document.querySelectorAll('.gp-panel [role="tab"]')].find((x) => (x.textContent || '').includes(t))
 
   // A small confirm dialog (branch switch) opened from the overview branch row.
   tabByText('overview')?.click()

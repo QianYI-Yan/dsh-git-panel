@@ -33,11 +33,10 @@ const CSS = `
 /* star link: hollow by default, fills to a gold star on hover */
 .gp-verbar__gh--starred:hover{color:var(--dsw-alias-state-warn-primary,#e3b341)}
 .gp-verbar__gh--starred:hover svg{fill:currentColor}
-.gp-tab{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer;flex:none;transition:background .12s ease,color .12s ease}
-.gp-tab:hover{background:var(--dsw-alias-interactive-bg-hover)}
-/* Active tab: primary-tinted fill + primary text + medium weight + a soft ring.
- * Clear enough to spot at a glance, restrained enough not to shout. */
-.gp-tab--active{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);font-weight:600;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dsw-alias-state-business-primary) 32%,transparent)}
+/* The sub-tab switcher is the platform SegmentedTabs primitive (official track,
+ * pill and sliding indicator). We only place the tab list in our flex bar and
+ * supply the icon/label spans inside each tab's label. */
+.gp-tabbar__tabs{flex:0 1 auto;min-width:0}
 .gp-tab__icon{display:inline-flex;width:15px;height:15px;flex:none}
 .gp-tab__label{white-space:nowrap}
 /* Trailing cluster (font stepper + version bar). display:contents makes it
@@ -49,7 +48,7 @@ const CSS = `
  * drops the tab labels to icon-only so they never wrap into a garbled multi-line
  * state. Hiding the trailing controls is handled by the compact layout (which
  * moves them to a second row) rather than removing them. */
-@container (max-width:300px){.gp-tab__label{display:none}.gp-tab{gap:0;padding:0 10px}}
+@container (max-width:300px){.gp-tab__label{display:none}}
 .gp-font{margin-left:4px;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
 .gp-font button{border:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:22px;width:24px;height:24px;padding:0;cursor:pointer}
 .gp-font button:first-child{border-left:0}
@@ -581,7 +580,6 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-panel[data-layout="compact"] .gp-tabbar__trailing{display:flex;flex-basis:100%;align-items:center;gap:8px;margin-top:2px}
 .gp-panel[data-layout="compact"] .gp-tabbar .gp-font,
 .gp-panel[data-layout="compact"] .gp-tabbar .gp-verbar{display:inline-flex}
-.gp-panel[data-layout="compact"] .gp-tab{height:36px}
 
 /* Shared drill-in back bar (overview detail / files preview). The Changes
  * diff and Files bar reuse just the .gp-subhead__back button inline. */

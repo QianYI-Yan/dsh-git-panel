@@ -80,6 +80,56 @@
           width: props.size || 14, height: props.size || 14,
         });
       },
+      // Official dsh SegmentedTabs: a controlled tab list with a sliding
+      // indicator. The stub keeps the observable contract the plugin and the
+      // e2e rely on — role="tablist" + aria-label, one aria-hidden indicator
+      // span whose translateX tracks the active index, one role="tab" button per
+      // item carrying aria-selected/aria-controls/tabIndex, click → onChange,
+      // and the Arrow/Home/End walk — mirroring the shell's own implementation.
+      SegmentedTabs: function (props) {
+        var R = window.React;
+        var items = props.items || [];
+        var index = items.findIndex(function (item) { return item.value === props.value; });
+        var walk = function (event, from) {
+          var next;
+          switch (event.key) {
+            case 'ArrowLeft': next = (from + items.length - 1) % items.length; break;
+            case 'ArrowRight': next = (from + 1) % items.length; break;
+            case 'Home': next = 0; break;
+            case 'End': next = items.length - 1; break;
+            default: return;
+          }
+          event.preventDefault();
+          var list = event.currentTarget.parentElement;
+          var picked = items[next];
+          if (list === null || picked === undefined) return;
+          var buttons = list.querySelectorAll('[role="tab"]');
+          if (buttons[next]) buttons[next].focus();
+          props.onChange(picked.value);
+        };
+        return R.createElement('div', {
+          role: 'tablist', 'aria-label': props.label, className: props.className,
+          style: { gridTemplateColumns: 'repeat(' + items.length + ', minmax(0, 1fr))' },
+        },
+          R.createElement('span', {
+            key: 'indicator', 'aria-hidden': 'true', className: 'dsh-segmented-indicator',
+            style: {
+              width: 'calc((100% - 8px) / ' + items.length + ')',
+              transform: 'translateX(' + (index * 100) + '%)',
+            },
+          }),
+          items.map(function (item, i) {
+            var selected = props.value === item.value;
+            return R.createElement('button', {
+              key: item.value, id: item.id, type: 'button', role: 'tab',
+              className: 'dsh-segmented-tab',
+              'aria-selected': selected, 'aria-controls': item.panelId,
+              tabIndex: selected ? 0 : -1,
+              onClick: function () { props.onChange(item.value); },
+              onKeyDown: function (event) { walk(event, i); },
+            }, item.label);
+          }));
+      },
       // Mirrors the platform's writeClipboard: the async Clipboard API when the
       // context has it, else the execCommand fallback a remote plain-HTTP
       // origin needs (there navigator.clipboard is undefined).

@@ -26,8 +26,8 @@ window.runSteadyStateScenarios = async (fixture) => {
     node.click()
   }
   const selectTab = async (name) => {
-    click(findText('.gp-tab', name), name)
-    await waitFor(() => (document.querySelector('.gp-tab--active')?.textContent || '').includes(name), name + ' active')
+    click(findText('.gp-panel [role="tab"]', name), name)
+    await waitFor(() => (document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent || '').includes(name), name + ' active')
     await flushUI()
   }
   const queriesSince = (start) => fixture.queries.slice(start).sort()
@@ -197,7 +197,7 @@ window.runSteadyStateScenarios = async (fixture) => {
       queriesWhileFailed,
       remounted: document.querySelector('.gp-overview') !== oldOverview,
       queries: await expectBatch(recoveryQueriesBefore, overviewBatch, 'snapshot recovery'),
-      overviewActive: (document.querySelector('.gp-tab--active')?.textContent || '').includes('tab.overview'),
+      overviewActive: (document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent || '').includes('tab.overview'),
     }
   } finally {
     Date.now = originalNow
