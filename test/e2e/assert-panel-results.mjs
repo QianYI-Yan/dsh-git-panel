@@ -266,6 +266,7 @@ export function assertPanelResults(out, realInput, errors) {
   // Branch switch (wide): per-row switch button, confirm + stash choice,
   // run payload, refusal kept in the dialog.
   assert.equal(out.switchNoFixedEntry, true, 'the left column has no fixed switch entry any more')
+  assert.equal(out.branchPrimaryFirst, true, 'the primary branch (main) leads the local list')
   assert.equal(out.branchDirRow, true, 'refs sharing a path prefix fold into a directory row')
   assert.equal(out.branchDirLabel, 'origin', 'the directory row is labelled with the directory name')
   assert.equal(out.branchDirHasFolder, true, 'a directory row carries a folder glyph, not a branch icon')

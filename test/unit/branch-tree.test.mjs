@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildBranchTree } from '../../lib/testkit.mjs'
+import { buildBranchTree, pinPrimaryFirst, primaryBranchName } from '../../lib/testkit.mjs'
 
 const br = (name, extra = {}) => ({ name, shortHash: 'abc1234', ...extra })
 
@@ -174,4 +174,26 @@ test('a merged chain under a dir is labelled relative to it', () => {
     ['leaf', 'x', 'feat/x'],
     ['dir', 'a/b', 'feat/a/b'],
   ])
+})
+
+test('primaryBranchName prefers the repo default, then main, then master', () => {
+  const local = [br('feat/x'), br('main'), br('master')]
+  assert.equal(primaryBranchName(local, 'master'), 'master')
+  assert.equal(primaryBranchName(local, 'develop'), 'main')
+  assert.equal(primaryBranchName(local, null), 'main')
+  assert.equal(primaryBranchName([br('master'), br('feat/x')], null), 'master')
+  assert.equal(primaryBranchName([br('develop'), br('feat/x')], null), null)
+  assert.equal(primaryBranchName([], 'main'), null)
+})
+
+test('pinPrimaryFirst moves the primary ref to the front, order otherwise stable', () => {
+  const branches = [br('feat/x'), br('main'), br('pr-38')]
+  assert.deepEqual(pinPrimaryFirst(branches, 'main').map((b) => b.name), ['main', 'feat/x', 'pr-38'])
+  // Already first, no match or no primary: the very same array comes back.
+  assert.equal(pinPrimaryFirst(branches, 'feat/x'), branches)
+  assert.equal(pinPrimaryFirst(branches, 'release'), branches)
+  assert.equal(pinPrimaryFirst(branches, null), branches)
+  // Remote tracking refs pin by their full name.
+  const remote = [br('origin/release'), br('origin/main')]
+  assert.deepEqual(pinPrimaryFirst(remote, 'origin/main').map((b) => b.name), ['origin/main', 'origin/release'])
 })

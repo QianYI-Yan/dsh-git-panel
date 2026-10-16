@@ -14,7 +14,7 @@ import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, Re
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
-import { buildBranchTree, type BranchTreeNode } from './branch-tree.js'
+import { buildBranchTree, pinPrimaryFirst, primaryBranchName, type BranchTreeNode } from './branch-tree.js'
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
 import { statusChar, statusClass } from './status.js'
@@ -677,6 +677,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
+        remoteName: snapshot.remote?.name ?? null,
         t,
       }) : null,
     ])
@@ -694,6 +695,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onSwitch: openSwitch,
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
+        remoteName: snapshot.remote?.name ?? null,
         t,
       })),
       renderStatusBar(snapshot, statusCbs),
@@ -747,6 +749,8 @@ interface BranchCbs {
   onSwitch: (option: BranchOption) => void
   onToggle: (section: string) => void
   onRetry: () => void
+  /** Primary remote's name, so its `<remote>/<primary>` ref can be pinned too. */
+  remoteName: string | null
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -810,9 +814,10 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       walk(node.children, depth + 1, sectionKey, icon, rows)
     }
   }
-  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element): JSX.Element => {
+  /** `pin` is the ref to hoist to the top of this section (host order otherwise). */
+  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, pin: string | null): JSX.Element => {
     const rows: JSX.Element[] = []
-    if (!closed.has(key)) walk(buildBranchTree(items), 0, key, icon, rows)
+    if (!closed.has(key)) walk(buildBranchTree(pinPrimaryFirst(items, pin)), 0, key, icon, rows)
     return h('div', { key, className: 'gp-branch-group' }, [
       h('div', { key: 'head', className: 'gp-branch-group__head', onClick: () => cb.onToggle(key) }, [
         h(ChevronIcon, { key: 'c', size: 11, open: !closed.has(key) }),
@@ -821,11 +826,15 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       ...rows,
     ])
   }
+  // The repo's primary branch (main / master / the default) leads the list, the
+  // same ref under the primary remote leads the remote section.
+  const primary = primaryBranchName(tree.local, tree.defaultBranch)
+  const remotePrimary = primary === null || cb.remoteName === null ? null : `${cb.remoteName}/${primary}`
   return h('div', {}, [
     h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
-    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 })),
-    section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 })),
-    section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 })),
+    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 }), primary),
+    section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 }), remotePrimary),
+    section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 }), null),
   ])
 }
 

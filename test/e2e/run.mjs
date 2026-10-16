@@ -432,6 +432,9 @@ const out = await page.evaluate(async (snap) => {
   const leftRow = (name) => [...document.querySelectorAll('.gp-col--left .gp-branch-row')].find((r) => (r.getAttribute('title') || '') === name) || null
   const switchBtnOf = (name) => leftRow(name)?.querySelector('.gp-branch-row__switch') ?? null
   result.switchNoFixedEntry = document.querySelector('.gp-switch-row') === null
+  // The repo's primary branch leads the local list (host order otherwise).
+  const localGroup = [...document.querySelectorAll('.gp-col--left .gp-branch-group')].find((g) => (g.textContent || '').includes('overview.local'))
+  result.branchPrimaryFirst = localGroup?.querySelector('.gp-branch-row')?.getAttribute('title') === 'main'
   // The remote section starts collapsed; expand it so its rows are listed.
   ;[...document.querySelectorAll('.gp-col--left .gp-branch-group__head')].find((el) => (el.textContent || '').includes('overview.remote'))?.click()
   await wait(60)

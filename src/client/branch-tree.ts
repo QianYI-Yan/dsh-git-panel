@@ -118,3 +118,26 @@ function collapse(nodes: readonly BuilderNode[]): BranchTreeNode[] {
     }
   })
 }
+
+/**
+ * Name of the branch to pin first: the repo default when it exists locally, else
+ * `main`, else `master`. Null when the repo has none of them.
+ */
+export function primaryBranchName(local: readonly GitBranch[], defaultBranch: string | null): string | null {
+  const has = (name: string): boolean => local.some((b) => b.name === name)
+  if (defaultBranch !== null && has(defaultBranch)) return defaultBranch
+  if (has('main')) return 'main'
+  if (has('master')) return 'master'
+  return null
+}
+
+/**
+ * Move the named ref to the front, leaving the rest of the order untouched.
+ * Returns the input array itself when nothing moves, so callers keep identity.
+ */
+export function pinPrimaryFirst(branches: readonly GitBranch[], name: string | null): readonly GitBranch[] {
+  if (name === null) return branches
+  const at = branches.findIndex((b) => b.name === name)
+  if (at <= 0) return branches
+  return [branches[at]!, ...branches.slice(0, at), ...branches.slice(at + 1)]
+}
