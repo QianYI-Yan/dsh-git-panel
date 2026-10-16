@@ -7,8 +7,8 @@ import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { isSafePath } from './validate.js'
-import { SUGGEST_LIMITS } from './types.js'
-import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, WorktreeStats } from './types.js'
+import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS } from './types.js'
+import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -24,6 +24,8 @@ export interface GitPanelConfig {
   readonly graphStyle: GraphStyle
   /** Whether the "AI suggest" button shows in the commit box. */
   readonly suggestEnabled: boolean
+  /** Language the generated message is written in; `auto` follows repo history. */
+  readonly suggestLanguage: SuggestLanguage
   /** Max diff bytes sent to the model; beyond this the diff is truncated. Range 16–512 KiB. */
   readonly suggestMaxBytes: number
   /** Model output token budget (reasoning tokens count against it on thinking models). Range 256–16384. */
@@ -44,6 +46,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   defaultDiffView: 'unified',
   graphStyle: 'parallel',
   suggestEnabled: true,
+  suggestLanguage: SUGGEST_LANGUAGE_DEFAULT,
   suggestMaxBytes: SUGGEST_LIMITS.maxBytes.default,
   suggestMaxOutputTokens: SUGGEST_LIMITS.maxOutputTokens.default,
   suggestTimeoutMs: SUGGEST_LIMITS.timeoutMs.default,
@@ -78,6 +81,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
     graphStyle: readGraphStyle(c.graphStyle, DEFAULT_CONFIG.graphStyle),
     suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
+    suggestLanguage: readSuggestLanguage(c.suggestLanguage, DEFAULT_CONFIG.suggestLanguage),
     suggestMaxBytes: clampLimit(c.suggestMaxBytes, SUGGEST_LIMITS.maxBytes),
     suggestMaxOutputTokens: clampLimit(c.suggestMaxOutputTokens, SUGGEST_LIMITS.maxOutputTokens),
     suggestTimeoutMs: clampLimit(c.suggestTimeoutMs, SUGGEST_LIMITS.timeoutMs),
@@ -103,6 +107,18 @@ export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMo
 export function readGraphStyle(value: unknown, fallback: GraphStyle): GraphStyle {
   const raw = unwrapVolatile(value)
   return raw === 'parallel' || raw === 'compact' ? raw : fallback
+}
+
+/**
+ * Read the commit-message language field, unwrapping a schemastery volatile
+ * ref. An unknown string (a hand-edited profile, or a value from a newer
+ * version) falls back to the default rather than reaching the prompt.
+ */
+export function readSuggestLanguage(value: unknown, fallback: SuggestLanguage): SuggestLanguage {
+  const raw = unwrapVolatile(value)
+  return typeof raw === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(raw)
+    ? raw as SuggestLanguage
+    : fallback
 }
 
 /**

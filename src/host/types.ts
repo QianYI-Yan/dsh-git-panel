@@ -507,6 +507,22 @@ export const SUGGEST_LIMITS = {
 } as const
 
 /**
+ * Selectable commit-message languages. `auto` infers the language from the
+ * repository's own commit history (see resolveSuggestLanguage); `zh` / `en`
+ * pin it. Shared by both halves like SUGGEST_LIMITS — the detail-page form
+ * renders one segment per entry.
+ */
+export const SUGGEST_LANGUAGES = ['auto', 'zh', 'en'] as const
+
+export type SuggestLanguage = (typeof SUGGEST_LANGUAGES)[number]
+
+/** Default is `auto`: follow the style the repository is already written in. */
+export const SUGGEST_LANGUAGE_DEFAULT: SuggestLanguage = 'auto'
+
+/** A language a suggestion is actually written in — `auto` is always resolved. */
+export type ResolvedLanguage = Exclude<SuggestLanguage, 'auto'>
+
+/**
  * Wire request for the suggest endpoint: ask the configured model to write a
  * commit message from the repository's uncommitted changes. `paths` restricts
  * the diff to the user's selection (bare repo-relative paths); absent means

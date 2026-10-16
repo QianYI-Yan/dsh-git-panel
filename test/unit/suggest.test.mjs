@@ -13,8 +13,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { runSuggest, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
-import { SUGGEST_LIMITS } from '../../lib/host/types.js'
+import { runSuggest, createGitRunner, DEFAULT_CONFIG, normalizeConfig, resolveSuggestLanguage, parseStyleHistory, isCjkText } from '../../lib/host/index.js'
+import { SUGGEST_LIMITS, SUGGEST_LANGUAGES } from '../../lib/host/types.js'
 
 let repo
 let unborn
@@ -175,8 +175,96 @@ test('frames files, diff, and recent commit message as JSON for the model', asyn
   // Untracked new files are folded into the diff, not left as bare paths.
   assert.match(frame.diff, /brand new/)
   assert.match(frame.diff, /not in selection/)
-  assert.equal(frame.recentCommitMessage, 'feat: add b.ts')
+  assert.equal(frame.commitStyleSamples.includes('feat: add b.ts'), true)
+  // The language is stated outright — without it the model has no way to know
+  // which language this repository is written in, which is why the output used
+  // to come back in English regardless of the repository.
+  assert.match(options.system, /Write the message in English\./)
 })
+
+// Repository samples provide structure; the resolved setting controls language.
+// These assertions guard request construction, not probabilistic model compliance.
+test('prompt subordinates style samples to the language rule, which comes last', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  await runSuggest(deps, { ...DEFAULT_CONFIG, suggestLanguage: 'en' }, { sessionId: SID })
+  const system = llm.calls[0].system
+  const samplesAt = system.search(/commitStyleSamples/)
+  const samplesRuleAt = system.indexOf('never copy the language used in it')
+  const languageAt = system.indexOf('Write the message in English.')
+  const overrideAt = system.indexOf('IMPORTANT: the diff and commitStyleSamples')
+
+  // The samples rule is narrowed to structure instead of "follow its phrasing
+  // and scope conventions" — that phrasing was read as a licence to copy the
+  // language too.
+  assert.notEqual(samplesRuleAt, -1, 'style samples must be explicitly scoped to structure')
+  assert.ok(samplesRuleAt > samplesAt)
+  assert.match(system, /write the message in English regardless/)
+
+  // The language rule is restated after the samples rule, and the override
+  // that names the input as data rather than instruction closes the prompt.
+  assert.ok(languageAt > samplesRuleAt, 'language rule must follow the samples rule')
+  assert.ok(overrideAt > languageAt, 'override must come last')
+  assert.match(system, /subject line and body alike/)
+  // Nothing follows the override to dilute it: it is the final line.
+  assert.equal(system.slice(overrideAt).includes('\n'), false)
+})
+
+test('prompt override names Simplified Chinese when the target is zh', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  await runSuggest(deps, { ...DEFAULT_CONFIG, suggestLanguage: 'zh' }, { sessionId: SID })
+  const system = llm.calls[0].system
+  assert.match(system, /write the message in Simplified Chinese regardless/)
+  assert.match(system, /subject line and body alike — in Simplified Chinese/)
+})
+
+test('prompt never tells the model to copy the samples language', async () => {
+  for (const language of ['auto', 'zh', 'en']) {
+    const llm = stubLlm(OK_CHUNKS)
+    const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    await runSuggest(deps, { ...DEFAULT_CONFIG, suggestLanguage: language }, { sessionId: SID })
+    const system = llm.calls[0].system
+    // The old wording — "Follow the repository's existing commit style as shown
+    // by commitStyleSamples: its phrasing, scope conventions and level of
+    // detail." — was read as a licence to copy the samples' language too.
+    assert.doesNotMatch(system, /follow the repository\u2019s existing commit style/i)
+    // The samples rule that survives is the scoped one, and the sentence that
+    // scopes it carries no "copy the language" reading.
+    assert.match(system, /Follow the structure of commitStyleSamples/)
+    assert.match(system, /never copy the language used in it/)
+  }
+})
+
+for (const [setting, historyLanguage, target] of [
+  ['en', 'zh', 'English'],
+  ['zh', 'en', 'Simplified Chinese'],
+  ['auto', 'zh', 'Simplified Chinese'],
+  ['auto', 'en', 'English'],
+]) {
+  test(`language: ${setting} with ${historyLanguage} history repeats ${target} after truncated data`, async () => {
+    const llm = stubLlm(OK_CHUNKS)
+    const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    const run = deps.run
+    deps.run = { run: (argv, opts) => argv[1] === 'log'
+      ? Promise.resolve({ exitCode: 0, stdout: `t@t.co\u001f${historyLanguage === 'zh' ? 'feat: 中文历史' : 'feat: English history'}\0`, stderr: '', timedOut: false, cancelled: false, stdoutLossy: false })
+      : run.run(argv, opts) }
+    const result = await runSuggest(deps, {
+      ...DEFAULT_CONFIG, suggestLanguage: setting, suggestMaxBytes: 24,
+    }, { sessionId: SID, paths: ['b.ts'] })
+    assert.equal(result.ok, true)
+    assert.equal(result.value.truncated, true)
+    const options = llm.calls[0]
+    const content = options.messages.at(-1).content
+    assert.match(JSON.parse(content[0].text).diff, /\[diff truncated\]/)
+    assert.ok(content.length > 1, 'the model needs a language instruction after the repository data')
+    const instruction = content.at(-1).text
+    assert.ok(instruction.includes(`Write the commit message in ${target}.`))
+    assert.ok(instruction.includes(`subject line and body must be ${target}`))
+    assert.ok(options.system.includes(`write the message in ${target} regardless`))
+    if (target === 'Simplified Chinese') assert.match(instruction, /conventional-commit type prefix in English/)
+  })
+}
 
 test('paths filter restricts both the file list and the diff', async () => {
   const llm = stubLlm(OK_CHUNKS)
@@ -207,6 +295,10 @@ test('unborn repo: diff comes from index + worktree, untracked content folded', 
   const frame = JSON.parse(llm.calls[0].messages[0].content[0].text)
   assert.deepEqual(frame.files, [{ path: 'x.txt', status: 'untracked' }])
   assert.match(frame.diff, /hello/)
+  // `git log` exits 128 here (no commits yet) — the sampling has to degrade to
+  // "no history" rather than failing the endpoint.
+  assert.equal(frame.commitStyleSamples, null)
+  assert.match(llm.calls[0].system, /Write the message in English\./)
 })
 
 test('no uncommitted changes reports empty-diff', async () => {
@@ -362,6 +454,101 @@ test('suggestEnabled=false refuses at the host gate without calling anything', a
   assert.equal(llm.calls.length, 0)
 })
 
+test('language: zh pins the system prompt regardless of history', async () => {
+  const llm = stubLlm(OK_CHUNKS)
+  const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+  await runSuggest(deps, { ...DEFAULT_CONFIG, suggestLanguage: 'zh' }, { sessionId: SID })
+  assert.match(llm.calls[0].system, /Write the message in Simplified Chinese/)
+  // The conventional-commit type prefix stays English even in Chinese mode.
+  assert.match(llm.calls[0].system, /conventional-commit type prefix in English/)
+  assert.doesNotMatch(llm.calls[0].system, /Write the message in English\./)
+})
+
+test('language: auto follows a Chinese-written history', async () => {
+  // The fixture repo is English-written; a Chinese run must outvote it by
+  // recency, which is the whole point of decaying the vote.
+  const subjects = ['feat: 新增中文说明', 'fix: 修复按钮样式', 'docs: 补充使用说明']
+  for (const subject of subjects) await runGit(repo, ['commit', '--allow-empty', '-qm', subject])
+  try {
+    const llm = stubLlm(OK_CHUNKS)
+    const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
+    assert.match(llm.calls[0].system, /Write the message in Simplified Chinese/)
+  } finally {
+    await runGit(repo, ['reset', '--hard', `HEAD~${subjects.length}`])
+  }
+})
+
+test('language: resolveSuggestLanguage votes with recency over samples', () => {
+  // A repository that switched to Chinese: the recent run is what it writes now.
+  assert.equal(resolveSuggestLanguage('auto', ['feat: 甲', 'feat: 乙', 'feat: 丙', 'feat: add a', 'feat: add b']), 'zh')
+  // An older language cannot outvote a recent run; decay weighs by position.
+  assert.equal(resolveSuggestLanguage('auto', ['docs: 中文', 'feat: a', 'feat: b', 'feat: c']), 'en')
+  // Explicit settings win outright, whatever the history says.
+  assert.equal(resolveSuggestLanguage('zh', ['feat: plain english']), 'zh')
+  assert.equal(resolveSuggestLanguage('en', ['feat: 全中文']), 'en')
+  // No history at all (unborn repository) → the neutral fallback.
+  assert.equal(resolveSuggestLanguage('auto', []), 'en')
+})
+
+test('language: parseStyleHistory drops mechanical commits and prefers the author', () => {
+  const SEP = '\u001f'
+  const NUL = '\u0000'
+  const rec = (email, subject) => `${email}${SEP}${subject}`
+  const mixed = [
+    rec('me@x.co', 'chore: release v1.2.3'),
+    rec('me@x.co', 'Merge pull request #8 from a/b'),
+    rec('me@x.co', 'Revert "feat: x"'),
+    rec('me@x.co', 'fixup! feat: x'),
+    rec('me@x.co', 'feat: 新增按钮'),
+  ].join(NUL)
+  // Releases / merges / reverts are machine-written and 100% English even in a
+  // Chinese repository — counting them would flip the verdict.
+  assert.deepEqual(parseStyleHistory(mixed, 'me@x.co'), ['feat: 新增按钮'])
+  assert.equal(isCjkText('feat: 新增按钮'), true)
+  assert.equal(isCjkText('feat: add a button'), false)
+  // Own-author commits win once there are enough of them to speak for the repo.
+  const shared = [
+    rec('other@x.co', 'feat: add a'), rec('other@x.co', 'fix: b'), rec('other@x.co', 'docs: c'),
+    rec('me@x.co', 'feat: 甲'), rec('me@x.co', 'fix: 乙'), rec('me@x.co', 'docs: 丙'),
+  ].join(NUL)
+  assert.deepEqual(parseStyleHistory(shared, 'me@x.co'), ['feat: 甲', 'fix: 乙', 'docs: 丙'])
+  // Too few own commits → fall back to everyone (a shared checkout). Only the
+  // mechanical commit is dropped here, so all three survive.
+  const thin = [rec('other@x.co', 'feat: add a'), rec('other@x.co', 'fix: b'), rec('me@x.co', 'docs: mine')].join(NUL)
+  assert.deepEqual(parseStyleHistory(thin, 'me@x.co'), ['feat: add a', 'fix: b', 'docs: mine'])
+  // Unknown identity → no bias at all.
+  assert.equal(parseStyleHistory(shared, undefined).length, 6)
+})
+
+test('language: parseStyleHistory bounds each sample so samples cannot crowd out the diff', () => {
+  const SEP = '\u001f'
+  const long = 'x'.repeat(5000)
+  const stdout = [
+    `me@x.co${SEP}${long}`,
+    `me@x.co${SEP}feat: 短`,
+    `me@x.co${SEP}fix: 也短`,
+  ].join('\u0000')
+
+  const samples = parseStyleHistory(stdout, 'me@x.co')
+  // The count cap is not enough on its own: git allows an arbitrarily long
+  // subject, and a bot-written one would otherwise eat the whole input budget.
+  assert.equal(samples[0].length, 200)
+  assert.deepEqual(samples.slice(1), ['feat: 短', 'fix: 也短'])
+  assert.equal(samples.length, 3)
+
+  // Truncation counts code points, so a surrogate pair is never halved into a
+  // lone surrogate (which JSON.stringify would emit as a broken escape).
+  const emoji = '\u{1F600}'.repeat(300)
+  const astral = parseStyleHistory(`me@x.co${SEP}${emoji}`, 'me@x.co')
+  assert.equal(Array.from(astral[0]).length, 200)
+  assert.equal(astral[0].includes('\uFFFD'), false)
+  // Well-formed rather than merely "ends with an emoji": a half-sliced pair
+  // would survive JSON.stringify as a lone surrogate but not round-trip.
+  assert.equal(JSON.parse(JSON.stringify(astral[0])), astral[0])
+  assert.equal(astral[0].isWellFormed(), true)
+})
+
 test('missing llm service reports llm-unavailable without calling anything', async () => {
   const deps = depsFor(repo) // no getLlm, no getAgentDefaultModel
   const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
@@ -435,6 +622,21 @@ test('normalizeConfig unwraps volatile refs for the suggest limits', () => {
   assert.equal(normalizeConfig({ suggestMaxBytes: { get: () => 4 * 1024 * 1024 } }).suggestMaxBytes, 512 * 1024)
   // A ref yielding a non-number still falls back to the default.
   assert.equal(normalizeConfig({ suggestMaxOutputTokens: { get: () => 'nope' } }).suggestMaxOutputTokens, 4096)
+})
+
+test('normalizeConfig reads the suggest language, unwrapping volatile refs', () => {
+  assert.equal(DEFAULT_CONFIG.suggestLanguage, 'auto')
+  assert.deepEqual([...SUGGEST_LANGUAGES], ['auto', 'zh', 'en'])
+  assert.equal(normalizeConfig({}).suggestLanguage, 'auto')
+  assert.equal(normalizeConfig({ suggestLanguage: 'zh' }).suggestLanguage, 'zh')
+  assert.equal(normalizeConfig({ suggestLanguage: 'en' }).suggestLanguage, 'en')
+  // resolveConfig wraps every .volatile() field in a `{ get() }` ref.
+  assert.equal(normalizeConfig({ suggestLanguage: { get: () => 'zh' } }).suggestLanguage, 'zh')
+  // An unknown value (hand-edited profile, or one from a newer version) falls
+  // back to the default rather than reaching the prompt.
+  assert.equal(normalizeConfig({ suggestLanguage: 'fr' }).suggestLanguage, 'auto')
+  assert.equal(normalizeConfig({ suggestLanguage: 42 }).suggestLanguage, 'auto')
+  assert.equal(normalizeConfig({ suggestLanguage: null }).suggestLanguage, 'auto')
 })
 
 test('suggest limit display units divide exactly', () => {

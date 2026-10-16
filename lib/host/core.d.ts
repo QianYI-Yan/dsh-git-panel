@@ -1,6 +1,6 @@
 import type { GitRunner } from './git.js';
 import type { AgentDefaultModelFace, LlmFace } from './llm-face.js';
-import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitRemote, GitSnapshotResult } from './types.js';
+import type { DiffViewMode, GraphStyle, GitChange, GitErrorCode, GitRemote, GitSnapshotResult, SuggestLanguage } from './types.js';
 export interface GitPanelConfig {
     readonly timeoutMs: number;
     /** Per-command stdout cap; also the per-side image-diff payload cap. */
@@ -15,6 +15,8 @@ export interface GitPanelConfig {
     readonly graphStyle: GraphStyle;
     /** Whether the "AI suggest" button shows in the commit box. */
     readonly suggestEnabled: boolean;
+    /** Language the generated message is written in; `auto` follows repo history. */
+    readonly suggestLanguage: SuggestLanguage;
     /** Max diff bytes sent to the model; beyond this the diff is truncated. Range 16–512 KiB. */
     readonly suggestMaxBytes: number;
     /** Model output token budget (reasoning tokens count against it on thinking models). Range 256–16384. */
@@ -31,6 +33,12 @@ export declare function normalizeConfig(raw: unknown): GitPanelConfig;
 export declare function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMode;
 /** Read the commit-graph style field, unwrapping a schemastery volatile ref. */
 export declare function readGraphStyle(value: unknown, fallback: GraphStyle): GraphStyle;
+/**
+ * Read the commit-message language field, unwrapping a schemastery volatile
+ * ref. An unknown string (a hand-edited profile, or a value from a newer
+ * version) falls back to the default rather than reaching the prompt.
+ */
+export declare function readSuggestLanguage(value: unknown, fallback: SuggestLanguage): SuggestLanguage;
 /**
  * Read a boolean config field, unwrapping a schemastery volatile reference
  * (`{ get() }`) so a live-editable toggle reflects the latest value. Absent or

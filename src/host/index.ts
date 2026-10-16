@@ -24,15 +24,15 @@ export type {
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
-  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind,
+  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
 } from './types.js'
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote } from './core.js'
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage } from './core.js'
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'
 export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js'
 export { runQuery } from './queries.js'
-export { runSuggest } from './suggest.js'
+export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText } from './suggest.js'
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js'
 
 /** Structural slice of the Cordis sessions store (live cwd). */
@@ -65,6 +65,11 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('compact').description('紧凑（git log 风格，共享祖先合并为一列）'),
     ]).default('parallel').volatile().description('提交历史图线条样式'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
+    suggestLanguage: Schema.union([
+      Schema.const('auto').description('自动跟随仓库历史提交的语言'),
+      Schema.const('zh').description('中文'),
+      Schema.const('en').description('English'),
+    ]).default(DEFAULT_CONFIG.suggestLanguage).volatile().description('AI 生成提交信息的语言'),
     // Defaults come from DEFAULT_CONFIG (which itself reads SUGGEST_LIMITS) —
     // a literal here could silently drift from what normalizeConfig enforces.
     suggestMaxBytes: Schema.number().default(DEFAULT_CONFIG.suggestMaxBytes).volatile().description('AI 生成输入预算（diff 字节上限，16–512 KiB）'),
