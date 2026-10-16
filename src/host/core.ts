@@ -403,7 +403,8 @@ export async function snapshotForSession(
     statusLossy = statusRes.run.stdoutLossy
   }
   // Truncated either because the list exceeded the cap or because the status
-  // stream itself was clipped (a lossy read may drop a trailing entry).
+  // stream itself was clipped (a lossy read drops the head, so the leading
+  // entries are the ones that go missing).
   const truncated = allChanges.length > config.maxChanges || statusLossy
   const changes = allChanges.length > config.maxChanges ? allChanges.slice(0, config.maxChanges) : allChanges
 

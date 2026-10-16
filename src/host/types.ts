@@ -402,10 +402,13 @@ export type GitQueryResult =
    * trailing gap rather than a speculative one.
    *
    * `truncated` marks the one case where the text itself is incomplete: the
-   * runner dropped output at its collect/spill ceiling, so `text` is a prefix
-   * that still parses like a real diff. It is flagged rather than refused —
-   * the partial hunks stay readable — but the view must say so, because line
-   * numbers and +/- counts past the cut are simply wrong.
+   * runner dropped output at its collect/spill ceiling, which discards the
+   * *head* of the stream, so `text` is a tail that still parses like a real
+   * diff — the surviving hunks carry git's own line numbers — while the header
+   * and opening hunks are gone and the +/- counts under-report. It is flagged
+   * rather than refused (the partial hunks stay readable), but the view must say
+   * so: it would otherwise present the lost opening as ordinary folded context,
+   * as if the diff were whole.
    */
   | { readonly kind: 'diff'; readonly path: string; readonly text: string; readonly newLines: number; readonly truncated?: true }
   // A slice of a file's post-change content for on-demand context expansion:

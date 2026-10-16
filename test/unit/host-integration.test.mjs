@@ -398,7 +398,7 @@ test('a retargeted symlink counts the link text git diffed, not the target file'
 })
 
 test('a truncated (lossy) git-show read is refused, not reported as a count', async () => {
-  // The runner drops output at its collect/spill ceiling; the surviving prefix
+  // The runner drops output at its collect/spill ceiling; the surviving tail
   // would make newLines a plausible lie, so it has to read as unknown (0).
   const lossy = {
     spawn(spec) {
@@ -427,7 +427,7 @@ test('a truncated (lossy) git-show read is refused, not reported as a count', as
   assert.equal(diff.value.newLines, 0, 'truncated read → unknown → no trailing control')
   assert.equal(diff.value.truncated, true, 'a truncated diff is flagged so the view can say so')
   const slice = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-lines', path: 'a.txt', base: 'staged', start: 1, end: 3 } })
-  assert.equal(slice.ok, false, 'expansion must not serve a truncated prefix')
+  assert.equal(slice.ok, false, 'expansion must refuse a lossy read rather than slice its tail')
   assert.equal(slice.error.code, 'git-error')
 })
 

@@ -172,12 +172,15 @@ async function queryDiff(
   if (!('run' in res)) return { ok: false, error: { code: 'git-unavailable' } }
   if (res.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
   if (res.run.timedOut) return { ok: false, error: { code: 'timeout' } }
-  // A lossy run dropped output at the runner's collect/spill ceiling: what
-  // survived is a truncated prefix that still parses as a real diff, so the view
-  // would read wrong line numbers, wrong +/- counts and wrong gap sizes as if
-  // complete. Serve it (the partial hunks are still readable) but flag it, and
-  // let the view say so — `readNewSide` independently refuses the same read, so
-  // the count degrades to 0 and no trailing gap is offered.
+  // A lossy run dropped output at the runner's collect/spill ceiling, and a
+  // lossy read keeps the stream's *tail*: this single-file diff lost its header
+  // and opening hunks, so what survived starts mid-diff. Surviving hunks still
+  // carry git's own line numbers, but the +/- counts under-report, and the lost
+  // opening returns as an ordinary collapsible gap whose revealed lines come
+  // from the new side — a changed line would show as unchanged context. Serve it
+  // (the remaining hunks are readable) but flag it: `readNewSide` refuses a
+  // lossy `git show` (count → 0), while a worktree side is read off disk and its
+  // count does not degrade.
   let truncated = res.run.stdoutLossy
   let text = res.run.stdout
   // A truly untracked file produces no `git diff` output; synthesize one with
@@ -316,8 +319,9 @@ async function readNewSide(
       : { ok: false, code: 'git-error', message: res.run.stderr.trim() || 'git show failed' }
   }
   // A lossy read means the runner dropped output at its collect/spill ceiling:
-  // what survived is a truncated prefix, so a count or a slice from it would be
-  // a plausible lie. Refuse it instead (the count degrades to 0 = unknown).
+  // what survived is the stream's *tail* (the head is what gets dropped), so a
+  // count or a slice from it would be a plausible lie. Refuse it instead (the
+  // count degrades to 0 = unknown).
   if (res.run.stdoutLossy) return { ok: false, code: 'git-error', message: 'git show output exceeded the output cap' }
   return { ok: true, text: res.run.stdout }
 }

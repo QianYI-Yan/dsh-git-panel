@@ -8,7 +8,7 @@ export type {
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
-  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
+  GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage,
 } from '../host/types.js'
 
 export { imageMimeFor, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'

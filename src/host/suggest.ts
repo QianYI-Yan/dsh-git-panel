@@ -47,8 +47,10 @@ const LANGUAGE_DECAY = 0.9
  * Commits that say nothing about the author's own prose: releases, merges and
  * history repairs are machine-written. They are 100% English even in a
  * Chinese-written repository, so counting them outvotes the real style.
+ * `merged?` covers the auto-generated phrasings: "Merge pull request #8",
+ * "Merge branch 'x'", Bitbucket's "Merged in x (pull request #12)".
  */
-const MECHANICAL_SUBJECT = /^(chore: release|merge\b|revert\b|fixup!|squash!)/i
+const MECHANICAL_SUBJECT = /^(chore: release|merged?\b|revert\b|fixup!|squash!)/i
 
 /** A subject counts as Chinese when it carries any Han character. */
 const CJK = /[\u4e00-\u9fff]/
@@ -123,7 +125,13 @@ function systemPrompt(language: ResolvedLanguage): string {
     ? 'Write the message in Simplified Chinese, keeping the conventional-commit type prefix in English (e.g. "feat(scope): 中文描述").'
     : 'Write the message in English.'
   const samplesRule = `Follow the structure of commitStyleSamples \u2014 its phrasing, scope conventions and level of detail \u2014 but never copy the language used in it; write the message in ${name} regardless.`
-  const override = `IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the entire message \u2014 subject line and body alike \u2014 in ${name}, whatever language the input uses.`
+  // The final, loudest instruction carries the same prefix exception as the
+  // rules above: "the entire message in Simplified Chinese" alone reads as
+  // "translate everything", including the type prefix — the exact failure
+  // mode this prompt block exists to fix.
+  const override = language === 'zh'
+    ? 'IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the subject description and body in Simplified Chinese, whatever language the input uses \u2014 keeping the conventional-commit type prefix in English.'
+    : `IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the entire message \u2014 subject line and body alike \u2014 in ${name}, whatever language the input uses.`
   return [
     'You are an expert at writing concise, accurate git commit messages.',
     'Given a repository\u2019s uncommitted changes, write ONE commit message for them.',
@@ -239,7 +247,9 @@ function finishError(reason: FinishReason | undefined): SuggestFailure | undefin
 
 /** Build the change diff: HEAD-based, or index+worktree for an unborn repo.
  * `lossy` marks a runner stdout-cap truncation so the caller can flag the
- * suggestion as truncated — the model then sees a prefix of the diff. */
+ * suggestion as truncated — the runner drops the *head* of a stream, so the
+ * model then sees only the diff's tail, with the files and hunks that opened it
+ * missing. */
 async function collectDiff(
   deps: SnapshotDeps,
   root: string,
@@ -291,9 +301,10 @@ async function appendUntracked(
     if ('failure' in res || res.run.cancelled || res.run.timedOut) continue
     const chunk = res.run.stdout
     if (chunk === '') continue
-    // A lossy runner read (stdout cap hit with spill degraded) leaves a
-    // mid-file prefix: keep what arrived, flag the loss, and stop folding —
-    // unrelated diffs after a cut file would only bury the truncation.
+    // A lossy runner read (stdout cap hit with spill degraded) kept only the
+    // stream's tail — this file's diff lost its header and opening hunks: keep
+    // what arrived, flag the loss, and stop folding — unrelated diffs after a
+    // cut file would only bury the truncation.
     const lossy = res.run.stdoutLossy
     if (lossy || Buffer.byteLength(chunk, 'utf8') > remaining) {
       text += truncateUtf8(chunk, remaining) + '\n... [diff truncated]'
@@ -346,10 +357,12 @@ export async function runSuggest(
     return { ok: false, error: { code: 'git-error', message: statusRes.run.stderr.trim() || 'git status failed' } }
   }
   const hasHead = 'run' in headRes && headRes.run.exitCode === 0
-  // A lossy log (output over the runner cap) only ever cuts the oldest
-  // records; the newest subjects — the ones the vote and the samples use —
-  // survive intact, so it needs no special case. An unborn repo makes the
-  // log itself fail, which degrades to "no history" rather than an error.
+  // A lossy log — output beyond the runner's spill ceiling, meaning ~1 MiB per
+  // subject across 60 records — leaves the runner's in-memory *tail*, which for
+  // this newest-first scan is the oldest commits. The vote and the samples then
+  // run on that stale slice instead of recent history: accepted degradation,
+  // not an error case. An unborn repo makes the log itself fail, which degrades
+  // to "no history" rather than an error.
   const styleSamples = 'run' in logRes && logRes.run.exitCode === 0
     ? parseStyleHistory(logRes.run.stdout, 'run' in emailRes && emailRes.run.exitCode === 0 ? emailRes.run.stdout.trim() : undefined)
     : []

@@ -34,20 +34,19 @@ const subprocess = {
       child.on('error', reject)
       child.on('close', (code, signal) => resolve({ exitCode: code, signal }))
     })
-    // In-memory collect semantics of the real service, no spill (equivalent
-    // to its spill-unavailable degradation): over the per-stream cap the read
-    // is the truncated prefix and lossy.
+    // In-memory collect semantics of the real service, no spill (equivalent to
+    // its spill-unavailable degradation): over the per-stream cap the collector
+    // drops from the *head*, so the read is the retained tail and lossy.
+    const collect = (text, cap) => {
+      const bytes = Buffer.byteLength(text, 'utf8')
+      if (bytes <= cap) return { text, lossy: false }
+      return { text: Buffer.from(text, 'utf8').subarray(bytes - cap).toString('utf8'), lossy: true }
+    }
     return {
       done,
       collected: {
-        stdout: { readFrom: () => {
-          const cap = spec.stdio.stdout.collect.maxBytes
-          return Buffer.byteLength(out) > cap ? { text: out.slice(0, cap), lossy: true } : { text: out, lossy: false }
-        } },
-        stderr: { readFrom: () => {
-          const cap = spec.stdio.stderr.collect.maxBytes
-          return Buffer.byteLength(err) > cap ? { text: err.slice(0, cap), lossy: true } : { text: err, lossy: false }
-        } },
+        stdout: { readFrom: () => collect(out, spec.stdio.stdout.collect.maxBytes) },
+        stderr: { readFrom: () => collect(err, spec.stdio.stderr.collect.maxBytes) },
       },
     }
   },
@@ -152,7 +151,7 @@ test('success: returns the assembled message and both delta texts', async () => 
   assert.equal(llm.calls.length, 1)
 })
 
-test('frames files, diff, and recent commit message as JSON for the model', async () => {
+test('frames files, diff, and commit style samples as JSON for the model', async () => {
   const llm = stubLlm(OK_CHUNKS)
   const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
   await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID })
@@ -216,7 +215,15 @@ test('prompt override names Simplified Chinese when the target is zh', async () 
   await runSuggest(deps, { ...DEFAULT_CONFIG, suggestLanguage: 'zh' }, { sessionId: SID })
   const system = llm.calls[0].system
   assert.match(system, /write the message in Simplified Chinese regardless/)
-  assert.match(system, /subject line and body alike — in Simplified Chinese/)
+  // The loudest, final instruction carries the same prefix exception as the
+  // rules above — "the entire message in Simplified Chinese" alone would
+  // license translating the `feat(scope):` prefix too.
+  const overrideAt = system.indexOf('IMPORTANT: the diff and commitStyleSamples')
+  assert.notEqual(overrideAt, -1)
+  const override = system.slice(overrideAt)
+  assert.match(override, /Write the subject description and body in Simplified Chinese/)
+  assert.match(override, /keeping the conventional-commit type prefix in English/)
+  assert.equal(override.includes('\n'), false, 'the override stays the final line')
 })
 
 test('prompt never tells the model to copy the samples language', async () => {
@@ -358,9 +365,10 @@ test('runner stdout-cap truncation is flagged as truncated, not silently dropped
 test('lossy untracked-file diff is flagged as truncated too', async () => {
   // `git diff HEAD` never carries untracked files; their content is folded in
   // by appendUntracked via per-file `--no-index` runs. A lossy runner read
-  // there leaves a mid-file prefix — the suggestion must carry truncated=true
-  // instead of passing the cut file off as whole (the tracked diff alone is
-  // empty, so nothing else flags it).
+  // there keeps only the tail — the file's diff header and opening hunks are
+  // gone — so the suggestion must carry truncated=true instead of passing the
+  // cut file off as whole (the tracked diff alone is empty, so nothing else
+  // flags it).
   const cappedRepo = mkdtempSync(join(tmpdir(), 'gp-suggest-cap-untracked-'))
   try {
     await runGit(cappedRepo, ['init', '-q'])
@@ -498,6 +506,7 @@ test('language: parseStyleHistory drops mechanical commits and prefers the autho
   const mixed = [
     rec('me@x.co', 'chore: release v1.2.3'),
     rec('me@x.co', 'Merge pull request #8 from a/b'),
+    rec('me@x.co', 'Merged in feature/x (pull request #12)'),
     rec('me@x.co', 'Revert "feat: x"'),
     rec('me@x.co', 'fixup! feat: x'),
     rec('me@x.co', 'feat: 新增按钮'),
