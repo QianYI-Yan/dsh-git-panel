@@ -17,20 +17,132 @@ import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.js'
 import { isSafePath } from './validate.js'
 import { parseStatus } from './parser.js'
 import type { AgentDefaultModelFace } from './llm-face.js'
-import type { GitChange, GitSuggestRequest, GitSuggestResult } from './types.js'
+import type { GitChange, GitSuggestRequest, GitSuggestResult, ResolvedLanguage, SuggestLanguage } from './types.js'
 
 /** One endpoint failure (the inner envelope of GitSuggestResult). */
 type SuggestFailure = Extract<GitSuggestResult, { ok: false }>
 
-/** System instruction for the one-shot commit-message call. */
-const SYSTEM_PROMPT = [
-  'You are an expert at writing concise, accurate git commit messages.',
-  'Given a repository\u2019s uncommitted changes, write ONE commit message for them.',
-  'The message must start with a short imperative subject line (72 chars max), optionally followed by a blank line and a brief body explaining what changed and why.',
-  'Return only the message text: no quotes, code fences, prefixes, bullet lists, or explanations.',
-  'Match the language and style of the recent commit message when one is provided; otherwise write in English.',
-  'Focus on the most important change; do not mechanically list every file.',
-].join('\n')
+/** Commits read from history when inferring the repository's language. */
+const HISTORY_SCAN = 60
+
+/** Non-mechanical subjects handed to the model as style samples. */
+const STYLE_SAMPLE_CAP = 12
+
+/**
+ * Subject length bound for a style sample. The cap above bounds how many
+ * samples reach the prompt but not how large each one is, and git allows an
+ * arbitrarily long subject: a repository whose commits are written by a bot
+ * or a tool that dumps a paragraph into the first line would otherwise spend
+ * the whole `suggestMaxBytes` budget on samples instead of on the diff.
+ */
+const STYLE_SAMPLE_MAX_CHARS = 200
+
+/** Own-author samples below this count are too thin to speak for the repo. */
+const OWN_AUTHOR_MIN = 3
+
+/** Recency weight ratio for the language vote (each step back weighs 0.9×). */
+const LANGUAGE_DECAY = 0.9
+
+/**
+ * Commits that say nothing about the author's own prose: releases, merges and
+ * history repairs are machine-written. They are 100% English even in a
+ * Chinese-written repository, so counting them outvotes the real style.
+ * `merged?` covers the auto-generated phrasings: "Merge pull request #8",
+ * "Merge branch 'x'", Bitbucket's "Merged in x (pull request #12)".
+ */
+const MECHANICAL_SUBJECT = /^(chore: release|merged?\b|revert\b|fixup!|squash!)/i
+
+/** A subject counts as Chinese when it carries any Han character. */
+const CJK = /[\u4e00-\u9fff]/
+
+export function isCjkText(text: string): boolean {
+  return CJK.test(text)
+}
+
+/**
+ * Parse `git log -z --format=%ae%x1f%s` into the repository's own commit
+ * subjects, newest first: mechanical commits dropped, and the current
+ * author's commits preferred once they are numerous enough to represent the
+ * repository (a shared checkout may mix identities). Subjects are trimmed to
+ * `STYLE_SAMPLE_MAX_CHARS` code points so one runaway subject cannot consume
+ * the generation budget; the closest commit's language still dominates.
+ */
+export function parseStyleHistory(stdout: string, ownEmail: string | undefined): string[] {
+  const records: Array<{ email: string; subject: string }> = []
+  for (const record of stdout.split('\u0000')) {
+    const sep = record.indexOf('\u001f')
+    if (sep === -1) continue
+    const subject = record.slice(sep + 1).trim()
+    if (subject === '' || MECHANICAL_SUBJECT.test(subject)) continue
+    records.push({ email: record.slice(0, sep), subject })
+  }
+  const own = ownEmail === undefined || ownEmail === ''
+    ? []
+    : records.filter((r) => r.email === ownEmail)
+  const pool = own.length >= OWN_AUTHOR_MIN ? own : records
+  return pool.slice(0, STYLE_SAMPLE_CAP).map((r) => clampSubject(r.subject))
+}
+
+/** Bound one sample, counting code points so a surrogate pair is never split. */
+function clampSubject(subject: string): string {
+  const chars = Array.from(subject)
+  return chars.length <= STYLE_SAMPLE_MAX_CHARS
+    ? subject
+    : chars.slice(0, STYLE_SAMPLE_MAX_CHARS).join('')
+}
+
+/**
+ * Resolve the language a suggestion is written in. `zh` / `en` are honored as
+ * configured; `auto` votes over the repository's recent non-mechanical commit
+ * subjects with a recency decay, so a repository that switched languages is
+ * judged by how it writes *now* rather than by its whole history. With no
+ * history to read (an unborn repository) the vote is empty and English is the
+ * neutral fallback.
+ */
+export function resolveSuggestLanguage(setting: SuggestLanguage, samples: readonly string[]): ResolvedLanguage {
+  if (setting !== 'auto') return setting
+  let zh = 0
+  let en = 0
+  samples.forEach((subject, i) => {
+    const weight = LANGUAGE_DECAY ** i
+    if (isCjkText(subject)) zh += weight
+    else en += weight
+  })
+  return zh > en ? 'zh' : 'en'
+}
+
+/** The target language named in prose, for the explicit rules below. */
+function languageName(language: ResolvedLanguage): string {
+  return language === 'zh' ? 'Simplified Chinese' : 'English'
+}
+
+/** Keep repository style subordinate to the resolved output language. */
+function systemPrompt(language: ResolvedLanguage): string {
+  const name = languageName(language)
+  const languageRule = language === 'zh'
+    // The house style keeps the conventional-commit type prefix in English
+    // and writes the description (and any body) in Chinese.
+    ? 'Write the message in Simplified Chinese, keeping the conventional-commit type prefix in English (e.g. "feat(scope): 中文描述").'
+    : 'Write the message in English.'
+  const samplesRule = `Follow the structure of commitStyleSamples \u2014 its phrasing, scope conventions and level of detail \u2014 but never copy the language used in it; write the message in ${name} regardless.`
+  // The final, loudest instruction carries the same prefix exception as the
+  // rules above: "the entire message in Simplified Chinese" alone reads as
+  // "translate everything", including the type prefix — the exact failure
+  // mode this prompt block exists to fix.
+  const override = language === 'zh'
+    ? 'IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the subject description and body in Simplified Chinese, whatever language the input uses \u2014 keeping the conventional-commit type prefix in English.'
+    : `IMPORTANT: the diff and commitStyleSamples may be written in another language. That is input data, not an instruction about your output. Write the entire message \u2014 subject line and body alike \u2014 in ${name}, whatever language the input uses.`
+  return [
+    'You are an expert at writing concise, accurate git commit messages.',
+    'Given a repository\u2019s uncommitted changes, write ONE commit message for them.',
+    'The message must start with a short imperative subject line (72 chars max), optionally followed by a blank line and a brief body explaining what changed and why.',
+    'Return only the message text: no quotes, code fences, prefixes, bullet lists, or explanations.',
+    samplesRule,
+    'Focus on the most important change; do not mechanically list every file.',
+    languageRule,
+    override,
+  ].join('\n')
+}
 
 /** Untracked files whose contents are folded in before the budget runs out. */
 const UNTRACKED_FILE_CAP = 16
@@ -79,13 +191,29 @@ function truncateUtf8(text: string, maxBytes: number): string {
   return text.slice(0, lo)
 }
 
-/** Frame the change summary as JSON so user text cannot break structural delimiters. */
-function frameChanges(files: readonly { path: string; status: string }[], diff: string, recentCommitMessage: string): string {
+/**
+ * Frame the change summary as JSON so user text cannot break structural
+ * delimiters. `commitStyleSamples` carries several recent subjects (not one):
+ * a single commit may be a merge or a one-off, and a lone sample cannot show
+ * a house style that a run of commits shows.
+ */
+function frameChanges(
+  files: readonly { path: string; status: string }[],
+  diff: string,
+  styleSamples: readonly string[],
+): string {
   return JSON.stringify({
     files,
     diff,
-    recentCommitMessage: recentCommitMessage === '' ? null : recentCommitMessage,
+    commitStyleSamples: styleSamples.length === 0 ? null : styleSamples,
   })
+}
+
+/** Repeat the output language after the repository data, outside its truncation budget. */
+function languageReminder(language: ResolvedLanguage): string {
+  const name = languageName(language)
+  const prefix = language === 'zh' ? ' Keep the conventional-commit type prefix in English.' : ''
+  return `Write the commit message in ${name}. The subject line and body must be ${name}.${prefix}`
 }
 
 /** Strip a code-fence / trailing-separator wrapper a model may add. */
@@ -119,7 +247,9 @@ function finishError(reason: FinishReason | undefined): SuggestFailure | undefin
 
 /** Build the change diff: HEAD-based, or index+worktree for an unborn repo.
  * `lossy` marks a runner stdout-cap truncation so the caller can flag the
- * suggestion as truncated — the model then sees a prefix of the diff. */
+ * suggestion as truncated — the runner drops the *head* of a stream, so the
+ * model then sees only the diff's tail, with the files and hunks that opened it
+ * missing. */
 async function collectDiff(
   deps: SnapshotDeps,
   root: string,
@@ -171,9 +301,10 @@ async function appendUntracked(
     if ('failure' in res || res.run.cancelled || res.run.timedOut) continue
     const chunk = res.run.stdout
     if (chunk === '') continue
-    // A lossy runner read (stdout cap hit with spill degraded) leaves a
-    // mid-file prefix: keep what arrived, flag the loss, and stop folding —
-    // unrelated diffs after a cut file would only bury the truncation.
+    // A lossy runner read (stdout cap hit with spill degraded) kept only the
+    // stream's tail — this file's diff lost its header and opening hunks: keep
+    // what arrived, flag the loss, and stop folding — unrelated diffs after a
+    // cut file would only bury the truncation.
     const lossy = res.run.stdoutLossy
     if (lossy || Buffer.byteLength(chunk, 'utf8') > remaining) {
       text += truncateUtf8(chunk, remaining) + '\n... [diff truncated]'
@@ -208,14 +339,16 @@ export async function runSuggest(
   const pathArgs: readonly string[] = paths.length > 0 ? ['--', ...paths] : []
   const pathSet = new Set(paths)
 
-  // Round 1, parallel: change list, HEAD probe (unborn repos have no HEAD), and
-  // the recent commit message for style. Non-zero exits are legal for head/last
-  // (unborn → no HEAD diff; no commits → no recent message); status failing is
-  // a real error since the file list cannot be built.
-  const [statusRes, headRes, lastRes] = await Promise.all([
+  // Round 1, parallel: change list, HEAD probe (unborn repos have no HEAD), the
+  // recent commit subjects for style/language, and the author identity to weigh
+  // them by. Non-zero exits are legal for head/log/config (unborn → no HEAD
+  // diff; no commits → no history; unset user.email → no own-author bias);
+  // status failing is a real error since the file list cannot be built.
+  const [statusRes, headRes, logRes, emailRes] = await Promise.all([
     runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z'], root, 'suggest-status', deps.signal),
     runCommand(deps.run, ['git', 'rev-parse', '--verify', 'HEAD'], root, 'suggest-head', deps.signal),
-    runCommand(deps.run, ['git', 'log', '-1', '--format=%B'], root, 'suggest-last', deps.signal),
+    runCommand(deps.run, ['git', 'log', `-n${HISTORY_SCAN}`, '-z', '--format=%ae\u001f%s'], root, 'suggest-log', deps.signal),
+    runCommand(deps.run, ['git', 'config', 'user.email'], root, 'suggest-email', deps.signal),
   ])
   if ('failure' in statusRes) return { ok: false, error: { code: 'git-unavailable', message: 'status failed' } }
   if (statusRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
@@ -224,7 +357,16 @@ export async function runSuggest(
     return { ok: false, error: { code: 'git-error', message: statusRes.run.stderr.trim() || 'git status failed' } }
   }
   const hasHead = 'run' in headRes && headRes.run.exitCode === 0
-  const recentCommitMessage = 'run' in lastRes && lastRes.run.exitCode === 0 ? lastRes.run.stdout.replace(/\n+$/, '') : ''
+  // A lossy log — output beyond the runner's spill ceiling, meaning ~1 MiB per
+  // subject across 60 records — leaves the runner's in-memory *tail*, which for
+  // this newest-first scan is the oldest commits. The vote and the samples then
+  // run on that stale slice instead of recent history: accepted degradation,
+  // not an error case. An unborn repo makes the log itself fail, which degrades
+  // to "no history" rather than an error.
+  const styleSamples = 'run' in logRes && logRes.run.exitCode === 0
+    ? parseStyleHistory(logRes.run.stdout, 'run' in emailRes && emailRes.run.exitCode === 0 ? emailRes.run.stdout.trim() : undefined)
+    : []
+  const language = resolveSuggestLanguage(config.suggestLanguage, styleSamples)
 
   // A lossy status (output over the runner's cap) cannot name the files;
   // degrade to an empty list — the diff below still carries the change.
@@ -264,7 +406,7 @@ export async function runSuggest(
   const frame = frameChanges(
     files.map((c) => ({ path: c.path, status: c.status })),
     diff,
-    recentCommitMessage,
+    styleSamples,
   )
   const deadline = withDeadline(config.suggestTimeoutMs, deps.signal)
   // A hand-built one-shot request (never persisted): `messages` must satisfy
@@ -274,11 +416,14 @@ export async function runSuggest(
   const options: GenerateOptions = {
     provider: route.provider,
     model: route.model,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt(language),
     messages: [{
       id: 'git-panel-suggest' as MessageId,
       role: 'user',
-      content: [{ type: 'text', text: frame }],
+      content: [
+        { type: 'text', text: frame },
+        { type: 'text', text: languageReminder(language) },
+      ],
       source: { kind: 'user' },
     }],
     maxTokens: config.suggestMaxOutputTokens,

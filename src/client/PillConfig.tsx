@@ -12,8 +12,8 @@ import type { ChangeEvent, JSX } from 'react'
 import { resyncAll } from './registry'
 import { segButtons } from './seg'
 import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc'
-import type { GraphStyle } from './types'
-import { SUGGEST_LIMITS } from './types'
+import type { GraphStyle, SuggestLanguage } from './types'
+import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types'
 import type { GitKey } from './locales'
 
 interface PillConfigProps {
@@ -62,6 +62,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingView, setPendingView] = useState<DiffView | null>(null)
   const [pendingGraph, setPendingGraph] = useState<GraphStyle | null>(null)
   const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
+  const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
   // typing is never blocked mid-edit; blur/Enter parses, clamps and commits.
   const [draftMaxKib, setDraftMaxKib] = useState<string | null>(null)
@@ -100,6 +101,9 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
   const graphStyle: GraphStyle = pendingGraph ?? (snap?.value?.graphStyle === 'compact' ? 'compact' : 'parallel')
   const suggestEnabled = pendingSuggest ?? (typeof snap?.value?.suggestEnabled === 'boolean' ? (snap.value.suggestEnabled as boolean) : true)
+  const rawLang = snap?.value?.suggestLanguage
+  const suggestLanguage: SuggestLanguage = pendingLang
+    ?? (typeof rawLang === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(rawLang) ? rawLang as SuggestLanguage : SUGGEST_LANGUAGE_DEFAULT)
   // Display values: derive from the RAW snapshot value into the display unit,
   // clamped into range so the form shows what the host will actually enforce
   // (an out-of-range value written outside this form is clamped host-side too).
@@ -157,6 +161,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggleSuggest = (next: boolean): Promise<void> => {
     setPendingSuggest(next)
     return commitField('suggestEnabled', next, () => setPendingSuggest(null))
+  }
+
+  const setLanguage = (next: SuggestLanguage): Promise<void> => {
+    if (next === suggestLanguage) return Promise.resolve()
+    setPendingLang(next)
+    return commitField('suggestLanguage', next, () => setPendingLang(null))
   }
 
   // Commit one numeric draft: parse → clamp to the display-unit range → write
@@ -227,6 +237,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         }),
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
       ]),
+      h('p', { key: 'sglangtitle', className: 'gp-cfg__seglabel' }, t('cfg.suggestLangLabel')),
+      h('div', { key: 'sglang', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.suggestLangLabel') },
+        segButtons<SuggestLanguage>([...SUGGEST_LANGUAGES], suggestLanguage, (v) => { void setLanguage(v) },
+          (v) => t(v === 'auto' ? 'cfg.suggestLangAuto' : v === 'zh' ? 'cfg.suggestLangZh' : 'cfg.suggestLangEn'), busy || snap?.writable === false)),
+      h('p', { key: 'sglanghint', className: 'gp-cfg__rangehint' }, t('cfg.suggestLangHint')),
       h('div', { key: 'numax', className: 'gp-cfg__numrow' }, [
         h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-maxkib' }, t('cfg.suggestMaxBytesLabel')),
         h('input', {

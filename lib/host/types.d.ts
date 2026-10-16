@@ -372,10 +372,13 @@ export type GitQueryResult = {
  * trailing gap rather than a speculative one.
  *
  * `truncated` marks the one case where the text itself is incomplete: the
- * runner dropped output at its collect/spill ceiling, so `text` is a prefix
- * that still parses like a real diff. It is flagged rather than refused —
- * the partial hunks stay readable — but the view must say so, because line
- * numbers and +/- counts past the cut are simply wrong.
+ * runner dropped output at its collect/spill ceiling, which discards the
+ * *head* of the stream, so `text` is a tail that still parses like a real
+ * diff — the surviving hunks carry git's own line numbers — while the header
+ * and opening hunks are gone and the +/- counts under-report. It is flagged
+ * rather than refused (the partial hunks stay readable), but the view must say
+ * so: it would otherwise present the lost opening as ordinary folded context,
+ * as if the diff were whole.
  */
  | {
     readonly kind: 'diff';
@@ -517,6 +520,18 @@ export declare const SUGGEST_LIMITS: {
         readonly default: 15000;
     };
 };
+/**
+ * Selectable commit-message languages. `auto` infers the language from the
+ * repository's own commit history (see resolveSuggestLanguage); `zh` / `en`
+ * pin it. Shared by both halves like SUGGEST_LIMITS — the detail-page form
+ * renders one segment per entry.
+ */
+export declare const SUGGEST_LANGUAGES: readonly ["auto", "zh", "en"];
+export type SuggestLanguage = (typeof SUGGEST_LANGUAGES)[number];
+/** Default is `auto`: follow the style the repository is already written in. */
+export declare const SUGGEST_LANGUAGE_DEFAULT: SuggestLanguage;
+/** A language a suggestion is actually written in — `auto` is always resolved. */
+export type ResolvedLanguage = Exclude<SuggestLanguage, 'auto'>;
 /**
  * Wire request for the suggest endpoint: ask the configured model to write a
  * commit message from the repository's uncommitted changes. `paths` restricts

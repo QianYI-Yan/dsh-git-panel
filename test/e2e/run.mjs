@@ -283,9 +283,28 @@ const out = await page.evaluate(async (snap) => {
     const amendCb = document.querySelector('.gp-commitbox__amend input')
     result.suggestLocksMessage = msgBox.readOnly === true && msgBox.getAttribute('aria-busy') === 'true'
     result.suggestLocksAmend = amendCb?.disabled === true
+    // A spinner sits inside the locked message field so the disabled state
+    // reads as "generating", not as a broken input.
+    const spinner = document.querySelector('.gp-commitbox__msg-wrap .gp-commitbox__spin')
+    result.suggestFieldSpinner = spinner !== null
+    result.suggestFieldSpinnerAnimates = spinner !== null
+      && window.getComputedStyle(spinner).animationName !== 'none'
+    result.suggestFieldSpinnerAria = spinner?.getAttribute('aria-hidden') === 'true'
+    // Presence in the DOM is not enough: the glyph must render inside the
+    // field's own box, otherwise it is invisible where it matters.
+    if (spinner) {
+      const s = spinner.getBoundingClientRect()
+      const f = msgBox.getBoundingClientRect()
+      result.suggestFieldSpinnerInside = s.width > 0 && s.height > 0
+        && s.top >= f.top && s.bottom <= f.bottom
+        && s.left >= f.left && s.right <= f.right
+    } else {
+      result.suggestFieldSpinnerInside = false
+    }
     if (suggestRelease) suggestRelease()
     await new Promise((r) => setTimeout(r, 80))
     result.suggestUnlocksMessage = msgBox.readOnly === false && amendCb?.disabled === false
+    result.suggestFieldSpinnerGone = document.querySelector('.gp-commitbox__msg-wrap .gp-commitbox__spin') === null
     result.suggestFilled = msgBox.value === 'feat: suggested'
     const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
     setter.call(msgBox, '')
@@ -1110,6 +1129,11 @@ try {
   assert.equal(out.suggestLocksMessage, true, 'commit message box is read-only while AI suggest is in flight')
   assert.equal(out.suggestLocksAmend, true, 'amend toggle is disabled while AI suggest is in flight')
   assert.equal(out.suggestUnlocksMessage, true, 'message box and amend unlock once the suggestion lands')
+  assert.equal(out.suggestFieldSpinner, true, 'a loading spinner renders inside the message field while generating')
+  assert.equal(out.suggestFieldSpinnerAnimates, true, 'the field spinner actually animates')
+  assert.equal(out.suggestFieldSpinnerAria, true, 'the decorative spinner is hidden from assistive tech')
+  assert.equal(out.suggestFieldSpinnerInside, true, 'the spinner is laid out inside the message field')
+  assert.equal(out.suggestFieldSpinnerGone, true, 'the field spinner disappears once the suggestion lands')
   assert.equal(out.suggestFilled, true, 'the suggestion fills the message box')
   assert.equal(out.changeRows, 6, 'six change rows (two modified text + untracked file + untracked dir + image + svg)')
   assert.equal(out.imagePanes, 2, 'image diff renders both panes in split mode')

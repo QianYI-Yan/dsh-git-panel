@@ -402,10 +402,13 @@ export type GitQueryResult =
    * trailing gap rather than a speculative one.
    *
    * `truncated` marks the one case where the text itself is incomplete: the
-   * runner dropped output at its collect/spill ceiling, so `text` is a prefix
-   * that still parses like a real diff. It is flagged rather than refused —
-   * the partial hunks stay readable — but the view must say so, because line
-   * numbers and +/- counts past the cut are simply wrong.
+   * runner dropped output at its collect/spill ceiling, which discards the
+   * *head* of the stream, so `text` is a tail that still parses like a real
+   * diff — the surviving hunks carry git's own line numbers — while the header
+   * and opening hunks are gone and the +/- counts under-report. It is flagged
+   * rather than refused (the partial hunks stay readable), but the view must say
+   * so: it would otherwise present the lost opening as ordinary folded context,
+   * as if the diff were whole.
    */
   | { readonly kind: 'diff'; readonly path: string; readonly text: string; readonly newLines: number; readonly truncated?: true }
   // A slice of a file's post-change content for on-demand context expansion:
@@ -505,6 +508,22 @@ export const SUGGEST_LIMITS = {
   maxOutputTokens: { min: 256, max: 16384, default: 4096 },
   timeoutMs: { min: 5000, max: 120000, default: 15000 },
 } as const
+
+/**
+ * Selectable commit-message languages. `auto` infers the language from the
+ * repository's own commit history (see resolveSuggestLanguage); `zh` / `en`
+ * pin it. Shared by both halves like SUGGEST_LIMITS — the detail-page form
+ * renders one segment per entry.
+ */
+export const SUGGEST_LANGUAGES = ['auto', 'zh', 'en'] as const
+
+export type SuggestLanguage = (typeof SUGGEST_LANGUAGES)[number]
+
+/** Default is `auto`: follow the style the repository is already written in. */
+export const SUGGEST_LANGUAGE_DEFAULT: SuggestLanguage = 'auto'
+
+/** A language a suggestion is actually written in — `auto` is always resolved. */
+export type ResolvedLanguage = Exclude<SuggestLanguage, 'auto'>
 
 /**
  * Wire request for the suggest endpoint: ask the configured model to write a

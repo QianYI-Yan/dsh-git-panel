@@ -262,6 +262,10 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
 .gp-commitbox__msg{width:100%;min-height:72px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:8px;box-sizing:border-box}
+.gp-commitbox__msg-wrap{position:relative;display:block}
+.gp-commitbox__msg-wrap--busy .gp-commitbox__msg{padding-right:28px}
+/* Loading indicator inside the disabled field (AI suggest in flight). */
+.gp-commitbox__spin{position:absolute;top:8px;right:8px;width:13px;height:13px;box-sizing:border-box;border-radius:50%;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:gp-spin .7s linear infinite;pointer-events:none}
 .gp-commitbox__msg[readonly]{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);cursor:progress}
 .gp-commitbox__msg:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbox__row{display:flex;align-items:center;gap:10px}
@@ -515,6 +519,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-cfg__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-cfg__text{font-size:13px;color:var(--dsw-alias-label-primary)}
 .gp-cfg__seg{align-self:flex-start}
+.gp-cfg__seglabel{margin:0;font-size:13px;color:var(--dsw-alias-label-primary)}
 .gp-cfg__hint{margin:0;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
 .gp-cfg__err{margin:0;font-size:12px;color:var(--dsw-alias-state-error-primary)}
 .gp-cfg__card{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}

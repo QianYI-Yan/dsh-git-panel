@@ -10,14 +10,14 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
 import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js';
-export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry, GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, } from './types.js';
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote } from './core.js';
+export type { GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef, GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode, GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry, GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage, } from './types.js';
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage } from './core.js';
 export { createGitRunner } from './git.js';
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js';
 export { parseRemote, classifyHost } from './remote.js';
 export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js';
 export { runQuery } from './queries.js';
-export { runSuggest } from './suggest.js';
+export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText } from './suggest.js';
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js';
 export declare class GitPanelService extends TypertRemoteService {
     static inject: string[];
@@ -32,6 +32,7 @@ export declare class GitPanelService extends TypertRemoteService {
         defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
         graphStyle: Schema<"compact" | "parallel", "compact" | "parallel", "volatile-defined">;
         suggestEnabled: Schema<boolean, boolean, "volatile-defined">;
+        suggestLanguage: Schema<"auto" | "zh" | "en", "auto" | "zh" | "en", "volatile-defined">;
         suggestMaxBytes: Schema<number, number, "volatile-defined">;
         suggestMaxOutputTokens: Schema<number, number, "volatile-defined">;
         suggestTimeoutMs: Schema<number, number, "volatile-defined">;
@@ -40,6 +41,7 @@ export declare class GitPanelService extends TypertRemoteService {
         defaultDiffView: Schema<"split" | "unified", "split" | "unified", "volatile-defined">;
         graphStyle: Schema<"compact" | "parallel", "compact" | "parallel", "volatile-defined">;
         suggestEnabled: Schema<boolean, boolean, "volatile-defined">;
+        suggestLanguage: Schema<"auto" | "zh" | "en", "auto" | "zh" | "en", "volatile-defined">;
         suggestMaxBytes: Schema<number, number, "volatile-defined">;
         suggestMaxOutputTokens: Schema<number, number, "volatile-defined">;
         suggestTimeoutMs: Schema<number, number, "volatile-defined">;

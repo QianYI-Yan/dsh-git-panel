@@ -360,18 +360,28 @@ export function ChangesTab({ remote, sessionId, snapshot, onAction, compact, t }
     ]) : null,
     // commit box
     h('div', { key: 'box', className: 'gp-commitbox' }, [
-      h('textarea', {
+      h('div', {
         key: 'msg',
-        className: 'gp-commitbox__msg',
-        placeholder: t('commit.placeholder'),
-        value: message,
-        ref: msgRef,
-        // Locked while a suggestion is in flight so typing can't race the
-        // incoming message (readOnly, not disabled: focus() lands on success).
-        readOnly: suggesting,
-        'aria-busy': suggesting,
-        onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
-      }),
+        className: `gp-commitbox__msg-wrap${suggesting ? ' gp-commitbox__msg-wrap--busy' : ''}`,
+      }, [
+        h('textarea', {
+          key: 'ta',
+          className: 'gp-commitbox__msg',
+          placeholder: t('commit.placeholder'),
+          value: message,
+          ref: msgRef,
+          // Locked while a suggestion is in flight so typing can't race the
+          // incoming message (readOnly, not disabled: focus() lands on success).
+          readOnly: suggesting,
+          'aria-busy': suggesting,
+          onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
+        }),
+        // Spinner inside the field itself: the lock should read as "working",
+        // not as a broken input. Decorative — aria-busy above carries the state.
+        suggesting
+          ? h('span', { key: 'spin', className: 'gp-commitbox__spin', 'aria-hidden': 'true' })
+          : null,
+      ]),
       h('div', { key: 'row', className: 'gp-commitbox__row' }, [
         h('label', { key: 'amend', className: 'gp-commitbox__amend' }, [
           h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, disabled: suggesting, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),

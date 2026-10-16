@@ -71,8 +71,9 @@ interface DiffViewProps {
   /** True while the toolbar's "expand all" is engaged. Only then can hidden
    * context be a surprise, so only then does the capped notice render. */
   readonly expanded?: boolean
-  /** The host flagged the diff text as a truncated prefix (the runner dropped
-   * output at its cap): line numbers past the cut are wrong, so say so. */
+  /** The host flagged the diff text as truncated (the runner dropped the head
+   * of its output at the cap): surviving hunks stay readable, but the header and
+   * opening hunks are missing and the +/- counts under-report. */
   readonly truncated?: boolean
   /** New-side total line count from the diff query — the only fact that can
    * tell whether hidden context follows the last hunk (git caps trailing
