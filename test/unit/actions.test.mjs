@@ -95,10 +95,10 @@ test('unstage-all uses rm --cached . when unborn, restore --staged . otherwise',
   assert.deepEqual(planAction({ kind: 'unstage-all' }, false).argv, [['git', 'restore', '--staged', '--', '.']])
 })
 
-test('branch-checkout guards the name and passes it after --end-of-options', () => {
+test('branch-checkout guards the name and emits no --end-of-options (git checkout rejects that option)', () => {
   assert.deepEqual(
     planAction({ kind: 'branch-checkout', name: 'feature/x' }, false).argv,
-    [['git', 'checkout', '--end-of-options', 'feature/x']],
+    [['git', 'checkout', 'feature/x']],
   )
   assert.equal(planAction({ kind: 'branch-checkout', name: '-f' }, false).error, 'invalid-name')
   assert.equal(planAction({ kind: 'branch-checkout', name: '/abs' }, false).error, 'invalid-name')
@@ -109,7 +109,7 @@ test('branch-checkout with createFrom creates the local branch and tracks the re
   // `-b <name> --track` is the deterministic create-and-track form.
   assert.deepEqual(
     planAction({ kind: 'branch-checkout', name: 'feature', createFrom: 'origin/feature' }, false).argv,
-    [['git', 'checkout', '-b', 'feature', '--track', '--end-of-options', 'origin/feature']],
+    [['git', 'checkout', '-b', 'feature', '--track', 'origin/feature']],
   )
   assert.equal(
     planAction({ kind: 'branch-checkout', name: 'x', createFrom: '--upload-pack=/tmp/pwn' }, false).error,
@@ -126,11 +126,11 @@ test('branch-checkout with stashMessage stashes first (untracked included) and t
   )
   assert.deepEqual(plan.argv, [
     ['git', 'stash', 'push', '-u', '-m', 'auto stash'],
-    ['git', 'checkout', '-b', 'dev', '--track', '--end-of-options', 'origin/dev'],
+    ['git', 'checkout', '-b', 'dev', '--track', 'origin/dev'],
   ])
   assert.deepEqual(
     planAction({ kind: 'branch-checkout', name: 'dev', stashMessage: '   ' }, false).argv,
-    [['git', 'checkout', '--end-of-options', 'dev']],
+    [['git', 'checkout', 'dev']],
     'a blank stash message is not a stash step',
   )
 })
@@ -184,9 +184,9 @@ test('revert builds a no-edit reverse commit and guards the commit', () => {
 })
 
 test('reset builds --soft/--mixed/--hard, guards the commit, and rejects a bad mode', () => {
-  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'soft' }, false).argv, [['git', 'reset', '--soft', '--end-of-options', 'abc123']])
-  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'mixed' }, false).argv, [['git', 'reset', '--mixed', '--end-of-options', 'abc123']])
-  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'hard' }, false).argv, [['git', 'reset', '--hard', '--end-of-options', 'abc123']])
+  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'soft' }, false).argv, [['git', 'reset', '--soft', 'abc123']])
+  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'mixed' }, false).argv, [['git', 'reset', '--mixed', 'abc123']])
+  assert.deepEqual(planAction({ kind: 'reset', commit: 'abc123', mode: 'hard' }, false).argv, [['git', 'reset', '--hard', 'abc123']])
   assert.equal(planAction({ kind: 'reset', commit: '-f', mode: 'hard' }, false).error, 'invalid-name')
   assert.equal(planAction({ kind: 'reset', commit: 'abc123', mode: 'bogus' }, false).error, 'invalid-name')
 })

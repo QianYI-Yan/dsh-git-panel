@@ -1,8 +1,10 @@
 /**
  * Input validation for the host trust boundary. Paths, refs, and branch names
  * arriving over RPC are the only untrusted argv material; every git command
- * that would otherwise place them in an option position is guarded here and,
- * belt-and-suspenders, passes them after `--end-of-options`.
+ * that would otherwise place them in an option position is guarded here.
+ * Subcommands that accept `--end-of-options` additionally pass the value after
+ * it (belt-and-suspenders); `checkout` and `reset` do not — those subcommands
+ * reject that option — so for them this validation is the only guard.
  */
 import { isAbsolute, normalize } from 'node:path'
 
