@@ -62,7 +62,7 @@ await page.evaluate(async (snap) => {
               { hash: 'de54fc0abc', shortHash: 'de54fc0', subject: 'feat: something', author: 'xbzbing', dateIso: now, parents: [], refs: [] },
             ] } } }
           }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'x', author: 'xbzbing', dateIso: new Date().toISOString() }, body: '', stats: [] } } }
+          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'x', author: 'xbzbing', dateIso: new Date().toISOString() }, body: '', stats: [{ path: 'src/client/OverviewTab.tsx', status: 'modified' }, { path: 'src/client/styles.ts', status: 'modified' }], insertions: 27, deletions: 2 } } }
         }
         if (endpoint === 'gitPanel/run') return { ok: true, value: { ok: true, snapshot: snap } }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: false } }
@@ -142,6 +142,26 @@ report.detailBack = await page.evaluate(() => {
   return b === null ? null : { h: Math.round(b.getBoundingClientRect().height), label: (b.textContent || '').trim() }
 })
 await page.locator('.gp-overview--compact .gp-subhead').screenshot({ path: resolve(OUT, 'ov-detail-head-304.png') })
+
+// Same header at the common phone width (390px): back button + change summary
+// share one row, the repeated short hash is gone, and the row still fits.
+await page.evaluate(() => { window.__panelHost.style.width = '390px' })
+await page.waitForTimeout(300)
+report.detailHead390 = await page.evaluate(() => {
+  const head = document.querySelector('.gp-overview--compact .gp-subhead')
+  const box = (n) => n === null ? null : (() => { const b = n.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height), top: Math.round(b.top), right: Math.round(b.right) } })()
+  const sum = head === null ? null : head.querySelector('.gp-detail__summary--inline')
+  return {
+    hashInHead: head === null ? null : head.querySelector('.gp-commit-hash') !== null,
+    back: box(head === null ? null : head.querySelector('.gp-subhead__back')),
+    head: box(head),
+    summary: box(sum),
+    summaryText: (sum?.textContent || '').trim(),
+    overflow: head === null ? null : head.scrollWidth > head.clientWidth + 1,
+  }
+})
+await page.locator('.gp-overview--compact .gp-subhead').screenshot({ path: resolve(OUT, 'ov-detail-head-390.png') })
+await page.locator('.gp-overview--compact .gp-detail').screenshot({ path: resolve(OUT, 'ov-detail-pane-390.png') })
 
 console.log(JSON.stringify(report, null, 2))
 if (errors.length) console.log('CONSOLE ERRORS:', errors)

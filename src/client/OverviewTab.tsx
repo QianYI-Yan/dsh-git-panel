@@ -636,6 +636,20 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         }))),
   ])
 
+  // Changed-file summary (file count + colored +/- counts). Wide puts it above
+  // the changed-file tree inside the detail column; compact has no room for a
+  // second header row, so it rides the drill-in back bar instead — the caller
+  // picks the class and the node is absent until the commit detail lands.
+  const renderDetailSummary = (className: string): JSX.Element | null =>
+    detail.detail !== null && detail.detail.stats.length > 0
+      ? h('div', { className }, [
+        h('span', { key: 'f' }, t('overview.changeSummary', { files: detail.detail.stats.length })),
+        h('span', { key: 'sep', className: 'gp-detail__summary-sep' }, '·'),
+        h('span', { key: 'a', className: 'gp-stats__add' }, `+${detail.detail.insertions}`),
+        h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${detail.detail.deletions}`),
+      ])
+      : null
+
   // The right detail column body (changed files + message, or a placeholder) as
   // a keyed child array. Shared by the wide right column and the compact detail
   // pane. The container (.gp-detail) is supplied by each caller.
@@ -646,14 +660,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         detail.detail === null
           ? h('div', { className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
           : [
-            detail.detail.stats.length > 0
-              ? h('div', { key: 'sum', className: 'gp-detail__summary' }, [
-                h('span', { key: 'f' }, t('overview.changeSummary', { files: detail.detail.stats.length })),
-                h('span', { key: 'sep', className: 'gp-detail__summary-sep' }, '·'),
-                h('span', { key: 'a', className: 'gp-stats__add' }, `+${detail.detail.insertions}`),
-                h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${detail.detail.deletions}`),
-              ])
-              : null,
+            compact ? null : renderDetailSummary('gp-detail__summary'),
             renderFileTree(fileTree, {
               activePath: detail.fileDiff?.path ?? null,
               openTitle: t('overview.openFileDiff'),
@@ -696,6 +703,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
 
   // Compact: a single column that drills from the history list into the commit
   // detail; the branch filter is a bottom sheet. No hover card (tap drills in).
+  // The header spends its row on the back button + the change summary: the
+  // short hash it used to carry is already in the commit-row meta and in the
+  // message meta below, so repeating it here only cost the second row.
   if (compact) {
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
@@ -704,7 +714,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ? h('div', { key: 'detail', className: 'gp-col gp-col--mid gp-detail' }, [
           h('div', { key: 'back', className: 'gp-subhead' }, [
             h('button', { key: 'b', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('overview.backToList')]),
-            selected !== null ? h('span', { key: 'h', className: 'gp-subhead__title gp-commit-hash' }, selected.shortHash) : null,
+            renderDetailSummary('gp-detail__summary gp-detail__summary--inline'),
           ]),
           ...detailBody,
         ])

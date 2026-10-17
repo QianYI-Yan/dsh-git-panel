@@ -59,7 +59,7 @@ const out = await page.evaluate(async (snap) => {
             { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString(), parents: ['de54fc0bbb'], refs: [{ kind: 'branch', name: 'feature', head: false }] },
             { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: new Date().toISOString(), parents: [], refs: [{ kind: 'branch', name: 'main', head: true }] },
           ] } } }
-          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }] } } }
+          if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }], insertions: 27, deletions: 2 } } }
           if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n', newLines: 2 } } }
           if (q.kind === 'dir-list') {
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
@@ -223,6 +223,27 @@ const out = await page.evaluate(async (snap) => {
   result.ovDetailHasBack = [...document.querySelectorAll('.gp-subhead__back')].some((b) => (b.textContent || '').includes('overview.backToList'))
   result.ovBackBtnHeight = Math.round(document.querySelector('.gp-overview--compact .gp-subhead__back').getBoundingClientRect().height)
   result.ovDetailShowsFiles = document.querySelector('.gp-detail__files') !== null
+  // Header row: back button + change summary on one line. The short hash it
+  // used to repeat is already in the commit-row meta and the message meta
+  // below, and the summary no longer costs a second row.
+  const ovHead = document.querySelector('.gp-overview--compact .gp-subhead')
+  const ovBackBox = ovHead?.querySelector('.gp-subhead__back')?.getBoundingClientRect() ?? null
+  const ovSumEl = ovHead?.querySelector('.gp-detail__summary--inline') ?? null
+  const ovSumBox = ovSumEl?.getBoundingClientRect() ?? null
+  const ovHeadBox = ovHead?.getBoundingClientRect() ?? null
+  result.ovDetailHeadNoHash = ovHead !== null && ovHead.querySelector('.gp-commit-hash') === null
+  result.ovDetailHeadSummary = ovSumEl !== null
+    && (ovSumEl.textContent || '').includes('overview.changeSummary')
+    && (ovSumEl.querySelector('.gp-stats__add')?.textContent || '') === '+27'
+    && (ovSumEl.querySelector('.gp-stats__del')?.textContent || '') === '\u2212' + '2'
+  result.ovDetailHeadSameRow = ovBackBox !== null && ovSumBox !== null
+    && Math.abs((ovBackBox.top + ovBackBox.height / 2) - (ovSumBox.top + ovSumBox.height / 2)) <= 4
+  result.ovDetailHeadOneRow = ovHeadBox !== null && ovBackBox !== null && ovHeadBox.height < ovBackBox.height * 1.8
+  result.ovDetailHeadRightAligned = ovSumBox !== null && ovHeadBox !== null && (ovHeadBox.right - ovSumBox.right) <= 12
+  result.ovDetailHeadFits = ovHead !== null && ovHead.scrollWidth <= ovHead.clientWidth + 1
+  // The summary left the scrollable file list in compact (the wide layout keeps
+  // it there — asserted once the panel widens below).
+  result.ovDetailFilesNoSummary = document.querySelector('.gp-detail__files .gp-detail__summary') === null
   // Commit ops are low-frequency: compact keeps them at the 30px control height
   // instead of the 36px touch .gp-btn height.
   result.ovDetailActionBtnHeight = [...document.querySelectorAll('.gp-detail__actions .gp-btn')]
@@ -439,6 +460,12 @@ const out = await page.evaluate(async (snap) => {
   tabByText('tab.overview')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.wideHasThreeColumns = document.querySelector('.gp-col--left') !== null && document.querySelector('.gp-col--mid') !== null && document.querySelector('.gp-col--right') !== null
+  // Selecting a commit in wide mode puts the change summary back above the
+  // changed-file tree — the compact inline variant never renders here.
+  document.querySelector('.gp-commit-row')?.click()
+  await new Promise((r) => setTimeout(r, 400))
+  result.wideDetailSummaryInFiles = document.querySelector('.gp-detail__files .gp-detail__summary') !== null
+    && document.querySelector('.gp-detail__summary--inline') === null
   // The status bar lives inside the wide left column (below the scrolling list).
   result.wideStatusBarInLeft = document.querySelector('.gp-col--left .gp-statusbar') !== null && document.querySelector('.gp-col--left .gp-col-left__scroll') !== null
   return result
@@ -473,6 +500,13 @@ try {
   assert.equal(out.ovDetailHasBack, true, 'the detail pane shows a back-to-list button')
   assert.equal(out.ovBackBtnHeight, 30, 'the detail back button matches the 30px toolbar controls')
   assert.equal(out.ovDetailShowsFiles, true, 'the detail pane lists the commit changed files')
+  assert.equal(out.ovDetailHeadNoHash, true, 'the compact detail header drops the repeated short hash')
+  assert.equal(out.ovDetailHeadSummary, true, 'the compact detail header carries the file/line change summary')
+  assert.equal(out.ovDetailHeadSameRow, true, 'the change summary shares the back button row')
+  assert.equal(out.ovDetailHeadOneRow, true, 'the header stays one control row tall')
+  assert.equal(out.ovDetailHeadRightAligned, true, 'the summary takes the trailing edge of the header row')
+  assert.equal(out.ovDetailHeadFits, true, 'the header row does not overflow its pane')
+  assert.equal(out.ovDetailFilesNoSummary, true, 'compact does not repeat the summary inside the file list')
   assert.deepEqual(out.ovDetailActionBtnHeight, [30, 30, 30], 'compact commit ops keep one 30px height')
   assert.equal(out.ovBackToList, true, 'back returns to the commit list')
   assert.equal(out.statusBarShown, true, 'the overview renders a left-column status bar')
@@ -555,6 +589,7 @@ try {
   assert.equal(out.restoredWide, true, 'widening the panel restores the wide layout')
   assert.equal(out.ovfWide, true, 'the widened panel fits without horizontal overflow')
   assert.equal(out.wideHasThreeColumns, true, 'the wide overview shows all three columns again')
+  assert.equal(out.wideDetailSummaryInFiles, true, 'the wide detail keeps the summary above the changed-file tree')
   assert.equal(out.wideStatusBarInLeft, true, 'the wide left column keeps the status bar below the scrolling branch list')
   assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
   console.log('e2e run3.mjs: PASS', JSON.stringify(out))

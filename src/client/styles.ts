@@ -681,10 +681,14 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-subhead__back{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;flex:none;white-space:nowrap}
 .gp-subhead__back:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-subhead__back:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-subhead__title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 /* Compact drill-in back buttons (返回列表 / 返回文件树 / 返回变更列表) match the
  * 30px control height of the history toolbar's branch-filter pill. */
 .gp-panel[data-layout="compact"] .gp-subhead__back{height:30px}
+/* The compact commit-detail header carries the change summary on the back
+ * button's row: the summary drops its own hairline/padding and takes the
+ * trailing edge, clipped (never wrapped) when the counts run long. */
+.gp-panel[data-layout="compact"] .gp-detail__summary--inline{margin:0 0 0 auto;padding:0;border-bottom:0;min-width:0;overflow:hidden}
+.gp-panel[data-layout="compact"] .gp-detail__summary--inline>span{white-space:nowrap}
 
 /* Overview: single column, each pane fills width + height. */
 .gp-overview--compact{flex-direction:column}
