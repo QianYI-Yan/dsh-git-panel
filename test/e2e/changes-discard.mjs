@@ -8,13 +8,27 @@
  * (b) A staged-only pick enables nothing (there is nothing to discard there);
  *     mixing it into a live selection adds the "not affected" line and still
  *     keeps its path out of the request.
+ * (b2) The same mix as its own scenario, asserting the request carries the
+ *     working-tree path alone.
+ * (b3) An untracked directory reaches the request and is named as a disk
+ *     deletion.
  * (c) The two row icon buttons explain themselves through the shared fast
  *     tooltip (a `div.gp-tip.gp-tip--sb` portaled to body, ~140ms delay),
  *     including the armed "click again" wording, while `aria-label` keeps the
  *     short name and no native `title` is left behind.
+ * (d) The same tooltip contract for the stage hint on a working-tree row.
  * (e) A host refusal (`nested-repo`, e.g. discarding a directory that is
  *     itself a repository) surfaces the localized zh copy inside the still-open
  *     confirm dialog instead of closing it as if the discard had landed.
+ * (f) Touch media: the compact 30px control height must outrank the global
+ *     `@media (hover:none)` rule.
+ * (g) A refused batch discard (`index-busy`, the index lock) keeps the dialog
+ *     open with the localized copy, disables the confirm key only while the
+ *     call is in flight, re-enables it afterwards, and re-sends exactly one
+ *     `{kind:'discard', paths}` on retry.
+ * (h) A snapshot poll that drops the checked row prunes the selection to empty:
+ *     the dialog closes on its own, the entry returns to disabled, and a fresh
+ *     pick does not resurrect the stale dialog.
  *
  * Unlike the older runners this harness binds the *real* zh dictionary, so the
  * assertions pin the user-visible copy (and the body's {count} interpolation)
@@ -34,21 +48,31 @@ const FIXTURE_ROOT = 'fixture-repo'
 // dup.txt carries both sides (porcelain `MM`): picking its `:s` row must read as
 // staged-only, picking its `:w` row must clear that, and the batch count must
 // dedupe the file. s1.txt is index-only; w1.txt is working-tree only. del.txt is
-// an index-side deletion (the row whose old discard button failed outright) and
-// newdir is an untracked directory, which porcelain collapses into one entry.
+// an index-side deletion and rn.txt an index-side rename — the two index status
+// letters whose discard button used to no-op or fail outright — and newdir is an
+// untracked directory, which porcelain collapses into one entry.
+//
+// The array order is load-bearing: keep the unstaged `dup.txt` row next to the
+// staged one so the input order does NOT already match the rendered order. The
+// list groups staged → unstaged → untracked and sorts by path
+// (ChangesTab.tsx), so a fixture that arrives pre-grouped would make the
+// `staged group first` row assertion pass even if the grouping were removed.
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
-  staged: 3, modified: 2, untracked: 1, ahead: 0, behind: 0, hasUpstream: true,
+  staged: 4, modified: 2, untracked: 1, ahead: 0, behind: 0, hasUpstream: true,
   remote: null, lastCommit: null,
   changes: [
     { path: 'del.txt', status: 'deleted', staged: true, isDirectory: false },
     { path: 'dup.txt', status: 'modified', staged: true, isDirectory: false },
     { path: 'dup.txt', status: 'modified', staged: false, isDirectory: false },
+    { path: 'rn.txt', status: 'renamed', staged: true, isDirectory: false },
     { path: 's1.txt', status: 'modified', staged: true, isDirectory: false },
     { path: 'w1.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'newdir', status: 'untracked', staged: false, isDirectory: true },
   ],
-  stats: { fileCount: 6, staged: 3, modified: 2, untracked: 1, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
+  // `fileCount` is the distinct-path count (host `core.ts`: `distinct.size`), so
+  // the two dup.txt rows count once: 6 distinct paths, 7 list entries.
+  stats: { fileCount: 6, staged: 4, modified: 2, untracked: 1, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
@@ -125,6 +149,10 @@ async function batchScenario() {
       .find((b) => b.classList.contains('gp-btn--danger')) ?? null
 
     result.rows = rows().map((r) => `${r.querySelector('.gp-tree-name')?.textContent}:${r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent}`)
+    // The index-side rename row must read as a rename (`R`) and, like the
+    // deletion, offer unstage only — `git restore --` cannot touch the index.
+    result.renamedBadge = rows().find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === 'rn.txt')
+      ?.querySelector('.gp-status-badge')?.textContent ?? null
     // Per-row action inventory: discard is a working-tree operation, so the
     // index-side rows must offer unstage only.
     result.rowActions = rows().map((r) => ({
@@ -256,6 +284,120 @@ async function nestedRepoErrorScenario(code) {
     result.feedback = modal?.querySelector('.gp-feedback')?.textContent ?? null
     return result
   }, { stage: STAGE_GLYPH, code })
+  await page.close()
+  return { out, errors }
+}
+
+/**
+ * (g) A refused batch discard is not a silent success. The host's `index-busy`
+ *     refusal lands while the confirm key is disabled (the in-flight latch);
+ *     the dialog then stays open with the localized copy, the confirm key comes
+ *     back enabled, and the retry sends exactly one `{kind:'discard', paths}`.
+ */
+async function discardFailureScenario() {
+  const { page, errors } = await openPanel(SNAP)
+  const out = await page.evaluate(async (glyphs) => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const rowOf = (name, glyph) => [...document.querySelectorAll('.gp-file-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === name
+      && (r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent ?? '') === glyph) ?? null
+    const picked = () => document.querySelector('.gp-changes__discard-picked')
+    const confirmBtn = () => [...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn')]
+      .find((b) => b.classList.contains('gp-btn--danger')) ?? null
+    const overlay = () => document.querySelector('.gp-modal--sm .gp-modal__overlay')
+    const actions = () => window.__gpFixture.actions.map((a) => ({ kind: a.kind, paths: a.paths }))
+
+    // The host refuses the discard with an index lock; the mock parks the call
+    // so the in-flight state is observable before the refusal lands.
+    window.__gpFixture.runFailure = { kind: 'discard', code: 'index-busy', message: 'index.lock: File exists' }
+    window.__gpFixture.holdRun = { kind: 'discard' }
+    rowOf('w1.txt', glyphs.stage)?.querySelector('input.gp-check')?.click()
+    await wait(60)
+    result.enabled = picked().disabled === false
+    picked().click()
+    await wait(150)
+    result.modalShown = document.querySelector('.gp-modal--sm') !== null
+    const beforeFirst = window.__gpFixture.actions.length
+    confirmBtn()?.click()
+    // The mock publishes its release handle as soon as the call parks; the
+    // busy render lands a tick later, so wait for the disabled key itself.
+    for (let i = 0; i < 60 && confirmBtn()?.disabled !== true; i++) await wait(25)
+    result.inflightParked = window.__gpFixture.releaseRun !== null
+    result.inflightActions = actions().slice(beforeFirst)
+    result.inflightConfirmDisabled = confirmBtn()?.disabled === true
+    result.inflightOverlay = overlay()?.textContent ?? null
+    // A press while the first discard is still in flight must not queue another.
+    // It holds because the key is `disabled` (the busy latch), not because of
+    // `run()`'s `if (busy) return false`: React suppresses clicks on a button
+    // whose props say disabled, so that re-entry guard is unreachable from the
+    // DOM (flipping the DOM property does not lift the suppression) and stays
+    // deliberately uncovered here.
+    confirmBtn()?.click()
+    await wait(80)
+    result.inflightPressCount = actions().length - beforeFirst
+    // Release: the refusal lands inside the still-open dialog.
+    window.__gpFixture.holdRun = null
+    window.__gpFixture.releaseRun?.()
+    await wait(300)
+    const afterFail = window.__gpFixture.actions.length
+    result.failureActions = actions().slice(beforeFirst, afterFail)
+    result.modalOpenAfterFail = document.querySelector('.gp-modal--sm') !== null
+    result.feedback = document.querySelector('.gp-modal--sm .gp-feedback')?.textContent ?? null
+    result.confirmEnabledAfterFail = confirmBtn()?.disabled === false
+    result.overlayGone = overlay() === null
+    // Retry: the forced failure fired once, so this attempt lands and closes.
+    confirmBtn()?.click()
+    await wait(300)
+    result.retryActions = actions().slice(afterFail)
+    result.modalClosedAfterRetry = document.querySelector('.gp-modal--sm') === null
+    return result
+  }, { stage: STAGE_GLYPH })
+  await page.close()
+  return { out, errors }
+}
+
+/**
+ * (h) A snapshot poll that drops the checked row prunes the selection to empty:
+ *     the dialog closes on its own, the toolbar entry returns to disabled, and
+ *     a fresh pick must not resurrect the stale dialog. `refreshIntervalMs` is
+ *     what makes the poll (and therefore the prune) happen.
+ */
+async function snapshotTrimScenario() {
+  const { page, errors } = await openPanel({ ...SNAP, refreshIntervalMs: 120 })
+  const out = await page.evaluate(async (glyphs) => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const rowOf = (name, glyph) => [...document.querySelectorAll('.gp-file-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === name
+      && (r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent ?? '') === glyph) ?? null
+    const picked = () => document.querySelector('.gp-changes__discard-picked')
+
+    rowOf('w1.txt', glyphs.stage)?.querySelector('input.gp-check')?.click()
+    await wait(60)
+    result.enabledBefore = picked().disabled === false
+    picked().click()
+    await wait(150)
+    result.modalBefore = document.querySelector('.gp-modal--sm') !== null
+    // The next poll reports the file as resolved: the checked row is gone, so
+    // the selection prunes to empty and nothing is left to discard.
+    window.__gpFixture.snapshot = {
+      ...window.__gpFixture.snapshot,
+      changes: window.__gpFixture.snapshot.changes.filter((c) => c.path !== 'w1.txt'),
+      checkedAt: Date.now(),
+    }
+    // Wait for the poll to land (bounded so a slow CI tick does not flake).
+    for (let i = 0; i < 60 && rowOf('w1.txt', glyphs.stage) !== null; i++) await wait(50)
+    // The prune and the auto-close land in the same commit; give React a beat.
+    await wait(100)
+    result.rowGone = rowOf('w1.txt', glyphs.stage) === null
+    result.modalClosed = document.querySelector('.gp-modal--sm') === null
+    result.entryDisabled = picked().disabled === true
+    // Re-picking a living row must not pop the stale dialog back open.
+    rowOf('dup.txt', glyphs.stage)?.querySelector('input.gp-check')?.click()
+    await wait(250)
+    result.enabledAfterRepick = picked().disabled === false
+    result.modalStayedClosed = document.querySelector('.gp-modal--sm') === null
+    return result
+  }, { stage: STAGE_GLYPH })
   await page.close()
   return { out, errors }
 }
@@ -478,19 +620,22 @@ function tipDelay(log) {
 try {
   const batch = await batchScenario()
   assert.equal(batch.errors.length, 0, 'no console errors: ' + JSON.stringify(batch.errors))
-  // Fixture sanity: staged rows first (del.txt / dup.txt / s1.txt), then the
+  // Fixture sanity: the list regroups the fixture's deliberately interleaved
+  // rows into staged (del.txt / dup.txt / rn.txt / s1.txt), then the
   // working-tree ones, then the untracked directory; no group is collapsed.
-  assert.deepEqual(batch.out.rows, ['del.txt:\u2212', 'dup.txt:\u2212', 's1.txt:\u2212', 'dup.txt:+', 'w1.txt:+', 'newdir:+'], 'one row per changed side, staged group first')
+  assert.deepEqual(batch.out.rows, ['del.txt:\u2212', 'dup.txt:\u2212', 'rn.txt:\u2212', 's1.txt:\u2212', 'dup.txt:+', 'w1.txt:+', 'newdir:+'], 'one row per changed side, staged group first')
+  assert.equal(batch.out.renamedBadge, 'R', 'the index-side rename carries the R status glyph')
   // The index side has no working-tree changes to discard: offering the button
   // there used to no-op (`M `/`A `/`R `) or fail outright (`D `, del.txt here).
   assert.deepEqual(batch.out.rowActions, [
     { row: 'del.txt:\u2212', labels: ['取消暂存'] },
     { row: 'dup.txt:\u2212', labels: ['取消暂存'] },
+    { row: 'rn.txt:\u2212', labels: ['取消暂存'] },
     { row: 's1.txt:\u2212', labels: ['取消暂存'] },
     { row: 'dup.txt:+', labels: ['暂存', '放弃更改'] },
     { row: 'w1.txt:+', labels: ['暂存', '放弃更改'] },
     { row: 'newdir:+', labels: ['暂存', '放弃更改'] },
-  ], 'index-side rows offer unstage only; working-tree and untracked rows keep both actions')
+  ], 'index-side rows (including the `R ` rename) offer unstage only; working-tree and untracked rows keep both actions')
   assert.equal(batch.out.entryAfterUnstageAll, true, 'the discard entry follows "unstage all": ' + JSON.stringify(batch.out.toolbar))
   assert.equal(batch.out.entryBeforeStash, true, 'the discard entry precedes "stash changes": ' + JSON.stringify(batch.out.toolbar))
   assert.equal(batch.out.entryLabel, '放弃选中的更改', 'toolbar label is the zh entry copy')
@@ -545,6 +690,39 @@ try {
   const partial = await nestedRepoErrorScenario('nested-repo-partial')
   assert.equal(partial.errors.length, 0, 'no console errors: ' + JSON.stringify(partial.errors))
   assert.equal(partial.out.feedback, '该条目本身是一个 Git 仓库（嵌套仓库或子模块），拒绝连带删除；但同批中位于它之前的条目已经被删除了，请刷新后确认剩余变更，此操作请在终端中完成', 'the mid-batch refusal says earlier paths were already deleted')
+
+  // A non-repo refusal (`index-busy`, the index lock) follows the same rule:
+  // the dialog survives, the confirm key is only disabled while the call is in
+  // flight, and the retry re-sends the same single request.
+  const busy = await discardFailureScenario()
+  assert.equal(busy.errors.length, 0, 'no console errors: ' + JSON.stringify(busy.errors))
+  assert.equal(busy.out.enabled, true, 'picking a working-tree row enables the toolbar entry')
+  assert.equal(busy.out.modalShown, true, 'the confirm dialog opens')
+  assert.equal(busy.out.inflightParked, true, 'the discard call is parked in flight for the busy assertions')
+  assert.deepEqual(busy.out.inflightActions, [{ kind: 'discard', paths: ['w1.txt'] }], 'confirming sends exactly one discard request')
+  assert.equal(busy.out.inflightConfirmDisabled, true, 'the confirm key is disabled while the discard is in flight')
+  assert.equal(busy.out.inflightOverlay, '正在放弃…', 'the in-flight overlay carries the localized busy label')
+  assert.equal(busy.out.inflightPressCount, 1, 'a press while in flight queues no second request')
+  assert.deepEqual(busy.out.failureActions, [{ kind: 'discard', paths: ['w1.txt'] }], 'the refusal consumed exactly the one request')
+  assert.equal(busy.out.modalOpenAfterFail, true, 'the confirm dialog stays open after an index-busy refusal')
+  assert.equal(busy.out.feedback, 'Git 正忙（另一进程占用索引），请稍后重试', 'the index-busy refusal shows the localized copy in the dialog')
+  assert.equal(busy.out.confirmEnabledAfterFail, true, 'the confirm key is usable again once the refusal landed')
+  assert.equal(busy.out.overlayGone, true, 'the busy overlay is gone once the refusal landed')
+  assert.deepEqual(busy.out.retryActions, [{ kind: 'discard', paths: ['w1.txt'] }], 'the retry sends one discard with the same paths')
+  assert.equal(busy.out.modalClosedAfterRetry, true, 'the landed retry closes the dialog')
+
+  // The poll-driven prune: a row vanishing from the snapshot empties the
+  // selection, which must close the dialog and clear the entry — and must not
+  // let a later pick pop the stale dialog back open.
+  const trim = await snapshotTrimScenario()
+  assert.equal(trim.errors.length, 0, 'no console errors: ' + JSON.stringify(trim.errors))
+  assert.equal(trim.out.enabledBefore, true, 'the picked working-tree row enables the entry')
+  assert.equal(trim.out.modalBefore, true, 'the dialog is open before the poll')
+  assert.equal(trim.out.rowGone, true, 'the polled snapshot dropped the checked row')
+  assert.equal(trim.out.modalClosed, true, 'pruning the selection to empty closes the dialog on its own')
+  assert.equal(trim.out.entryDisabled, true, 'the entry returns to disabled once nothing is selected')
+  assert.equal(trim.out.enabledAfterRepick, true, 'a fresh working-tree pick enables the entry again')
+  assert.equal(trim.out.modalStayedClosed, true, 're-picking does not resurrect the stale dialog')
 
   const tips = await tipsScenario()
   assert.equal(tips.errors.length, 0, 'no console errors: ' + JSON.stringify(tips.errors))
@@ -611,6 +789,8 @@ try {
     stageDelay: tipDelay(tips.out.stageLog), armedDelay: tipDelay(tips.out.armedLog),
     tips: [tips.out.stageTip?.text, tips.out.discardTip?.text, tips.out.armedTip?.text, tips.out.unstageTip?.text],
     refusals: [refused.out.feedback, partial.out.feedback],
+    busyFailure: { feedback: busy.out.feedback, retry: busy.out.retryActions },
+    trim: { modalClosed: trim.out.modalClosed, stayedClosed: trim.out.modalStayedClosed },
   }))
 } catch (e) {
   console.error('e2e changes-discard.mjs: FAIL', e.message)

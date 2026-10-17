@@ -27,10 +27,14 @@ try {
     const visible = [commit(1, [2, 8], 'keep: merge'), commit(2, [6], 'keep: main'), commit(3, [9], 'keep: side'), commit(4, [10], 'keep: boundary'), commit(6, [], 'keep: root')]
     const hidden = [commit(8, [3], 'hidden: side', 'Other'), commit(9, [6], 'hidden: base', 'Other')]
     const full = [visible[0], visible[1], hidden[0], visible[2], visible[3], hidden[1], visible[4]]
+    // The toolbar's fetch entry is what re-drives the snapshot below, and it
+    // refuses to run with no remote configured (`runCheckSync` guards on
+    // `remote === null`), so the fixture needs one even though this runner only
+    // asserts the graph itself.
     const snap = {
       root: 'graph-fixture', branch: 'main', head: hash(1).slice(0, 7), dirty: false, unborn: false,
       staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0, hasUpstream: false,
-      changes: [], remote: null, refreshIntervalMs: 0, checkedAt: Date.now(), graphStyle: 'parallel',
+      changes: [], remote: { name: 'origin', webUrl: 'https://github.com/example/graph', hostKind: 'github' }, refreshIntervalMs: 0, checkedAt: Date.now(), graphStyle: 'parallel',
       stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
     }
     const { fixture, connection } = window.createGitPanelMock(snap)

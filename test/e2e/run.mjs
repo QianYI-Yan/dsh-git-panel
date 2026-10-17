@@ -749,7 +749,7 @@ const out = await page.evaluate(async (snap) => {
   // dialog (with the stash option already on screen as the way out).
   switchBtnOf('feature')?.click()
   await wait(80)
-  fixture.runFailure = { code: 'local-changes-block', message: 'local changes' }
+  fixture.runFailure = { kind: 'branch-checkout', code: 'local-changes-block', message: 'local changes' }
   ;[...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirm'))?.click()
   await wait(150)
   result.switchRefusalShown = (document.querySelector('.gp-modal .gp-feedback')?.textContent || '').includes('error.localChangesBlock')
