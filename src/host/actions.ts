@@ -365,26 +365,31 @@ async function looksLikeRepository(deps: SnapshotDeps, target: string): Promise<
     await deps.fs.stat(join(target, '.git'))
     return true
   } catch { /* not a nested repo / submodule — check the bare layout below */ }
-  // Type the two markers that must really be there first, with `stat` (which
-  // follows symlinks): an `objects/` that is a directory *or* a symlink to one
-  // counts, while a plain folder holding three similarly named *files* is not a
-  // repository and must not be refused as one.
-  let refsIsDirectory: boolean
+  const head = await pathKind(deps, join(target, 'HEAD'))
+  const refs = await pathKind(deps, join(target, 'refs'))
+  const objects = await pathKind(deps, join(target, 'objects'))
+  // `HEAD` is a file; `refs` and `objects` are directories. A path that is not
+  // readable but is a symlink still counts: that is a shared store which is not
+  // mounted right now, and the markers beside it are real data — refusing is
+  // the safe direction. Only genuinely wrong types (a plain file where a
+  // directory belongs) disqualify the entry.
+  if (!head.present || head.directory === true) return false
+  const directoryLike = (kind: PathKind): boolean => kind.present && kind.directory !== false
+  return directoryLike(refs) && directoryLike(objects)
+}
+
+interface PathKind {
+  /** The path exists; a dangling symlink counts as existing. */
+  readonly present: boolean
+  /** `true`/`false` when stat resolved it, `null` when only the link is known. */
+  readonly directory: boolean | null
+}
+
+async function pathKind(deps: SnapshotDeps, path: string): Promise<PathKind> {
   try {
-    const head = await deps.fs.stat(join(target, 'HEAD'))
-    if (head.isDirectory()) return false
-    refsIsDirectory = (await deps.fs.stat(join(target, 'refs'))).isDirectory()
+    return { present: true, directory: (await deps.fs.stat(path)).isDirectory() }
   } catch {
-    return false
-  }
-  if (!refsIsDirectory) return false
-  try {
-    return (await deps.fs.stat(join(target, 'objects'))).isDirectory()
-  } catch {
-    // `objects` is there but unreadable: a shared-object layout whose target is
-    // gone (unmounted volume, moved directory). The refs and HEAD beside it are
-    // still real data, so this stays a repository for refusal purposes.
-    return (await deps.fs.symlinkTarget(join(target, 'objects'))) !== null
+    return { present: (await deps.fs.symlinkTarget(path)) !== null, directory: null }
   }
 }
 

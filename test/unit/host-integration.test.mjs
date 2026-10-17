@@ -1308,6 +1308,40 @@ test('a dangling objects symlink (shared store gone) is still refused as a repos
   }
 })
 
+test('a bare repository whose refs/ or HEAD is a dangling symlink is refused too', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-baredangle2-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync, symlinkSync, existsSync, rmSync: rm } = await import('node:fs')
+    // Same rule for the other two markers: an unreadable symlink is a store
+    // that is not where it should be, not an ordinary untracked directory.
+    await runGit(dir, ['init', '--bare', '-q', 'refs-link.git'])
+    rm(join(dir, 'refs-link.git', 'refs'), { recursive: true, force: true })
+    symlinkSync(join(dir, 'nowhere-refs'), join(dir, 'refs-link.git', 'refs'))
+    const viaRefs = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['refs-link.git'] } })
+    assert.equal(viaRefs.ok, false, 'a dangling refs/ symlink stays a repository')
+    assert.equal(viaRefs.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'refs-link.git', 'HEAD')), true, 'its HEAD was not deleted')
+
+    // A plain directory whose HEAD is a dangling symlink, beside real objects/
+    // and refs/ directories, is refused for the same reason.
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, 'head-link', 'objects'), { recursive: true })
+    mkdirSync(join(dir, 'head-link', 'refs'), { recursive: true })
+    writeFileSync(join(dir, 'head-link', 'objects', 'x'), 'x\n')
+    symlinkSync(join(dir, 'nowhere-head'), join(dir, 'head-link', 'HEAD'))
+    const viaHead = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['head-link'] } })
+    assert.equal(viaHead.ok, false, 'a dangling HEAD symlink stays a repository')
+    assert.equal(viaHead.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'head-link')), true, 'the entry was not removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a repository appearing after the batch pre-flight is caught by the per-path re-check', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-race-'))
   try {
