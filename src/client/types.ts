@@ -11,7 +11,7 @@ export type {
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage,
 } from '../host/types.js'
 
-export { imageMimeFor, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
+export { imageMimeFor, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, FILE_COPY_MAX_BYTES, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
 import type { GitQueryResult } from '../host/types.js'
 
 /**

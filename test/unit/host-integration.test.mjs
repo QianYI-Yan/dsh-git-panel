@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat, lstat, readlink } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -570,15 +570,39 @@ test('file-content returns a text file body + line count', async () => {
   assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
 })
 
-test('file-content flags an over-cap file as tooLarge', async () => {
+test('file-content floors a text read at the copy envelope when maxBytes is smaller', async () => {
+  // Every document the copy button may copy must load, so a tiny profile
+  // stdout cap cannot reject the body before the shared 10 MiB envelope.
   const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
   const res = await runQuery(deps(), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'a.txt' } })
   assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'text')
+  assert.equal(res.value.tooLarge, undefined)
+  assert.ok(res.value.content.includes('line10-changed'))
+})
+
+test('file-content flags a text file over the copy envelope as tooLarge', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-fc-envelope-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    writeFileSync(join(dir, 'huge.txt'), Buffer.alloc(FILE_COPY_MAX_BYTES + 1, 0x61))
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'huge.txt' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.tooLarge, true)
+    // size/mtimeMs survive the over-cap early return — a large file is exactly
+    // when the user wants to see its size.
+    assert.ok(res.value.size > FILE_COPY_MAX_BYTES)
+    assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('file-content still applies maxBytes to images over the cap', async () => {
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
+  const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'img.png' } })
+  assert.equal(res.ok, true)
   assert.equal(res.value.tooLarge, true)
-  // size/mtimeMs survive the over-cap early return — a large file is exactly
-  // when the user wants to see its size.
-  assert.ok(res.value.size > 4)
-  assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
+  assert.equal(res.value.variant, 'image')
 })
 
 test('file-content serves an image as a data URL', async () => {

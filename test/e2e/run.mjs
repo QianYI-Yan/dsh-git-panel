@@ -912,6 +912,20 @@ const out = await page.evaluate(async (snap) => {
   result.propsSizeKiBSub = propsRow('files.propsSize')?.querySelector('.gp-props__sub')?.textContent
   await closeProps()
 
+  // Copy-content button: only a loaded text document under the copy envelope
+  // shows it; image, binary, and over-cap previews keep just copy-path.
+  const copyBtnLabels = () => [...document.querySelectorAll('.gp-files__copy-path')].map((b) => b.textContent)
+  await pickFile('a.txt')
+  result.copyBtnText = copyBtnLabels()
+  await pickFile('logo.png')
+  result.copyBtnImage = copyBtnLabels()
+  await pickFile('blob.bin')
+  result.copyBtnBinary = copyBtnLabels()
+  await pickFile('huge.txt')
+  result.copyBtnTooLarge = copyBtnLabels()
+  // Leave README.md selected so the sticky-restore phase sees a rendered preview.
+  await pickFile('README.md')
+
   // Sticky restore: on the Files tab with `src` expanded and a file selected,
   // a view-tab switch unmounts the panel; returning within the window must
   // restore the Files tab, the expanded dir, and the selection (not reset to

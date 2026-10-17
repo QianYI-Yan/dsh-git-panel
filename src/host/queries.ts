@@ -8,7 +8,7 @@ import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, s
 import { isSafePath, isSafeRev } from './validate.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.js'
-import { imageMimeFor, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from './types.js'
+import { imageMimeFor, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -557,8 +557,9 @@ async function ignoredEntries(deps: SnapshotDeps, root: string, parent: string, 
 /**
  * Read one working-tree file for preview. Images (by extension) return a base64
  * data URL; otherwise a UTF-8/binary probe decides between a text body and a
- * bare binary marker. Over the byte cap → `tooLarge`. Path is validated and
- * confirmed inside the root (symlink-guarded) before any read.
+ * bare binary marker. Over the byte cap (text reads floor at the copy
+ * envelope) → `tooLarge`. Path is validated and confirmed inside the root
+ * (symlink-guarded) before any read.
  */
 async function queryFileContent(
   deps: SnapshotDeps,
@@ -570,7 +571,6 @@ async function queryFileContent(
   const file = join(root, q.path)
   const inside = await isInsideRoot(deps, root, file, true)
   if (!inside) return { ok: false, error: { code: 'invalid-path', message: q.path } }
-  const cap = config.maxBytes
   let info: { size: number; mtimeMs: number }
   try {
     info = await deps.fs.stat(file)
@@ -578,6 +578,10 @@ async function queryFileContent(
     return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'stat failed' } }
   }
   const mime = imageMimeFor(q.path)
+  // Non-image reads floor at the copy envelope: every document the copy
+  // button may copy must load even when the profile's stdout cap is smaller;
+  // images keep config.maxBytes because they are never copyable content.
+  const cap = mime !== null ? config.maxBytes : Math.max(config.maxBytes, FILE_COPY_MAX_BYTES)
   // Same over-cap response whether the size trips at stat or after read (the
   // post-read length guards a grow-during-read race). size/mtimeMs ride along
   // on every variant (incl. tooLarge) — the properties dialog needs them and
