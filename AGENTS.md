@@ -130,7 +130,7 @@ npm run typecheck     # 类型检查
 
 - host 改动：类型检查通过 + 端点逻辑单测。
 - client 改动：`node build.mjs` 成功后，用隔离浏览器 / 隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权。
-- 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。
+- 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。`test:e2e` 经 `test/e2e/all.mjs` 跑完全部 runner 再汇总失败——不要改回 `&&` 串联：首个红 runner 会吞掉后面所有 runner（曾因此让 9 个 runner 长期不执行）。
 - 一键门禁 `npm run check`：类型检查 + 全部测试 + `git diff --exit-code -- lib/`（构建产物已提交且新鲜）。提交前必须通过。
 
 ## 代码约定
