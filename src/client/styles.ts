@@ -260,6 +260,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-changes__vrow>.gp-file-row,.gp-changes__vrow>.gp-group-head{height:100%;box-sizing:border-box}
 .gp-check{width:14px;height:14px;flex:none;cursor:pointer}
 .gp-group-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:11px;color:var(--dsw-alias-label-tertiary);cursor:pointer;user-select:none}
+/* A group kept only for its count has nothing to collapse: no chevron, no hand. */
+.gp-group-head--static{cursor:default}
+.gp-group-head__chev-spacer{display:inline-block;width:12px;flex:none}
 .gp-file-row{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 20px;cursor:pointer;font-size:12px;border-radius:4px}
 .gp-file-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* Selected change row: identical accent to the Git overview commit list

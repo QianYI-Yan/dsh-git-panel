@@ -1197,6 +1197,120 @@ test('a huge change set skips the per-file stats fan-out and marks stats partial
   }
 })
 
+test('snapshot expands an untracked directory into file entries (issue #41)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-expand-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    mkdirSync(join(dir, 'newdir', 'sub'), { recursive: true })
+    writeFileSync(join(dir, 'newdir', 'a.txt'), 'a\nb\n')
+    writeFileSync(join(dir, 'newdir', 'sub', 'b.txt'), 'c\n')
+    const res = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, true)
+    assert.deepEqual(res.value.changes.map((c) => c.path).sort(), ['newdir/a.txt', 'newdir/sub/b.txt'])
+    assert.ok(res.value.changes.every((c) => c.status === 'untracked' && !c.isDirectory), 'untracked entries are file-level')
+    assert.equal(res.value.untracked, 2)
+    assert.equal(res.value.stats.fileCount, 2)
+    assert.equal(res.value.stats.insertions, 3, 'untracked lines stay exact below the numstat ceiling')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a nested git repository keeps its single directory entry (issue #41)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-nested-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    mkdirSync(join(dir, 'nested'))
+    await runGit(join(dir, 'nested'), ['init', '-q'])
+    writeFileSync(join(dir, 'nested', 'x.txt'), 'x\n')
+    const res = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(res.ok, true)
+    const nested = res.value.changes.find((c) => c.path === 'nested')
+    assert.ok(nested, 'the nested repository is listed')
+    assert.equal(nested.isDirectory, true, 'a nested repository cannot be expanded into files')
+    assert.equal(nested.status, 'untracked')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('untracked line counting stops at its own ceiling (issue #41)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-numstat-cap-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync } = await import('node:fs')
+    // Exactly the ceiling: the fan-out runs and the counts stay exact.
+    for (let i = 0; i < 32; i++) writeFileSync(join(dir, `u${i}.txt`), 'a\nb\n')
+    const exact = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(exact.value.stats.untracked, 32)
+    assert.equal(exact.value.stats.insertions, 64)
+    assert.equal(exact.value.stats.partial, false)
+    // One past it: counts stay exact but no per-file git process is spawned for
+    // the untracked lines, so the stats degrade explicitly.
+    writeFileSync(join(dir, 'u32.txt'), 'a\nb\n')
+    const capped = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(capped.value.stats.untracked, 33)
+    assert.equal(capped.value.stats.insertions, 0, 'untracked line counting skipped past the ceiling')
+    assert.equal(capped.value.stats.partial, true)
+    assert.ok(capped.value.stats.lastChangeAt > 0, 'the cheap mtime pass still ran (its own ceiling is higher)')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a huge untracked directory falls back to collapsed entries instead of flooding the list (issue #41)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-collapse-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    mkdirSync(join(dir, 'newdir'))
+    for (let i = 0; i < 4; i++) writeFileSync(join(dir, 'newdir', `f${i}.txt`), 'x\n')
+    const res = await snapshotForSession(depsAt(dir), { ...DEFAULT_CONFIG, maxChanges: 2 }, SID)
+    assert.equal(res.ok, true)
+    assert.deepEqual(res.value.changes.map((c) => c.path), ['newdir'], 'the fallback collapses the untracked directory')
+    assert.equal(res.value.changes[0].isDirectory, true)
+    assert.equal(res.value.untrackedCollapsed, true, 'the snapshot says why the directory was not expanded')
+    assert.equal(res.value.truncated, false, 'collapsing keeps the list within the cap')
+    assert.equal(res.value.stats.untracked, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('truncatedReason reports the list cap when the change set overflows maxChanges (issue #41)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-reason-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const { writeFileSync } = await import('node:fs')
+    for (let i = 0; i < 5; i++) writeFileSync(join(dir, `f${i}.txt`), 'a\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'base'])
+    for (let i = 0; i < 5; i++) writeFileSync(join(dir, `f${i}.txt`), 'b\n')
+    const res = await snapshotForSession(depsAt(dir), { ...DEFAULT_CONFIG, maxChanges: 2 }, SID)
+    assert.equal(res.ok, true)
+    assert.equal(res.value.truncated, true)
+    assert.equal(res.value.truncatedReason, 'cap')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('diff of a clean tracked file is empty, not an all-new file (N4)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-clean-diff-'))
   try {

@@ -147,6 +147,13 @@ function systemPrompt(language: ResolvedLanguage): string {
 /** Untracked files whose contents are folded in before the budget runs out. */
 const UNTRACKED_FILE_CAP = 16
 
+/**
+ * Path-list ceiling for the prompt frame. Unlike the diff, this list has no byte
+ * budget, and `--untracked-files=all` can turn an un-ignored tree into thousands
+ * of paths; beyond this the tail is replaced by a count.
+ */
+const PROMPT_FILE_CAP = 200
+
 /** Resolve the model route: config override pair first, then the agent default. */
 function resolveRoute(
   config: GitPanelConfig,
@@ -199,11 +206,13 @@ function truncateUtf8(text: string, maxBytes: number): string {
  */
 function frameChanges(
   files: readonly { path: string; status: string }[],
+  filesOmitted: number,
   diff: string,
   styleSamples: readonly string[],
 ): string {
   return JSON.stringify({
     files,
+    ...(filesOmitted > 0 ? { filesOmitted } : {}),
     diff,
     commitStyleSamples: styleSamples.length === 0 ? null : styleSamples,
   })
@@ -345,7 +354,7 @@ export async function runSuggest(
   // diff; no commits → no history; unset user.email → no own-author bias);
   // status failing is a real error since the file list cannot be built.
   const [statusRes, headRes, logRes, emailRes] = await Promise.all([
-    runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z'], root, 'suggest-status', deps.signal),
+    runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], root, 'suggest-status', deps.signal),
     runCommand(deps.run, ['git', 'rev-parse', '--verify', 'HEAD'], root, 'suggest-head', deps.signal),
     runCommand(deps.run, ['git', 'log', `-n${HISTORY_SCAN}`, '-z', '--format=%ae\u001f%s'], root, 'suggest-log', deps.signal),
     runCommand(deps.run, ['git', 'config', 'user.email'], root, 'suggest-email', deps.signal),
@@ -372,7 +381,14 @@ export async function runSuggest(
   // degrade to an empty list — the diff below still carries the change.
   const all = statusRes.run.stdoutLossy ? [] : parseStatus(statusRes.run.stdout)
   const files = pathSet.size > 0
-    ? all.filter((c) => pathSet.has(c.path))
+    ? all.filter((c) => {
+      if (pathSet.has(c.path)) return true
+      // Snapshot fallback can select a collapsed directory instead of its files.
+      for (let slash = c.path.indexOf('/'); slash !== -1; slash = c.path.indexOf('/', slash + 1)) {
+        if (pathSet.has(c.path.slice(0, slash))) return true
+      }
+      return false
+    })
     : all
 
   // Round 2: the diff, then fold untracked contents in while budget remains.
@@ -404,7 +420,8 @@ export async function runSuggest(
   }
 
   const frame = frameChanges(
-    files.map((c) => ({ path: c.path, status: c.status })),
+    files.slice(0, PROMPT_FILE_CAP).map((c) => ({ path: c.path, status: c.status })),
+    Math.max(0, files.length - PROMPT_FILE_CAP),
     diff,
     styleSamples,
   )
