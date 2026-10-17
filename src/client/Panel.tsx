@@ -179,7 +179,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, compact, t })
+        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), compact, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list

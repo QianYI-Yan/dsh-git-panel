@@ -56,6 +56,15 @@ export function FilterIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M2 3h12l-4.5 5.5V13L6.5 11V8.5z' })], size)
 }
 
+/** A stack of changes with a plus/minus for staging or unstaging all files. */
+export function StageAllIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'stack', d: 'M2 3h8M2 6h6M2 9h4' }), h('path', { key: 'plus', d: 'M11 8v6M8 11h6' })], size, true)
+}
+
+export function UnstageAllIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'stack', d: 'M2 3h8M2 6h6M2 9h4' }), h('path', { key: 'minus', d: 'M8 11h6' })], size, true)
+}
+
 export function RefreshIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M13 8a5 5 0 1 1-1.5-3.5' }), h('path', { key: 'b', d: 'M13 2v3h-3' })], size)
 }

@@ -1,0 +1,455 @@
+/**
+ * Isolated Changes toolbar regression: icon geometry/accessibility, read-only
+ * controller refresh (including an unchanged fingerprint), and shared push
+ * confirmation, busy, refusal, and stale-scope behavior. Run setup.mjs first.
+ */
+import assert from 'node:assert/strict'
+import { mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { chromium } from 'playwright-core'
+
+const DIR = dirname(fileURLToPath(import.meta.url))
+const SCREENSHOT = resolve(DIR, '../../docs/local/review/changes-toolbar.png')
+const ACTIONS = ['stage-all', 'unstage-all', 'discard-picked', 'stash', 'push', 'refresh']
+const LABELS = ['全部暂存', '全部取消暂存', '放弃选中的更改', '贮藏更改', '推送本地提交到远程', '刷新当前仓库状态']
+const AI_HINT = '提示：给 AI 多一点信任，你可以尝试让 AI 直接执行 Git 操作。'
+const SCOPE = '将推送 5 个提交 · 4 个文件 · +17 / −6 行'
+const THEME = `body{margin:0;font:13px system-ui,sans-serif;--dsh-composer-height:0px;
+--dsw-alias-bg-base:#fff;--dsw-alias-bg-layer-1:#fff;--dsw-alias-bg-layer-2:#fff;
+--dsw-alias-bg-layer-3:#fff;--dsw-alias-border-l1:#0000000a;--dsw-alias-border-l2:#0000001a;
+--dsw-alias-interactive-bg-hover:#2631480f;--dsw-alias-label-primary:#0f1115;
+--dsw-alias-label-secondary:#61666b;--dsw-alias-label-tertiary:#81858c;
+--dsw-alias-state-business-primary:#4176e6;--dsw-alias-state-error-primary:#ec1313;
+--dsw-alias-state-success-primary:#22c55e;--dsw-alias-state-warn-primary:#f59e0b;
+background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary)}
+#panel{border:0!important}`
+
+const CLEAN = {
+  root: 'changes-toolbar-fixture', branch: 'main', head: 'de54fc0', unborn: false,
+  dirty: false, staged: 0, modified: 0, untracked: 0, ahead: 0, behind: 0,
+  hasUpstream: true,
+  remote: { name: 'origin', webUrl: 'https://github.com/example/toolbar', hostKind: 'github' },
+  lastCommit: null, changes: [],
+  stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
+  truncated: false, refreshIntervalMs: 0, showInputPill: true,
+  defaultDiffView: 'unified', checkedAt: Date.now(),
+}
+const DIRTY = {
+  ...CLEAN, dirty: true, staged: 1, modified: 1,
+  changes: [
+    { path: 'staged.txt', status: 'modified', staged: true, isDirectory: false },
+    { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
+  ],
+  stats: { ...CLEAN.stats, fileCount: 2, staged: 1, modified: 1, insertions: 2, deletions: 1 },
+}
+const AHEAD = { ...CLEAN, ahead: 5 }
+const browser = await chromium.launch()
+const consoleErrors = []
+
+async function flush(page) {
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+}
+
+async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewportWidth = 1440 } = {}) {
+  const page = await browser.newPage({ viewport: { width: viewportWidth, height: 764 } })
+  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
+  page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
+  await page.goto(new URL('./harness.html', import.meta.url).href)
+  await page.addStyleTag({ content: THEME })
+  for (const file of ['client.js', 'mock-rpc.mjs']) await page.addScriptTag({ path: resolve(DIR, file) })
+  await page.evaluate(({ snapshot, panelWidth, leftWidth }) => {
+    const panel = document.getElementById('panel')
+    panel.style.width = panelWidth + 'px'
+    panel.style.height = '764px'
+    localStorage.setItem('gp.changes.left', String(leftWidth))
+    localStorage.setItem('gp.panel.fontDelta', '0')
+    const { fixture, connection } = window.createGitPanelMock(snapshot)
+    fixture.fingerprints = true
+    fixture.pushCalls = 0
+    fixture.previewCalls = 0
+    fixture.holdPush = false
+    fixture.releasePush = null
+    fixture.pushFailure = null
+    window.__gpFixture = fixture
+    const call = connection.rpc.call
+    connection.rpc.call = async (channel, endpoint, payload) => {
+      const request = payload?.args?.request
+      if (endpoint === 'gitPanel/query' && request?.query?.kind === 'push-preview') {
+        fixture.previewCalls++
+        return { ok: true, value: { ok: true, value: {
+          kind: 'push-preview', hasUpstream: true, commits: 5, files: 4, insertions: 17, deletions: 6,
+        } } }
+      }
+      if (endpoint === 'gitPanel/run' && request?.action?.kind === 'push') {
+        fixture.actions.push(request.action)
+        fixture.pushCalls++
+        if (fixture.holdPush) await new Promise((done) => { fixture.releasePush = done })
+        fixture.releasePush = null
+        if (fixture.pushFailure !== null) {
+          const code = fixture.pushFailure
+          fixture.pushFailure = null
+          return { ok: true, value: { ok: false, error: { code, message: 'raw push failure' } } }
+        }
+        fixture.snapshot = { ...fixture.snapshot, ahead: 0, behind: 0 }
+        return { ok: true, value: { ok: true, snapshot: fixture.snapshot } }
+      }
+      return call(channel, endpoint, payload)
+    }
+    const registered = {}
+    const dictionaries = {}
+    const ctx = {
+      get: (key) => key === 'connection' ? connection : undefined,
+      effect: (cb) => cb(),
+      on: (event, cb) => { if (event === 'connection/reset') fixture.resetConnection = cb; return () => {} },
+      inject: (_deps, cb) => cb(ctx),
+      slots: {
+        inject: (_name, provider) => provider(),
+        register: (reg, component) => { registered[reg.name] = component; return () => {} },
+      },
+      locale: {
+        register: (ns, dict) => { dictionaries[ns] = dict },
+        bind: (ns) => (key, params) => {
+          const text = dictionaries[ns]?.zh[key] ?? key
+          return params === undefined ? text : text.replace(/\{(\w+)\}/g, (m, k) => k in params ? String(params[k]) : m)
+        },
+      },
+    }
+    window.__getLoaded().apply(ctx)
+    window.ReactDOM.createRoot(panel).render(registered['conversation.view']({ sessionId: 'toolbar-session' }))
+  }, { snapshot, panelWidth, leftWidth })
+  await page.locator('[role="tab"]').nth(1).waitFor()
+  await page.locator('[role="tab"]').nth(1).click()
+  await page.locator('.gp-changes__toolbar').waitFor()
+  await page.waitForFunction(() => window.__gpFixture.queries.includes('stash-list'))
+  await flush(page)
+  return page
+}
+
+async function counts(page) {
+  return page.evaluate(() => ({
+    snapshots: window.__gpFixture.snapshotCalls,
+    replies: window.__gpFixture.snapshotReplies,
+    stashes: window.__gpFixture.queries.filter((q) => q === 'stash-list').length,
+    diffs: window.__gpFixture.queries.filter((q) => q === 'diff').length,
+    actions: window.__gpFixture.actions.length,
+  }))
+}
+
+async function refresh(page) {
+  const before = await counts(page)
+  await page.locator('.gp-changes__refresh').click()
+  await page.waitForFunction((n) => window.__gpFixture.snapshotReplies === n + 1
+    && document.querySelector('.gp-changes__refresh')?.getAttribute('aria-busy') === 'false', before.replies)
+  await page.waitForFunction((n) => window.__gpFixture.queries.filter((q) => q === 'stash-list').length === n + 1, before.stashes)
+  await flush(page)
+  const after = await counts(page)
+  assert.equal(after.snapshots, before.snapshots + 1, 'refresh uses one shared-controller snapshot request')
+  assert.equal(after.actions, before.actions, 'refresh sends no write/fetch action')
+}
+
+async function geometry(page, label) {
+  const actual = await page.locator('.gp-changes__toolbar').evaluate((toolbar) => {
+    const rect = (node) => {
+      const r = node.getBoundingClientRect()
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }
+    }
+    return {
+      role: toolbar.getAttribute('role'), name: toolbar.getAttribute('aria-label'),
+      toolbar: rect(toolbar), left: rect(toolbar.parentElement),
+      clientWidth: toolbar.clientWidth, scrollWidth: toolbar.scrollWidth,
+      buttons: [...toolbar.querySelectorAll('button')].map((button) => ({
+        rect: rect(button), label: button.getAttribute('aria-label'), title: button.getAttribute('title'),
+        text: button.textContent.trim(), disabled: button.disabled, native: button instanceof HTMLButtonElement,
+        icon: button.querySelector('svg') !== null,
+        decorative: button.querySelector('[aria-hidden="true"]') !== null,
+        action: [...button.classList].find((c) => c.startsWith('gp-changes__'))?.replace('gp-changes__', ''),
+      })),
+    }
+  })
+  assert.equal(actual.role, 'group', label + ': action group semantics')
+  assert.equal(actual.name, '仓库变更操作', label + ': localized group label')
+  assert.deepEqual(actual.buttons.map((b) => b.action), ACTIONS, label + ': all six controls in order')
+  assert.deepEqual(actual.buttons.map((b) => b.label), LABELS, label + ': meaningful accessible names')
+  assert.ok(actual.scrollWidth <= actual.clientWidth + 1, label + ': toolbar has no horizontal overflow')
+  const first = actual.buttons[0].rect
+  for (const button of actual.buttons) {
+    assert.equal(button.native, true, label + ': native button/disabled semantics')
+    assert.equal(button.text, '', label + ': icon only')
+    assert.equal(button.title, null, label + ': shared hover tip replaces native title')
+    assert.equal(button.icon && button.decorative, true, label + ': decorative SVG icon')
+    assert.ok(button.rect.width >= 24 && button.rect.height >= 24, label + ': usable button geometry')
+    assert.ok(Math.abs(button.rect.top - first.top) < 1, label + ': a single button row')
+    assert.ok(button.rect.left >= actual.toolbar.left - 1 && button.rect.right <= actual.toolbar.right + 1,
+      label + ': each button fits inside the toolbar')
+  }
+  for (let i = 1; i < actual.buttons.length; i++) {
+    assert.ok(actual.buttons[i].rect.left >= actual.buttons[i - 1].rect.right, label + ': controls do not overlap')
+  }
+  return actual
+}
+
+async function geometryScenario() {
+  for (const [state, snapshot] of [['dirty', DIRTY], ['clean', CLEAN]]) {
+    for (const [label, options] of [
+      ['wide left 380', {}],
+      ['wide left 320', { leftWidth: 320 }],
+      ['compact 320', { panelWidth: 320, viewportWidth: 320 }],
+    ]) {
+      const page = await openPanel(snapshot, options)
+      const normal = await geometry(page, `${state}, ${label}`)
+      if (label === 'wide left 380') assert.ok(Math.abs(normal.left.width - 380) < 1, 'representative left column is 380px')
+      if (label === 'compact 320') assert.equal(await page.locator('.gp-panel').getAttribute('data-layout'), 'compact')
+      if (state === 'clean') {
+        assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, false], 'clean repo keeps refresh enabled')
+        assert.equal(await page.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
+      }
+      await page.locator('.gp-font__increase').click()
+      await flush(page)
+      assert.equal(await page.locator('.gp-panel').getAttribute('data-font-delta'), '1')
+      await geometry(page, `${state}, ${label}, font +1`)
+      if (state === 'clean' && label === 'wide left 380') {
+        await page.locator('.gp-font__reset').click()
+        await flush(page)
+        const left = await page.locator('.gp-changes__left').boundingBox()
+        mkdirSync(dirname(SCREENSHOT), { recursive: true })
+        await page.screenshot({ path: SCREENSHOT, clip: { x: left.x, y: left.y, width: left.width, height: Math.min(left.height, 320) } })
+      }
+      await page.close()
+    }
+  }
+}
+
+async function tipsAndStageScenario() {
+  const page = await openPanel({ ...DIRTY, ahead: 5 })
+  await page.locator('.gp-file-row', { hasText: 'a.txt' }).locator('input.gp-check').check()
+  const before = await counts(page)
+  for (let i = 0; i < ACTIONS.length; i++) {
+    const button = page.locator('.gp-changes__' + ACTIONS[i])
+    await button.hover()
+    await page.waitForFunction((text) => document.querySelector('.gp-tip')?.textContent === text, LABELS[i])
+    assert.equal(await page.locator('.gp-tip').evaluate((tip) => tip.parentElement === document.body), true, 'hover hint is portaled')
+    await page.mouse.move(1430, 750)
+    await page.waitForFunction(() => document.querySelector('.gp-tip') === null)
+  }
+  assert.equal((await counts(page)).actions, before.actions, 'hovering writes nothing')
+  await page.locator('.gp-changes__stage-all').hover()
+  await page.waitForSelector('.gp-tip')
+  await page.locator('.gp-changes__stage-all').click()
+  await page.waitForFunction(() => window.__gpFixture.actions.length === 1)
+  await page.waitForFunction(() => !document.querySelector('.gp-changes__unstage-all').disabled)
+  assert.equal(await page.locator('.gp-tip').count(), 0, 'click dismisses the tooltip')
+  await page.locator('.gp-changes__unstage-all').click()
+  await page.waitForFunction(() => window.__gpFixture.actions.length === 2)
+  assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [{ kind: 'stage-all' }, { kind: 'unstage-all' }], 'existing stage/unstage RPC kinds remain unchanged')
+  await page.close()
+}
+
+async function refreshScenario() {
+  const clean = await openPanel(CLEAN)
+  const before = await counts(clean)
+  await clean.evaluate(() => { window.__gpFixture.holdSnapshot = true })
+  // Two synchronous native clicks also probe the ref guard before React renders.
+  await clean.locator('.gp-changes__refresh').evaluate((button) => { button.click(); button.click() })
+  await clean.waitForFunction(() => window.__gpFixture.releaseSnapshot !== null)
+  const held = await clean.locator('.gp-changes__refresh').evaluate((button) => ({
+    busy: button.getAttribute('aria-busy'), disabled: button.disabled,
+    animation: getComputedStyle(button.querySelector('svg')).animationName,
+  }))
+  assert.equal(held.busy, 'true', 'refresh announces busy')
+  assert.equal(held.disabled, true, 'refresh disables in flight')
+  assert.equal(held.animation, 'gp-spin', 'refresh icon spins in flight')
+  assert.equal((await counts(clean)).snapshots, before.snapshots + 1, 'held refresh issues only one snapshot')
+  assert.equal((await counts(clean)).actions, 0, 'refresh does not fetch or write')
+  await clean.evaluate(() => {
+    const fixture = window.__gpFixture
+    fixture.holdSnapshot = false
+    fixture.releaseSnapshot()
+    fixture.releaseSnapshot = null
+  })
+  await clean.waitForFunction(() => document.querySelector('.gp-changes__refresh')?.getAttribute('aria-busy') === 'false')
+  await clean.waitForFunction((n) => window.__gpFixture.queries.filter((q) => q === 'stash-list').length === n + 1, before.stashes)
+  await flush(clean)
+  assert.equal((await counts(clean)).snapshots, before.snapshots + 1, 'release starts no trailing snapshot')
+  assert.equal(await clean.locator('.gp-changes__refresh').isEnabled(), true, 'clean refresh becomes available again')
+  await clean.close()
+
+  const page = await openPanel(DIRTY)
+  const row = page.locator('.gp-file-row', { hasText: 'a.txt' })
+  await row.locator('input.gp-check').check()
+  await page.locator('.gp-commitbox__msg').fill('feat: preserve my draft')
+  await row.locator('.gp-tree-name').click()
+  await page.waitForSelector('.gp-diff__path')
+  await page.waitForFunction(() => document.querySelector('.gp-diff__wrap')?.textContent.includes('line2'))
+  const initial = await counts(page)
+  const fingerprint = await page.evaluate(() => JSON.stringify(window.__gpFixture.snapshot))
+  await page.evaluate(() => {
+    window.__gpFixture.diffText = 'refreshed-with-same-fingerprint'
+    window.__gpFixture.stashes = [
+      { index: 0, sha: 'updated-stash', message: 'fresh stash entry', branch: 'main', relTime: 'now' },
+      { index: 1, sha: 'another-stash', message: 'another entry', branch: 'main', relTime: 'now' },
+    ]
+  })
+  await refresh(page)
+  await page.waitForFunction(() => document.querySelector('.gp-diff__wrap')?.textContent.includes('refreshed-with-same-fingerprint'))
+  assert.equal(await page.evaluate(() => JSON.stringify(window.__gpFixture.snapshot)), fingerprint, 'business snapshot remains byte-identical')
+  assert.equal((await counts(page)).diffs, initial.diffs + 1, 'same fingerprint still reloads the open diff through query tick')
+  assert.match(await page.locator('.gp-stash > .gp-group-head').textContent(), /\(2\)/, 'same fingerprint reloads the stash list')
+  assert.equal(await row.locator('input.gp-check').isChecked(), true, 'refresh keeps a living selection')
+  assert.equal(await page.locator('.gp-commitbox__msg').inputValue(), 'feat: preserve my draft', 'refresh keeps the commit draft')
+  await page.evaluate(() => {
+    const fixture = window.__gpFixture
+    fixture.snapshot = {
+      ...fixture.snapshot, modified: 2,
+      changes: [...fixture.snapshot.changes, { path: 'fresh.txt', status: 'modified', staged: false, isDirectory: false }],
+      stats: { ...fixture.snapshot.stats, modified: 2, fileCount: 3 },
+    }
+  })
+  await refresh(page)
+  await page.locator('.gp-file-row', { hasText: 'fresh.txt' }).waitFor()
+  assert.equal(await row.locator('input.gp-check').isChecked(), true, 'fresh snapshot preserves rows still selected')
+  assert.equal(await page.locator('.gp-commitbox__msg').inputValue(), 'feat: preserve my draft')
+  assert.equal((await counts(page)).actions, 0, 'all refresh paths remain read-only')
+  await page.close()
+}
+
+async function openPush(page) {
+  await page.locator('.gp-changes__push').click()
+  await page.locator('.gp-modal--sm').waitFor()
+  await page.waitForFunction(() => document.querySelector('.gp-pullscope:not(.gp-pullscope--loading)') !== null)
+}
+
+async function modalCopy(page) {
+  return page.locator('.gp-modal--sm').evaluate((modal) => ({
+    title: modal.querySelector('.gp-modal__path').textContent,
+    body: modal.querySelector('.gp-modal__confirmtext').textContent,
+    scope: modal.querySelector('.gp-pullscope').textContent,
+    hint: modal.querySelector('.gp-modal__hint').textContent,
+    portaled: !document.getElementById('panel').contains(modal),
+  }))
+}
+
+async function pushScenario() {
+  const page = await openPanel(CLEAN)
+  for (const [state, patch] of [
+    ['synced', { ahead: 0, behind: 0, hasUpstream: true, remote: CLEAN.remote }],
+    ['behind', { ahead: 0, behind: 3 }],
+    ['diverged', { ahead: 2, behind: 3 }],
+    ['no upstream', { ahead: 5, behind: 0, hasUpstream: false }],
+    ['no remote/upstream', { ahead: 0, behind: 0, hasUpstream: false, remote: null }],
+  ]) {
+    await page.evaluate((patch) => { window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, ...patch } }, patch)
+    await refresh(page)
+    assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, state + ': push is disabled')
+    await page.locator('.gp-changes__push').evaluate((button) => button.click())
+    assert.equal(await page.locator('.gp-modal--sm').count(), 0, state + ': native disabled blocks modal')
+  }
+  // Simulate a completed commit becoming visible on the explicit local refresh.
+  await page.evaluate((remote) => {
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 5, behind: 0, hasUpstream: true, remote }
+  }, CLEAN.remote)
+  await refresh(page)
+  assert.equal(await page.locator('.gp-changes__push').isEnabled(), true, 'strictly ahead snapshot enables push')
+  assert.equal((await counts(page)).actions, 0, 'state checks and commit simulation have no write actions')
+  await openPush(page)
+  const copy = await modalCopy(page)
+  assert.equal(copy.title, '推送到远程')
+  assert.match(copy.body, /main.*5 个提交/)
+  assert.equal(copy.scope, SCOPE, 'custom outgoing range is shown')
+  assert.equal(copy.hint, AI_HINT, 'shared AI hint remains visible')
+  assert.equal(copy.portaled, true, 'push dialog is portaled')
+  await page.locator('.gp-modal__footer .gp-btn').first().click()
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [], 'cancel sends no push')
+
+  // Overview must expose the same shared confirmation contract.
+  await page.locator('[role="tab"]').nth(0).click()
+  await page.locator('.gp-statusbar button[aria-label="推送本地提交到远程"]').click()
+  await page.waitForFunction(() => document.querySelector('.gp-pullscope:not(.gp-pullscope--loading)') !== null)
+  assert.deepEqual(await modalCopy(page), copy, 'Overview and Changes share the same push scope/body/hint')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  await page.locator('[role="tab"]').nth(1).click()
+  await openPush(page)
+  await page.evaluate(() => { window.__gpFixture.holdPush = true })
+  await page.locator('.gp-modal__footer .gp-btn--primary').evaluate((button) => { button.click(); button.click() })
+  await page.waitForFunction(() => window.__gpFixture.releasePush !== null)
+  await page.locator('.gp-modal__overlay').waitFor()
+  assert.equal(await page.locator('.gp-modal__overlay-label').textContent(), '推送中…')
+  assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'busy confirm disabled')
+  assert.equal(await page.locator('.gp-modal__close').isDisabled(), true, 'busy close disabled')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'busy push opener disabled')
+  assert.equal(await page.locator('.gp-changes__toolbar button:disabled').count(), 6, 'push in flight disables the complete toolbar')
+  await page.keyboard.press('Escape')
+  await page.locator('.gp-modal-backdrop').click({ position: { x: 3, y: 3 } })
+  await page.locator('.gp-modal__footer .gp-btn').first().evaluate((button) => button.click())
+  await flush(page)
+  assert.equal(await page.locator('.gp-modal--sm').count(), 1, 'busy blocks Escape, backdrop, and cancellation')
+  assert.equal(await page.evaluate(() => window.__gpFixture.pushCalls), 1, 'busy guard prevents duplicate pushes')
+  await page.evaluate(() => {
+    window.__gpFixture.holdPush = false
+    window.__gpFixture.releasePush()
+  })
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [{ kind: 'push' }], 'confirm sends one ordinary push')
+  assert.equal(await page.evaluate(() => window.__gpFixture.snapshot.ahead), 0, 'successful push accepts synced snapshot')
+  assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'successful push disables the now-synced control')
+  await page.close()
+}
+
+async function pushFailureAndStaleScenario() {
+  const page = await openPanel(AHEAD)
+  await openPush(page)
+  await page.evaluate(() => { window.__gpFixture.pushFailure = 'push-rejected' })
+  await page.locator('.gp-modal__footer .gp-btn--primary').click()
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm .gp-feedback') !== null)
+  assert.equal(await page.locator('.gp-modal--sm .gp-feedback').textContent(), '推送被拒绝：远程已有新提交，请先「检查同步」并拉取后再推送', 'push failure stays localized in the open modal')
+  assert.equal(await page.locator('.gp-modal__overlay').count(), 0, 'failed push unlocks modal')
+  assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isEnabled(), true, 'failed push can be retried')
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+  await page.close()
+
+  for (const patch of [{ branch: 'feature/new-branch' }, { head: 'f00ba12' }]) {
+    const stale = await openPanel(AHEAD)
+    await openPush(stale)
+    const before = await counts(stale)
+    // The modal stays open while the held shared-controller refresh is pending;
+    // accepting another branch/HEAD must invalidate the old confirmation.
+    await stale.evaluate((patch) => {
+      const fixture = window.__gpFixture
+      fixture.snapshot = { ...fixture.snapshot, ...patch }
+      fixture.holdSnapshot = true
+      fixture.resetConnection()
+    }, patch)
+    await stale.waitForFunction(() => window.__gpFixture.releaseSnapshot !== null)
+    assert.equal(await stale.locator('.gp-modal--sm').count(), 1, 'pending sampling retains current dialog')
+    await stale.evaluate(() => {
+      window.__gpFixture.holdSnapshot = false
+      window.__gpFixture.releaseSnapshot()
+      window.__gpFixture.releaseSnapshot = null
+    })
+    await stale.waitForFunction(() => document.querySelector('.gp-modal--sm') === null)
+    assert.equal((await counts(stale)).actions, before.actions, 'changed branch/HEAD closes stale confirmation without push')
+    assert.equal(await stale.evaluate(() => window.__gpFixture.pushCalls), 0)
+    // A new explicit confirmation is still possible for the newly sampled scope.
+    await openPush(stale)
+    await stale.keyboard.press('Escape')
+    await stale.close()
+  }
+}
+
+try {
+  await geometryScenario()
+  await tipsAndStageScenario()
+  await refreshScenario()
+  await pushScenario()
+  await pushFailureAndStaleScenario()
+  assert.deepEqual(consoleErrors, [], 'no frontend errors')
+  console.log('e2e changes-toolbar.mjs: PASS', JSON.stringify({ screenshot: SCREENSHOT, actions: ACTIONS }))
+} catch (error) {
+  console.error('e2e changes-toolbar.mjs: FAIL', error.stack ?? error.message)
+  process.exitCode = 1
+} finally {
+  await browser.close()
+}

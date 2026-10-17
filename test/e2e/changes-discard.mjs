@@ -131,11 +131,11 @@ async function batchScenario() {
       labels: [...r.querySelectorAll('.gp-file-row__actions .gp-icon-btn')].map((b) => b.getAttribute('aria-label')),
     }))
     const toolbar = [...document.querySelector('.gp-toolbar').children]
-    result.toolbar = toolbar.map((b) => b.textContent)
-    // The new entry sits between "unstage all" and "stash changes".
-    result.entryAfterUnstageAll = toolbar[2] === picked() && (toolbar[1].textContent ?? '').includes('全部取消暂存')
-    result.entryBeforeStash = (toolbar[3].textContent ?? '').includes('贮藏')
-    result.entryLabel = picked().textContent
+    result.toolbar = toolbar.map((b) => b.getAttribute('aria-label'))
+    // The icon entry retains its accessible name and position between these actions.
+    result.entryAfterUnstageAll = toolbar[2] === picked() && toolbar[1].getAttribute('aria-label') === '全部取消暂存'
+    result.entryBeforeStash = (toolbar[3].getAttribute('aria-label') ?? '').includes('贮藏')
+    result.entryLabel = picked().getAttribute('aria-label')
     result.disabledEmpty = picked().disabled === true
 
     await pick('dup.txt', glyphs.unstage)
