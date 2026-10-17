@@ -13,9 +13,15 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     fileQueries: [],
     // Branch-switch probes: every `run` action lands here, and `branchQueries`
     // counts the branch-list reloads a landed checkout must trigger.
-    // `runFailure` forces a wire error for one action: `{kind?, code, message}`
-    // where `kind` names the action it applies to (default `branch-checkout`).
+    // `runFailure` forces a wire error once: `{kind?, code, message}` where
+    // `kind` names the single action it applies to. Omitting `kind` (or passing
+    // `'*'`) makes the forced failure fire for whatever `run` lands next — the
+    // old default (`branch-checkout`) could not drive the discard refusal path.
     runFailure: null, branchQueries: 0,
+    // `holdRun = {kind?}` parks the matching `run` until `releaseRun()` is
+    // called, so a test can observe a dialog's in-flight busy state; `kind`
+    // omitted or `'*'` parks whatever `run` lands next.
+    holdRun: null, releaseRun: null,
     secondaryQueryFailure: null, secondaryFailures: [], repeatedDiffRevision: null,
     deferBinaryDiff: false, releaseBinaryDiff: null,
   }
@@ -125,6 +131,13 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
         if (endpoint === 'gitPanel/run') {
           const act = request.action
           fixture.actions.push(act)
+          // Park the call so a test can assert the dialog's busy state before
+          // the response lands (`holdRun.kind` omitted or `'*'` parks any run).
+          if (fixture.holdRun !== null
+            && (fixture.holdRun.kind === undefined || fixture.holdRun.kind === '*' || act.kind === fixture.holdRun.kind)) {
+            await new Promise((resolve) => { fixture.releaseRun = resolve })
+            fixture.releaseRun = null
+          }
           if (act.kind === 'fetch') {
             if (fixture.holdFetch) await new Promise((resolve) => { fixture.releaseFetch = resolve })
             if (fixture.fetchError !== null) {
@@ -135,8 +148,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           }
           // A forced failure drives a refusal path (dirty work tree, nested
           // repo, …) without the mock having to model the real git/fs checks;
-          // it fires once for the action named by `kind` (default checkout).
-          if (fixture.runFailure !== null && act.kind === (fixture.runFailure.kind ?? 'branch-checkout')) {
+          // it fires once for the action named by `kind` (any action when the
+          // field is omitted or `'*'`).
+          if (fixture.runFailure !== null
+            && (fixture.runFailure.kind === undefined || fixture.runFailure.kind === '*' || act.kind === fixture.runFailure.kind)) {
             const failure = fixture.runFailure
             fixture.runFailure = null
             const { kind: _kind, ...error } = failure
