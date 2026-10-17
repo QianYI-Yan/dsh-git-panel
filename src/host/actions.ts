@@ -360,6 +360,46 @@ export async function runAction(
 }
 
 /**
+ * Whether a work-tree directory is a repository of its own: a nested repo or a
+ * submodule (`.git`, directory or file) or a bare repository (no `.git`, but a
+ * `HEAD` file beside the `objects/` and `refs/` directories). `discard` refuses
+ * all of them — a recursive delete would take a whole repository's history with
+ * it (issue #46).
+ */
+async function looksLikeRepository(deps: SnapshotDeps, target: string): Promise<boolean> {
+  try {
+    await deps.fs.stat(join(target, '.git'))
+    return true
+  } catch { /* not a nested repo / submodule — check the bare layout below */ }
+  const head = await pathKind(deps, join(target, 'HEAD'))
+  const refs = await pathKind(deps, join(target, 'refs'))
+  const objects = await pathKind(deps, join(target, 'objects'))
+  // `HEAD` is a file; `refs` and `objects` are directories. A path that is not
+  // readable but is a symlink still counts: that is a shared store which is not
+  // mounted right now, and the markers beside it are real data — refusing is
+  // the safe direction. Only genuinely wrong types (a plain file where a
+  // directory belongs) disqualify the entry.
+  if (!head.present || head.directory === true) return false
+  const directoryLike = (kind: PathKind): boolean => kind.present && kind.directory !== false
+  return directoryLike(refs) && directoryLike(objects)
+}
+
+interface PathKind {
+  /** The path exists; a dangling symlink counts as existing. */
+  readonly present: boolean
+  /** `true`/`false` when stat resolved it, `null` when only the link is known. */
+  readonly directory: boolean | null
+}
+
+async function pathKind(deps: SnapshotDeps, path: string): Promise<PathKind> {
+  try {
+    return { present: true, directory: (await deps.fs.stat(path)).isDirectory() }
+  } catch {
+    return { present: (await deps.fs.symlinkTarget(path)) !== null, directory: null }
+  }
+}
+
+/**
  * Split a discard request into untracked paths (deleted from the work tree
  * directly, since `git restore` can't touch them) and tracked paths (left for
  * the git command). Returns null when the action doesn't need this split
@@ -379,12 +419,31 @@ async function discardUntracked(
   const untracked = paths.filter((p) => untrackedSet.has(p))
   if (untracked.length === 0) return null
   const tracked = paths.filter((p) => !untrackedSet.has(p))
+  // Refuse the whole request (before removing anything) when an untracked
+  // directory entry is itself a repository: a nested repo, a submodule or a bare
+  // repository shows up as one directory entry, and a recursive delete would take
+  // the entire inner repository with it. A plain directory that merely *contains*
+  // a repo is still discarded as a whole — that boundary is deliberate (#46).
+  // The remove loop below re-checks each directory right before its own removal:
+  // only that instant can still see a repository appear after this scan.
+  const directoryEntries = new Set(snap.value.changes.filter((c) => c.isDirectory === true).map((c) => c.path))
+  for (const path of untracked) {
+    if (!directoryEntries.has(path)) continue
+    if (!(await looksLikeRepository(deps, join(root, path)))) continue
+    return { ok: false, result: { ok: false, error: { code: 'nested-repo', message: `repository directory: ${path}` } } }
+  }
   let rootReal: string
   try {
     rootReal = await deps.fs.realpath(root)
   } catch {
     return { ok: false, result: { ok: false, error: { code: 'git-error', message: 'repository root unavailable' } } }
   }
+  // Remove every untracked target, collecting failures: a removal that did not
+  // happen must not come back as a successful discard (a directory without
+  // `recursive`, a permission error, …). Paths already gone stay gone — the
+  // caller gets an error instead of a silent no-op.
+  const failures: string[] = []
+  let removedCount = 0
   for (const path of untracked) {
     if (!isSafePath(path)) return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `unsafe path: ${path}` } } }
     const target = join(root, path)
@@ -397,7 +456,33 @@ async function discardUntracked(
     if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
       return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `path escapes repository: ${path}` } } }
     }
-    await deps.fs.remove(target).catch(() => {})
+    // Last-moment re-check: the pre-flight above can be raced by a repository
+    // appearing under a directory target after it scanned. Statting again
+    // immediately before the removal narrows that window to the few syscalls
+    // between this call and the `rm` itself. Nothing has been removed yet in
+    // the normal case, so the refusal still means "the batch is untouched"; if
+    // it fires after earlier paths were deleted, say so with its own code —
+    // the generic copy would read as if the whole batch had been skipped.
+    if (await looksLikeRepository(deps, target)) {
+      const code = removedCount === 0 ? 'nested-repo' : 'nested-repo-partial'
+      const detail = removedCount === 0 ? '' : `; ${removedCount} path(s) already removed`
+      return { ok: false, result: { ok: false, error: { code, message: `repository directory: ${path}${detail}` } } }
+    }
+    try {
+      await deps.fs.remove(target)
+      removedCount += 1
+    } catch (e) {
+      failures.push(`${path}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  if (failures.length > 0) {
+    // Named shortfalls: which paths failed, and that the tracked half of the
+    // request never ran because the untracked deletions are attempted first.
+    const skipped = tracked.length > 0 ? `; ${tracked.length} tracked path(s) not restored` : ''
+    return {
+      ok: false,
+      result: { ok: false, error: { code: 'git-error', message: `could not discard ${failures.length} path(s): ${failures.join('; ')}${skipped}` } },
+    }
   }
   return { ok: true, remainingTracked: tracked }
 }

@@ -19,6 +19,9 @@ import { segButtons } from './seg.js'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
+import { pickDiscardTargets } from './discard-targets.js'
+import { DiscardPickedModal } from './DiscardPickedModal.js'
+import { useHoverTip } from './tip.js'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -57,6 +60,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
+  const [discardPickedOpen, setDiscardPickedOpen] = useState(false)
   const { stashes, diffPath, diffData, expanded, showDiff } = useChangesData(
     remote, sessionId, snapshot, queryVisible, () => setError(t('error.generic')), queryKey,
   )
@@ -77,6 +81,9 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Virtualized change-list viewport, tracked by the shared hook (re-attaches
   // across the compact list↔diff remount).
   const { setEl: setListEl, viewport } = useViewportTracker()
+  // Row action hints: the icon-only buttons explain themselves on hover, via the
+  // shared fast tooltip (ported to body so the list's overflow cannot clip it).
+  const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'above', maxWidth: 300 })
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
@@ -119,6 +126,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const effHeight = viewport.height > 0 ? viewport.height : VIEWPORT_FALLBACK
   const { first, last } = windowRange(tops, viewport.top, effHeight, VOVERSCAN * VROW_H)
 
+  // A hovered row can vanish without a mouseleave — the virtualized window
+  // slides, or a snapshot refresh replaces the list — so drop the bubble with
+  // whichever of those moved.
+  useEffect(() => { hideTip() }, [first, last, snapshot, hideTip])
+
   // Prune selection to living paths (avoid a stale path aborting a commit).
   // Selection keys are `path:s`/`path:w`; a key survives only if a change with
   // that path and side still exists.
@@ -157,6 +169,16 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Same for the suggest-overwrite confirmation: a fresh snapshot means the
   // message-in-box context may have moved on.
   useEffect(() => { setArmedSuggest(false) }, [snapshot])
+
+  // Batch discard targets: the selected working-tree paths, plus the staged-only
+  // picks the confirm dialog reports as unaffected instead of dropping silently.
+  const discardTargets = useMemo(() => pickDiscardTargets(selected), [selected])
+
+  // A snapshot that removes every checked row empties the target set; close the
+  // dialog rather than letting a stale "open" flag pop it back on the next pick.
+  useEffect(() => {
+    if (discardPickedOpen && discardTargets.paths.length === 0) setDiscardPickedOpen(false)
+  }, [discardPickedOpen, discardTargets])
 
   const toggle = (path: string): void => {
     setSelected((prev) => {
@@ -203,6 +225,15 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const stashDropConfirmed = async (index: number, sha: string): Promise<void> => {
     const ok = await run({ kind: 'stash-drop', index, sha })
     if (ok) setStashDrop(null)
+  }
+  // Batch discard of the checked files' working-tree changes (already confirmed
+  // by the dialog). The refreshed snapshot prunes the now-clean rows, and the
+  // selection with them.
+  const discardPicked = async (): Promise<void> => {
+    const paths = [...discardTargets.paths]
+    if (paths.length === 0) { setDiscardPickedOpen(false); return }
+    const ok = await run({ kind: 'discard', paths })
+    if (ok) setDiscardPickedOpen(false)
   }
 
   /** Map a suggest-endpoint failure to display text; the provider detail rides along. */
@@ -282,6 +313,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
       h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
       h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
+      h('button', {
+        key: 'dp', type: 'button', className: 'gp-btn gp-changes__discard-picked',
+        disabled: busy || discardTargets.paths.length === 0,
+        onClick: () => { setError(null); setDiscardPickedOpen(true) },
+      }, t('changes.discardPicked')),
       h('button', { key: 'stash', type: 'button', className: 'gp-btn', disabled: busy || (snapshot.staged === 0 && snapshot.modified === 0), title: t('changes.stash'), onClick: () => { setError(null); setStashPushOpen(true) } }, [h(StashIcon, { key: 'ic', size: 13 }), t('changes.stash')]),
     ]),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
@@ -342,6 +378,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
                 if (armedDiscard === rowKey) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }
                 else setArmedDiscard(rowKey)
               },
+              tipProps,
+              hideTip,
               t,
             }))
           }))),
@@ -441,8 +479,9 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
     ])
 
-  // Stash dialogs (push + drop confirm), portaled; included in both layouts.
-  const stashModals: (JSX.Element | null)[] = [
+  // Write-op dialogs (stash push / stash drop / batch discard), portaled;
+  // rendered by both layouts.
+  const modals: (JSX.Element | null)[] = [
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
     stashDrop !== null ? renderConfirmModal({
       title: t('stash.dropTitle'),
@@ -454,12 +493,26 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onClose: () => setStashDrop(null),
       t,
     }) : null,
+    discardPickedOpen && discardTargets.paths.length > 0
+      ? h(DiscardPickedModal, {
+        key: 'discard-picked',
+        paths: discardTargets.paths,
+        stagedOnly: discardTargets.stagedOnly,
+        snapshot,
+        busy,
+        error,
+        onConfirm: () => void discardPicked(),
+        onClose: () => setDiscardPickedOpen(false),
+        t,
+      })
+      : null,
   ]
 
   // Compact: a single column drilling from the change list into the diff.
   if (compact) {
     return h('div', { className: 'gp-changes gp-changes--compact' }, [
-      ...stashModals,
+      ...modals,
+      tipNode,
       pane === 'diff'
         ? h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock)
         : h('div', { key: 'left', className: 'gp-changes__left' }, leftChildren),
@@ -467,7 +520,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   }
 
   return h('div', { className: 'gp-changes' }, [
-    ...stashModals,
+    ...modals,
+    tipNode,
     // left
     h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` } }, leftChildren),
     leftCol.divider,
@@ -541,6 +595,9 @@ interface RowActions {
   onOpen: () => void
   onStage: () => void
   onDiscard: () => void
+  /** Hover explanation for the icon-only row buttons (see `tip.tsx`). */
+  tipProps: (text: string) => Record<string, unknown>
+  hideTip: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -552,8 +609,26 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
     h('span', { key: 'st', className: `gp-status-badge ${statusClass(c.status)}` }, statusChar[c.status] ?? '?'),
     h('span', { key: 'nm', className: 'gp-tree-name', title: c.path }, [name, dir ? h('span', { key: 'd', style: { color: 'var(--dsw-alias-label-tertiary)', marginLeft: 6, fontSize: 11 } }, dir) : null]),
     h('span', { key: 'act', className: 'gp-file-row__actions' }, [
-      h('button', { key: 'stg', type: 'button', className: 'gp-icon-btn', title: c.staged ? a.t('changes.unstage') : a.t('changes.stage'), disabled: a.busy, onClick: (e: Event) => { e.stopPropagation(); a.onStage() } }, c.staged ? '\u2212' : '+'),
-      h('button', { key: 'dis', type: 'button', className: 'gp-icon-btn', title: a.armed ? a.t('changes.discardConfirm') : a.t('changes.discard'), style: a.armed ? { color: 'var(--dsw-alias-state-error-primary)' } : {}, disabled: a.busy, onClick: (e: Event) => { e.stopPropagation(); a.onDiscard() } }, '\u21ba'),
+      // Icon-only buttons carry their meaning in a fast hover tooltip + an
+      // aria-label, never a bare glyph (issue #40: the ↺ read as a mystery).
+      h('button', {
+        key: 'stg', type: 'button', className: 'gp-icon-btn',
+        'aria-label': c.staged ? a.t('changes.unstage') : a.t('changes.stage'),
+        disabled: a.busy,
+        ...a.tipProps(c.staged ? a.t('changes.unstageTip') : a.t('changes.stageTip')),
+        onClick: (e: Event) => { e.stopPropagation(); a.hideTip(); a.onStage() },
+      }, c.staged ? '\u2212' : '+'),
+      // Discard is a working-tree operation (`git restore --`), so it lives on
+      // the working-tree side only: an index-side row has nothing to discard
+      // (and a staged delete makes the command fail outright).
+      c.staged ? null : h('button', {
+        key: 'dis', type: 'button', className: 'gp-icon-btn',
+        'aria-label': a.armed ? a.t('changes.discardConfirm') : a.t('changes.discard'),
+        style: a.armed ? { color: 'var(--dsw-alias-state-error-primary)' } : {},
+        disabled: a.busy,
+        ...a.tipProps(a.armed ? a.t('changes.discardTipArmed') : a.t('changes.discardTip')),
+        onClick: (e: Event) => { e.stopPropagation(); a.hideTip(); a.onDiscard() },
+      }, '\u21ba'),
     ]),
   ])
 }

@@ -50,9 +50,11 @@ export interface SnapshotDeps {
     readonly run: GitRunner;
     readonly fs: {
         realpath(path: string): Promise<string>;
+        /** `isDirectory` reports the *resolved* type (symlinks are followed). */
         stat(path: string): Promise<{
             mtimeMs: number;
             size: number;
+            isDirectory(): boolean;
         }>;
         /** Raw bytes (no encoding) — image sides for the image-diff query. */
         readFile(path: string): Promise<Buffer>;
@@ -67,7 +69,7 @@ export interface SnapshotDeps {
             name: string;
             isDirectory: boolean;
         }>>;
-        /** Best-effort unlink (force) — temp-blob cleanup. */
+        /** Recursive remove (force) — untracked discards pass whole directories; temp-blob cleanup passes files. */
         remove(path: string): Promise<void>;
     };
     readonly sessions: {

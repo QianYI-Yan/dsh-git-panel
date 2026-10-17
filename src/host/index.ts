@@ -9,8 +9,8 @@
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { lstat, readFile, readdir, readlink, realpath, rm, stat } from 'node:fs/promises'
 import { createGitRunner, type SubprocessLike } from './git.js'
+import { createFsDeps } from './fs-deps.js'
 import { normalizeConfig, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
 import { runAction } from './actions.js'
 import { runQuery } from './queries.js'
@@ -92,16 +92,7 @@ export class GitPanelService extends TypertRemoteService {
     const rootCache = new Map<string, string>()
     const rootNegCache = new Map<string, number>()
     const get = (key: string): unknown => (ctx as unknown as { get(k: string): unknown }).get(key)
-    const fs: SnapshotDeps['fs'] = {
-      realpath, stat: async (p) => stat(p), readFile,
-      symlinkTarget: async (p) => {
-        // A missing path or a non-link is `null`, not an error: the caller falls
-        // back to reading the file itself.
-        try { return (await lstat(p)).isSymbolicLink() ? await readlink(p) : null } catch { return null }
-      },
-      readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
-      remove: async (p) => { await rm(p, { force: true }) },
-    }
+    const fs: SnapshotDeps['fs'] = createFsDeps()
     // `static inject` gates activation on subprocess, so it is always present
     // here; the runner throws only if a future refactor drops that guard.
     const subprocess = get('subprocess') as SubprocessLike | undefined
