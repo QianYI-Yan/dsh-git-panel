@@ -1,19 +1,18 @@
 # AGENTS.md
 
-本文件是 `dsh-git-panel` 仓库的 agent 工作指南。任何在此仓库工作的 AI agent 或贡献者，动手前先读完本文件，并遵守其中的架构边界、构建流程与代码约定。
+本文件是 `dsh-git-panel` 仓库的 agent 工作指南。任何在此仓库工作的 AI agent 或贡献者，动手前先读完本文件，并遵守其中的架构边界、构建流程与工程约定。功能与交互细节以代码和测试为准；这里只记录不读代码难以发现、违反就会出错的约定。
 
 ## 项目定位
 
-`dsh-git-panel` 是 DeepSeek Harness（dsh）的一个插件，在 Web GUI 里提供 Git 面板能力：
+`dsh-git-panel` 是 DeepSeek Harness（dsh）的插件，在 Web GUI 里提供 Git 面板（许可：MIT）：
 
-- 工作区新增常驻面板 tab「Git」，位于「对话」「轨迹」之后，内部含三个子 tab：
-  - **Git 总览**：左=分支列表，中=提交历史图（支持 commit id 等字段搜索；搜索 / 作者 / 时间筛选后保留提交图：真实直接父边画实线，跨隐藏提交的祖先边画断续线；祖先数据不足的路径只画短边界线，不按相邻行猜父子关系，也不留下贯穿列表的悬空车道。哈希搜索仍是版本跳转，使用完整父链；仓库当前 HEAD 提交显示外圆环＋中心实心点，按 snapshot.head（Git 唯一缩写或完整哈希）匹配提交；鼠标点选只改变行高亮与详情，不移动 HEAD 标记；HEAD 不在筛选结果内或仓库尚无提交时不画该标记；工具栏的作者 / 时间筛选是平台 `Menu` 下拉：触发器 `gp-select-trigger` 自绘并自带 aria，`portal:true` + `align:'start'`，`onSelect` 自行关闭），右=提交详情 + comment。提交详情顶部有变更汇总行（文件数 + 该提交的 +增/−删行数，口径与右侧文件树一致：二进制计入文件数但不计行、合并提交文件树为空时统计清零），其下的变更文件树目录可点击折叠/展开（默认全展开，切换选中提交时重置为全展开）。分支列表按 ref 名的 `/` 折成目录树（`branch-tree.ts` 的 `buildBranchTree`：保持 host 的 `-committerdate` 顺序、单链目录合并为一行、目录行 `gp-branch-row--dir` = 折叠 chevron（`gp-branch-row__chev`）+ 文件夹图标（`FolderIcon`，`gp-branch-row__ic--folder`）+ 加粗目录名（不显示子树 ref 数），点击或 Enter/Space 折叠，折叠键 `<分区>:<路径>` 与分区折叠集共用；叶子行只显示最后一段、`title` 保留全名；几何为 `BRANCH_BASE`(22) + `depth*BRANCH_INDENT`(24)：目录行与同级叶子行同起点，多出的宽度花在 chevron 列（`gp-branch-row__chev`）上，因此目录 chevron 落在分区头 chevron 右侧、子级标签恒在父目录标签右侧；行左直角右圆角（`border-radius:0 6px 6px 0`，使高亮与左侧 3px 强调条贴齐面板边缘）；本地 / 远程 / 标签三个分区使用同一棵树的渲染规则；本地分区初始展开，远程与标签分区初始收起；分区打开后一级目录默认展开、更深目录默认折叠，目录折叠集记的是「与默认不同」的行；本地当前分支优先、主分支次之（`buildLocalBranchSection`）：两者从目录树提为顶部完整名称行，同名只显示一次；当前分支用标签形轮廓、主分支用实心星形，兼具时保留两种角色说明并优先当前图标，普通分支保留分叉图标。同步差异用主题蓝色斜向 SVG 箭头和数量（领先向右上、落后向左下，分叉双向分别显示，零差异不显示）。主分支按可用 refs 取 `defaultBranch`（否则 `main` / `master`）；主远程仍由 `primaryRemoteRef` + `pinPrimaryFirst` 独立置顶，不依赖本地同名分支，其余保持 host 的提交时间倒序；建树用 Map 索引目录，避免宽目录反复扫描，Overview 按 refs 数组、当前分支、默认分支与主远程名缓存置顶及建树结果，本地界面状态变化只重新遍历可见行）。分支列表的本地 / 远程行 hover 时行尾出现「切换」按钮（`gp-branch-row__switch`，`stopPropagation` 不触发行点击的历史筛选；当前分支、解析到当前分支的远程行、标签无按钮；窄面板在「筛选分支」底部弹层的行上，`hover:none` 触屏常显），点击直接进确认框（`branch-switch.tsx`），目标由 `branch-options.ts` 的 `buildBranchOptions` 按行 key `local:<名>` / `remote:<引用>` 解析；远程引用自动落下为同名本地分支（不存在时 `git checkout -b <名> --track <远程>/<名>`），绝不直接检出远程引用（会游离 HEAD）；有未提交变更时确认框给出「直接切换 / 先贮藏再切换」，后者 `git stash push -u` 后切换且不自动恢复。切换成功除刷新各列表外，还会广播「工作区世代」使文件浏览的目录缓存与选中失效，并自动执行一次「检查同步」（`fetch --all --prune`）：切分支会换上游，领先 / 落后只与上次 fetch 一样新，不查一次状态栏就会拿旧引用继续报「已与远程同步」；这次自动检查是**静默**的（失败不写状态栏错误槽，成功则清掉旧错误），与手动点「检查同步」共用同一份 `runCheckSync` 与忙碌态。再下有「提交操作」区：还原此提交（revert）、重置到此提交（reset：软 / 混合 / 硬，硬重置列出将丢失的改动并需额外勾选确认）、为该提交创建标签（轻量 / 附注），已有标签以可删除标签片呈现（创建 / 删除 / 还原 / 重置均走 modal + 二次确认，底部恒显「信任 AI」提示）。
-  - **变更记录**：左=变更统计（文件数 / 增删行数 / 最近变更时间）+ 本地未提交变更列表（勾选、手动提交、Amend）+ 贮藏入口与贮藏列表（应用 / 弹出 / 丢弃），右=选中文件差异对比（图片走 `image-diff` 新旧双图对照）。顶部工具栏由 `ChangesToolbar.tsx` 渲染为不换行的纯图标操作：全部暂存 / 全部取消暂存 / 放弃选中 / 贮藏 / 推送 / 刷新，均带 aria-label 和快速悬浮提示；刷新走同一 `GitController.refresh()`、不发 fetch，等待期间禁用工具栏并旋转刷新图标。推送与总览共用 `push-policy.ts` 的严格领先判断及 `PushModal.tsx`（出站范围预览、确认、忙碌遮罩和错误处理），仓库 / 分支 / HEAD 变化使旧确认失效。文件行 hover 出的图标按钮（暂存 / 取消暂存、放弃更改）用 `tip.tsx` 的 `useHoverTip` 给出功能说明（原生 `title` 太慢且不解释含义；`aria-label` 保留短文案、armed 态改挂 `changes.discardConfirm`），虚拟列表窗口滑动（`first`/`last` 变化）或快照刷新（行会被替换/移除，同样不触发 mouseleave）也收掉气泡。「放弃更改」是两步操作，第一次按下不只是改色：那次按下用 `showTipNow` **立刻**抛出 `changes.discardTipArmed`（无 hover 延迟、无需再悬停），气泡为 pinned 态——下一次落在气泡外的 `pointerdown` 才收起（含再次点同一按钮执行放弃，或点别处取消），执行成功即清 armed 与气泡；compact（手机）面板里气泡**以控件为中心**（`gp-tip--center`，`left` 记控件中点、气泡用 `translateX(-50%)` 自居中，行内图标贴面板右缘时左对齐会让人误以为是上一行的说明），宽布局保持原来的左对齐。气泡用 `width:max-content` 定宽（只给 `left` 的 fixed 盒子会缩成控件右侧的剩余宽度，手机上行内图标会把确认气泡压成竖条），`maxWidth` 先按视口钳到 `innerWidth-16`；挂载后量一次实际尺寸，把左右/上下越界**钳制成绝对值**（幂等：算出的值没变就停，气泡宽到装不下也不会来回抖）。pinned 气泡不因 `mouseleave` / `blur` 消失（下一次落在气泡外的 `pointerdown` 或 Escape 才收起），pinned 期间悬停别的控件也不会替换它。暂存 / 取消暂存仍是单击即时执行，按下先 `hideTip`。**「放弃更改」只在工作区侧行渲染**（`c.staged ? null : …`）：丢弃是工作区操作（`git restore --`），index 侧行没有可丢的工作区改动——`M `/`A `/`R ` 会静默无反应、`D ` 会让命令直接报 `did not match any file(s) known to git`，`MM` 则与工作区行那颗按钮重复；彻底撤销一个已暂存文件走「取消暂存」再「放弃」两步，每步都真实生效。勾选后的批量入口「放弃选中的更改」（工具栏，`gp-changes__discard-picked`）经 `discard-targets.ts` 的 `pickDiscardTargets` 只取选中集里 `:w`（工作区）侧的路径去重排序，只在暂存侧勾过的路径不参与、其数量在确认框里单独说明（措辞按「在暂存区」而非「仅有暂存改动」——同一文件可能同时有 `:s`/`:w` 两行），不静默吞掉；确认框抽成独立组件 `DiscardPickedModal.tsx`（内部走 `renderConfirmModal`，danger + `confirmBusy` + `busyLabel`：在途带忙碌遮罩并抑制 Escape/backdrop，与 pull/push/publish 一致）且正文只报数量不列文件，未跟踪目标另起一行按「未跟踪的文件或目录」报数（它们会被直接删盘、不在 Git 历史里，而这个弹窗是全仓最弱的护栏；`busyLabel` 与这一行都在该组件内靠 `snapshot.changes` × `paths` 现算，不改 `pickDiscardTargets` 的纯键契约），选中集被快照修剪为空时随渲染门与副作用自动关闭，成功后由快照接受 + 选择集修剪收敛。compact 下提交区默认收成一条 `gp-commitbar`（草稿首行或占位 + 提交按钮），点开就地展开编辑器并自动聚焦（回调 ref 在点击的 commit 内 focus，保 iOS 键盘），编辑器右侧的 `gp-commitbox__fold` 是实心描边按钮 + **向下 chevron**（语义是「收起」而非当前状态），compact 下与 AI 生成 / 提交同为 30px 高（覆盖触屏 36px）并共用行中心，折回一条；展开时在编辑器外任意位置 `pointerdown` 也会收起（草稿保留；`.gp-notice` 横幅及其关闭钮除外，点横幅不收起编辑器），生成中（`suggesting`）外部按下不收起，钻取到 diff 同样收起；折叠条与编辑器共用 `commitDisabled = busy || suggesting || 空草稿`，收起或提交成功后焦点回到折叠条的打开按钮（不落到 body）。提交框「AI 生成」有变更才可点；生成期间输入框转只读并**在框内叠加 spinner**（`gp-commitbox__msg-wrap` / `gp-commitbox__spin`，装饰性 `aria-hidden`，状态由 `aria-busy` 承载），成功后填值并聚焦、失败不覆盖已有草稿，选中的文件限定生成范围。
-  - **文件浏览**：直接打开 Git tab 时，非 Git 目录默认进入此页、干净仓库默认 Git 总览、有未提交变更默认变更记录；输入框标记的显式跳转仍优先。非 Git 目录仅显示文件浏览，以 cwd 为根。系统未安装 git 时同样退化为文件浏览：在 git 目录（文件系统探测到 `.git`）会额外提示「未安装 Git」（`NoticeBar`，可关闭），非 git 目录则静默退化，两种情况输入框标记与状态圆点均不显示。左=按需加载目录树（`.git` 不可浏览，Git 忽略项半透明；目录行用官方 `IconFolderCloseRegular` / `IconFolderOpenRegular` 表示收起 / 展开，不再画 chevron——展开态由「打开文件夹」图标承载，子级缩进 `8 + depth*16`，目录名 500、文件默认 400（旧的 600 目录规则已删）、图标色 `label-secondary`，文件与目录图标都是 16px），右=文件预览（按类型显示 dsh 官方 `FileTypeIcon`，可复制相对路径；「复制文件内容」按钮仅对严格小于 `FILE_COPY_MAX_BYTES`（10 MiB）的文本文档显示，二进制 / 图片 / 超限隐藏；宽布局里这两个复制动作组成 `.gp-files__copy-group` 按钮组——相邻边框重叠成一条 1px 线、只有外侧两角保持 6px 圆角（悬停/聚焦时提 z-index 保住自己的边框），「复制文件内容」隐藏而只剩单钮时由 `:only-child` 恢复整圆角；工具栏最右有纯图标「属性」入口（`InfoIcon` + `FilePropsModal.tsx`）打开只读属性弹窗（`renderModalShell` 的 `gp-modal--sm`，列表布局：无标题基础块（名称/类型/可点击复制的相对+绝对路径）+「大小与统计」「时间」两个带标题分组；size/mtimeMs 由 `file-content` 随既有 stat 回传、零新增 RPC，图片尺寸懒计算一次并缓存；类型行对超限文件（读前无法判文本/二进制）显示「过大未读取」而非硬猜文本；跟踪态判定经 `isUntrackedPath`：快照用 `--untracked-files=all` 后普通未跟踪文件各自成条目；只有嵌套仓库/子模块与被折叠的未跟踪目录是目录级条目，其下文件按祖先目录识别，未跟踪只出一枚胶囊；非 git 降级无快照时隐藏绝对路径行与 Git 胶囊；底部恒定高度状态栏左=Git 胶囊（跟踪态+工作区变更态，无分支行）、右=复制反馈（`aria-live`，不改变弹窗尺寸））；代码/文本用官方 `useCodeHighlighter` 语法高亮，Markdown / HTML 的「源码 / 渲染」二选一在宽布局与 compact 下都用官方 `SegmentedControl`（替换早期的自绘双按钮组；两种布局都渲染 `<id>-<value>-panel` 的 `role=tabpanel`，只让当前模式挂内容，`aria-controls` 恒可解析），Markdown 默认渲染官方 `MarkdownText`，HTML 默认源码、渲染走 `allow-scripts` 隔离源 iframe 不自动执行，图片内联并支持缩放/全屏（`ImageZoom.tsx`），其余二进制占位；文本文件在两种布局都有全屏阅读入口（`FullscreenIcon` → `FileFullscreen`，portal 的 `.gp-modal` 近全屏壳；Esc / backdrop / 关闭钮退出，打开即把焦点移进弹窗、Tab 在弹窗内循环、关闭后还原触发钮——与 `ZoomLightbox` 共用 `dialog-focus.ts` 的 `useDialogFocus`），按当前源码/渲染模式重新渲染同一份内容）；compact 下预览工具栏只留「返回文件树 + 源码/渲染（官方 `SegmentedControl`，每个模式一个 `role=tabpanel` 节点让 `aria-controls` 恒可解析）+ 全屏查看 + 属性」，尾部两颗图标收在 `.gp-files__bar-end`（`margin-left:auto`，`flex:none`）恒贴右缘——普通文件没有源码/渲染切换器时也贴右，不跟着返回钮挤在左侧；相对路径与两个复制按钮不渲染；尾部图标与 30px 返回键 / 模式控件同高（不是内联的 24px）。Git 面板保留默认字号，可在顶部调节并记住选择。
-- inputBar 一个 zsh 风格 Git 标记：`<仓库名> (<分支>)`，绿色=已同步、橙色=有待提交；hover 显示完整路径；点击跳转面板（有未提交→变更记录，已提交→Git 总览）。非 Git 目录不显示此标记或状态圆点；插件详情页可隐藏 Git 仓库的标记，隐藏时改为在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
-- 插件详情页配置区：「显示输入框标记」开关 = host `static Config` volatile 字段 + client 注册 `plugins.bundle.config` 表单（`PillConfig.tsx`），经 `configForms` 热写；写入被接受后客户端立即 `resyncAll()`，不等轮询。「AI 生成提交信息」独立 card 区（开关 + 生成语言三选一「自动 / 中文 / English」+ 输入预算/输出上限/生成超时三项数值配置，KiB/tokens/秒 显示单位 ×1024/×1/×1000 换算写入，UI 层先 clamp 到显示范围、host `normalizeConfig` 对三个 suggest 数值字段再 clamp 到 16–512 KiB / 256–16384 tokens / 5–120 s 兜底；输入预算默认 200 KiB）。生成语言默认「自动」：按仓库自身近期提交风格推断（见 `suggest.ts`），不跟随界面语言。
-
-许可：MIT。
+- 工作区常驻面板 tab「Git」（位于「对话」「轨迹」之后），含三个子 tab：
+  - **Git 总览**：分支树 / 提交历史图（搜索、作者、时间、分支筛选）/ 提交详情；提交操作（revert、reset、标签）、分支切换与远程同步（fetch / pull-ff / push / publish）。
+  - **变更记录**：未提交变更（暂存、放弃、提交、Amend、AI 生成提交信息）、贮藏、文件差异（统一 / 并排、图片对照）。
+  - **文件浏览**：工作区目录树 + 文件预览（语法高亮、Markdown/HTML 渲染、图片缩放、属性）。非 Git 目录或系统未安装 git 时只显示此页，以 cwd 为根。
+- 输入框左侧 zsh 风格标记 `<仓库名> (<分支>)`：绿=已同步、橙=有待提交，点击跳转面板。插件详情页可隐藏标记，隐藏时改在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
+- 插件详情页配置表单（`PillConfig.tsx`）：标记开关、diff 默认视图、提交图线条样式、AI 生成提交信息（开关、语言、输入预算 / 输出上限 / 超时）。写入被接受后立即 `resyncAll()`。
+- 面板宽度 ≤620px（`layout.ts` 的 `COMPACT_BP`）进入 compact 单栏「钻取」布局。
 
 ## 架构总览
 
@@ -31,120 +30,120 @@ Host 半 (Cordis + typert, lib/host)
   - GitPanelService（命名空间 gitPanel）
         - snapshot / run / query / suggest / version 五个 @Remote 端点
         │ subprocess 服务（argv 数组、无 shell、cwd 锁仓库根、超时+输出上限）
-        │ suggest 端点另经宿主 llm 服务（ctx.get 可选获取）一次性生成提交信息
+        │ suggest 端点另经宿主 llm 服务一次性生成提交信息
         ▼
   git CLI
 ```
 
 ### Host（`src/host/`）
 
-- `types.ts` 是 wire 数据模型的**唯一权威源**，client 侧的 RPC 类型直接从它复用。
-- `index.ts`：`GitPanelService extends TypertRemoteService`，`inject = ['subprocess','sessions','sessionPersistence']`，仅做端点委托与生命周期接线。
-- `git.ts`：把 `subprocess` 服务适配成带超时的 `GitRunner`；对每条命令注入 `GIT_TERMINAL_PROMPT=0`，使 fetch/pull 等网络命令遇到凭据/主机密钥交互时快速失败而非挂到超时（stdin 已 ignore）。
-- `fs-deps.ts`：`SnapshotDeps` 的 fs 面的**唯一来源**（`createFsDeps()`），host 服务与 `host-integration` 单测共用同一份——两份手工维护的 fs 面会各自漂移，测试便不再是对生产的断言。`remove` 带 `recursive`（未跟踪目录在快照回落折叠时仍是 `?? dir/` 条目），`symlinkTarget` 对缺失路径/非软链返回 null。
-- `remote.ts`：把 `git remote -v` 的 fetch URL 解析成可浏览的 `https://<host>/<path>` 页面链接 + 主机分类（`github`/`gitlab`/`gitee`/`bitbucket`/`other`），覆盖 scp（`git@host:owner/repo.git`）/ssh://​/https://​/git:// 各形态，并剥除内嵌凭据（`user:token@`）以免 token 泄进 href；`parsePrimaryRemote`（在 `core.ts`）优先取 `origin`、否则第一个远程。
-- `core.ts`：workspace（cwd→仓库根 realpath）解析 + `snapshotForSession`（含远程 `remote` 与是否跟踪上游 `hasUpstream`——由 `@{upstream}...HEAD` 的 rev-list 退出码判定，`ahead`/`behind` 仅在有上游时有意义）；文件浏览使用 `resolveBrowseRoot`，非 Git 目录回退到 cwd realpath。快照的 `status` 走 `--untracked-files=all`，未跟踪项是文件级（与 `git add` 一致，嵌套仓库/子模块仍是 `dir/` 条目）；未跟踪条目超过 `maxChanges`（且存在可能折叠的目录路径，根级文件洪泛不会白跑一次命令）或 status 输出被 runner 截断（任意原因）时，先用一次 `--untracked-files=normal` 回落成目录折叠，快照带 `untrackedCollapsed` 让 UI 说明。统计的两个逐文件 fan-out 按成本分开设限：最近变更 mtime（每文件一次 `stat`，便宜）在变更数超过 `STATS_FANOUT_LIMIT`（200）时跳过、`lastChangeAt` 为 null；未跟踪行数（每文件一个 `git diff --no-index` 子进程）另有 `UNTRACKED_NUMSTAT_LIMIT`（32），超过就不计未跟踪行（`insertions` 少算）——两者任一触发或回落折叠（此时按目录计数、行数不再计入）即 `stats.partial` 置真（issue #16：数千变更时会在每次轮询刷出几百个 git 进程拖死面板）；计数（fileCount/staged/modified/untracked）与已跟踪增删行在未折叠路径始终精确。列表被 `maxChanges` 截断或 status 输出被截断时 `truncated` 为真并带 `truncatedReason`（`cap`/`lossy`）；回落折叠另用 `untrackedCollapsed` 表示（此时 `truncated` 可以为 false），两种不完整都在变更页给出提示，UI 不静默。
-- `snapshot-fingerprint.ts`：对最终 `GitSnapshot` 以 JSON wire 语义递归排序对象键、保留数组顺序，再用 Node SHA-256 生成可选 `stateFingerprint`；仅排除顶层 `checkedAt` 和摘要自身，不缓存上轮、不增加 Git 命令。`core.ts` 在所有 root/config/changes/stats/truncated 判定完成后调用，旧 client 可忽略新字段。
-- `actions.ts`：`GitAction` → git 命令序列构造（含 `commit --amend`、按路径提交的两步 `add + commit`；分支切换 `branch-checkout`（可选 `createFrom` → `checkout -b <名> --track <远程>/<名>`，可选 `stashMessage` → 两步 `stash push -u` + checkout）；标签 `tag-create`（`-a -m` 为附注，否则轻量）/ `tag-delete`；贮藏 `stash-push`（可带 `-m`）/ `stash-apply` / `stash-pop` / `stash-drop`（`stash@{N}` 由校验过的整数 index 拼成）；回撤 `revert`（`--no-edit`）/ `reset`（`--soft|--mixed|--hard`，mode 另在此校验）；同步 `fetch`（`--all --prune`）/ `pull-ff`（`git pull --ff-only`，仅能快进、分叉时拒绝不动工作区）/ `push`（纯 `git push`，绝不 `--force`，仅在严格领先时提供，分叉由远程拒绝）/ `publish`（无上游分支的 `git push -u <remote> HEAD`，remote 名取自主远程、经 `isSafeRemoteName` 复校，`HEAD` 为固定字面量））。错误映射分级：先判冲突（`CONFLICT`，贮藏/还原条目保留）、`index.lock` 繁忙（自动重试一次后报 `index-busy`）、`not-found`（含 `Could not parse object` 等坏 ref、checkout 目标的 `did not match any file(s) known to git`）、`branch-in-use`（目标分支已被其他工作树检出；贮藏后切换失败另报 `stash-switch-failed`，因为此时变更已进贮藏、状态已变）、`auth-failed`（凭据不可用；`GIT_TERMINAL_PROMPT=0` 下交互提示直接失败）、`push-rejected`（推送非快进被远程拒绝）、`not-ff`（`--ff-only` 遇分叉的洁净拒绝），再落通用 `git-error`。`discard` 对未跟踪条目不经 git（`git restore` 摸不到它们），由 `discardUntracked` 直接删盘：目标先过 `isSafePath` + realpath 包含检查，删除带 `recursive`（未跟踪目录在快照回落折叠时仍是 `?? dir/` 条目，普通 `rm` 会 EISDIR），任何删除失败都汇总成 `git-error` 返回、绝不静默吞掉——否则 UI 会对着完好无损的目录报「已放弃」，消息同时点名因此未执行的跟踪恢复数（`…; N tracked path(s) not restored`，因为未跟踪删除先跑、失败即整体中止）。条目**本身是仓库**时（嵌套仓库 / 子模块，`join(root, path, '.git')` 能 stat 到，`.git` 是目录或文件都算；或 bare 布局——`HEAD` 为**文件**、`objects/` 与 `refs/` 为**目录**，经 `stat` 判型（跟随符号链接，`objects` 为指向目录的软链同样算；`HEAD`/`refs`/`objects` 任一是读不到但存在的软链（悬空：共享对象库未挂载、被搬走）同样按仓库拒绝，因为旁边的标记仍是真实数据；三个同名普通文件的目录不会被误拒），根本没有 `.git`）在删任何东西之前**整批拒绝**，返回 `nested-repo`（客户端经 `opErrorText` 映射到 `error.nestedRepo` 的中英文案）：递归删除会连带删掉整个内部仓库，破坏性远大于文件级放弃；删除循环内每条路径在真正 `remove` 前还会再复检一次，把「仓库在前置扫描之后才出现」的竞态窗口收窄到这次探测，此时若同批已有路径被删则改用 `nested-repo-partial`（`error.nestedRepoPartial`，明说之前的条目已删除、请刷新确认剩余变更）——常规情况下前置拒绝保证整批未删先拒，故不会出现「报未删、实际已删一半」的误导文案；只有「包含」仓库的普通目录仍作为整体删除——这条边界是刻意的（issue #46），单测同时锁住两者。
-- `queries.ts`：`history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / last-commit-message / worktree-stats / pull-preview / push-preview`。`diff` 除统一 diff 文本外回报新侧总行数 `newLines`：git 把末 hunk 的尾部上下文截到 `-U`，故 `run == U` 时文本无法区分「hunk 在文件中段」与「文件恰好在此结束」，只有这个行数能判定下方是否真有隐藏行（0 = 不可信/不适用，视图据此不渲染尾部展开控件：该侧不存在、读取失败或被 runner 输出上限截断、diff 没有 hunk、或工作区文件超过 `DIFF_COUNT_READ_MAX`（8 MiB，只约束这个计数读，展开路径不设上限））。`context` 的钳制上限是 `DIFF_CONTEXT_MAX`（100000），而「展开全部」实际请求的是 `DIFF_EXPAND_CONTEXT`（2000）——**故意有界**：窗口宽到覆盖整个大文件会让 host 把一个文件整块吐成一个 hunk（数 MB 文本），窗口够不到的上下文继续以 gap 形式留在视图里按需展开。**截断不再静默**：runner 在 collect/spill 上限丢过输出时（`stdoutLossy`）`diff` 照常返回（残缺 hunk 仍可读），但结果带 `truncated: true`，视图据此显示 `diff.truncated` 提示——`diff` 按**单文件**查询，丢弃发生在流的**头部**：留下的是尾段，diff 头与开头的 hunk 没了，存活 hunk 的行号（git 自带的 `@@` 头）仍准确，少算的是增删统计，且被丢的开头在视图里只是退化成一段普通可折叠 gap（展开读新侧，会把已改行当成未改动上下文）；`newLines` 那侧，`readNewSide` 对 staged/commit 的 `git show` lossy 读独立拒收（降级为 0，视图不再提供尾部展开控件），worktree 侧直读磁盘、不经 runner，不受影响。`file-lines` 供 diff 视图按需展开隐藏上下文，它与 `newLines` 共用 `readNewSide` 单处判定新侧来源——worktree 读工作区文件（**symlink 取链接目标文本**，即 git 的 120000 blob；跟随链接会把目标文件的行当成 diff 的右栏，且 CRLF 归一化成 LF 以对齐 git 的 blob 视图）、staged 读 index blob、commit 读 `<commit>:<path>`（worktree 曾误读 index，会揭示与 diff 右栏不符的行）；非零退出一律先用 stderr 区分「该版本没有这个路径」（空侧）与真实失败（坏 ref/坏对象报 `git-error`，不再伪装成空文件）。`pull-preview` 给拉取确认框预览「将引入的快进范围」：`rev-list --count HEAD..@{upstream}`（提交数）+ `git diff --numstat HEAD @{upstream}`（文件数 + 增删行），全本地（`behind>0` 时对象已 fetch）、无网络、`@{upstream}` 为固定字面量；无上游时 `hasUpstream:false` 且计数清零。`dir-list` 列单个工作区目录（懒加载、跳过 `.git`、条目上限）、`file-content` 读单个工作区文件（文本切片 / 图片 data URL / 二进制标记，超上限降级；非图片读取以 `FILE_COPY_MAX_BYTES`（10 MiB，复制信封）为地板取 `max(maxBytes, …)`，与「复制文件内容」按钮共用一条边界）；两者的 path 经 `isSafePath` + realpath 逃逸守卫（软链指仓库外一律拒），是插件唯一直接读 git 未跟踪文件的信任边界。`stash-list` 走 `git stash list -z --format` 经 `parseStashList` 解析；贮藏列表按需查询、不进常驻快照。`show` 并行取 meta（`show -s`）+ 变更文件（`--name-status -z`）+ 行数（`--numstat`，经 `sumNumstat` 求和得该提交 +增/−删），numstat 对合并提交会退回首父差，故汇总行数以 name-status 文件列表为准——文件列表为空（如洁净合并）时行数清零，二进制计入文件数但不计行。
-- `validate.ts`：host 信任边界的输入校验（`isSafePath` / `isSafeRev` / `isSafeBranchName`）。经 RPC 到来的 path/ref/分支名/标签名是唯一不可信 argv 素材；凡会把它们放进选项位的 git 命令都在此拦截，子命令支持时再额外用 `--end-of-options` 殿后（拒 `-` 开头的 `--output=<file>` 任意写向量）；`checkout`/`reset` 两条子命令不认该选项（旧 git 上会把切换/重置整个弄失败），只靠名字/rev 校验兜底。贮藏 index 另在 `actions.ts` 校验为非负整数。
-- `suggest.ts`：AI 生成提交信息端点——`git status -z --untracked-files=all` 文件清单（与快照同口径，选择未跟踪目录内的文件按精确路径匹配，折叠目录按斜杠边界匹配子文件）+ `git diff HEAD`（unborn 退化为 `--cached` + worktree，`paths` 全过 `isSafePath`），untracked 新文件再按 `git diff --no-index` 折入 diff（`suggestMaxBytes` 预算内、`UNTRACKED_FILE_CAP` 封顶），JSON framing 组 prompt（`files` 清单上限 `PROMPT_FILE_CAP`(200) 条，超出以 `filesOmitted` 记数——该清单没有字节预算）；经 `llm` 面（`ctx.llm.stream`）一次性生成，手写 deadline 超时、finish→错误映射（读真实 chunk 的 `reason` 信封）、`suggestEnabled=false` 入口兜底为 `suggest-disabled`。**预算前先折叠超长行**（`compactLongLines`，阈值 `LONG_LINE_MAX_CHARS`(400) 字符）：压缩成单行的构建产物（`lib/client.js` 一行可达数十万字符）会把整个 `suggestMaxBytes` 预算吃光、把真正描述改动的 hunk 挤出上下文，故把超长行替换成 `<+/-/空格前缀>… [long line: N chars omitted]`（`N` 按 UTF-16 code unit 计）——保留 diff 前缀与行数；结构性行（`@@`、`diff --git`、`index`、`---`/`+++`、mode/rename/copy、binary、`\ No newline`）一律不折，否则会丢掉 hunk 坐标 / 文件身份；未跟踪文件整份追加时同样折叠，折叠不算截断、不置 `truncated`。输入预算默认 200 KiB（`SUGGEST_LIMITS.maxBytes.default`，仍可在 16–512 KiB 间配置）。随后才是 diff 两级截断并置 `truncated`：`suggestMaxBytes` 输入预算超限截断、runner 每命令 stdout 上限（`maxBytes`）的 lossy 截断同样标记（不静默）。`llm`/`agentDefaultModel` 走 `getLlm`/`getAgentDefaultModel` **按请求解析**（不构造期冻结、**不进 `static inject`**）；模型路由为 config 覆盖对（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`；`llm-face.ts` 用 `@deepseek-ai/dsh-llm` 的 type-only 官方类型钉住 wire 契约（零运行时依赖）。
-  - **生成语言**（`suggestLanguage`，默认 `auto`）：`zh`/`en` 直取，`auto` 由 `resolveSuggestLanguage` 按仓库自身提交风格推断——`git log -n60 -z --format=%ae␟%s` 采样（`HISTORY_SCAN`），滤掉 `MECHANICAL_SUBJECT`（release/merge/revert/fixup!/squash!）等机械提交，当前作者（`git config user.email`）提交 ≥`OWN_AUTHOR_MIN`(3) 条时只看本人的，再按 `Σ 0.9**i`（`LANGUAGE_DECAY`）对 CJK 与非 CJK 加权投票取多数；**不跟随界面语言**。必须滤机械提交：本仓库自动生成的提交 100% 英文，计入会把结论翻成 `en`。样本经 `clampSubject`（`STYLE_SAMPLE_CAP`(12) 条 / `STYLE_SAMPLE_MAX_CHARS`(200) 字符）进 `commitStyleSamples`。
-  - **语言要求必须同时进入 system 与数据后的 user 指令**：diff 与 `commitStyleSamples` 自带语言，system 中限定样本只提供结构、输出语言服从解析后的设置；user 消息先放 JSON 仓库数据，最后用独立 text block 重申目标语言（`languageReminder`，点名 subject 与 body），该指令在 diff 截断预算之外。仅在 system 末尾重复强调仍可能输出错误语言；回归测试覆盖强制语言与相反语言历史、auto 双向推断、diff 截断后末尾指令仍保留。请求构造单测不代表模型语言遵循率，需通过官方适配器和真实模型验证，不能用手工重组的 HTTP 请求替代。
-- `parser.ts`：`git status --porcelain`（快照走 `--porcelain=v1 -z --untracked-files=all`）/ `--numstat` / `log` 输出解析为结构化数据。
-- `version.ts`：读本包 `package.json` 版本 + 查 GitHub release 做更新检查，失败降级。
+- `types.ts`：wire 数据模型的**唯一权威源**，client 侧 RPC 类型直接复用。
+- `index.ts`：`GitPanelService`，只做端点委托与生命周期接线。
+- `git.ts`：把 `subprocess` 适配成带超时的 `GitRunner`；每条命令注入 `GIT_TERMINAL_PROMPT=0`，网络命令遇凭据 / 主机密钥交互时快速失败而非挂到超时。
+- `fs-deps.ts`：`SnapshotDeps` fs 面的唯一来源（`createFsDeps()`），host 服务与 `host-integration` 单测共用，不得另写一份，否则测试不再是对生产的断言。
+- `core.ts`：仓库根解析（realpath）+ `snapshotForSession`；`resolveBrowseRoot` 在非 Git 目录回退到 cwd。
+- `snapshot-fingerprint.ts`：快照的 `stateFingerprint`（键排序后 SHA-256，排除 `checkedAt`）。
+- `actions.ts`：`GitAction` → git 命令序列，以及 git 输出 → 错误码映射（冲突、`index-busy`、`not-found`、`auth-failed`、`push-rejected`、`not-ff` 等，兜底 `git-error`）。
+- `queries.ts`：`query` 端点的各类按需查询（history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / pull-preview / push-preview 等）。
+- `history-topology.ts`：筛选后的历史页追加一次有界无过滤父链（10000 节点 / 2 MiB），失败只退化祖先数据，不丢列表。
+- `validate.ts`：信任边界输入校验。
+- `suggest.ts` / `llm-face.ts`：AI 生成提交信息；`llm-face.ts` 用 `@deepseek-ai/dsh-llm` type-only 类型钉住 wire 契约。
+- `remote.ts` / `parser.ts` / `version.ts`：远程 URL → 浏览链接、git 输出解析、版本与更新检查。
 
 ### Client（`src/client/`）
 
-- `rpc.ts`：`gitPanel` @Remote 端点的 client 面，走 `/api` 通道调 `gitPanel/<method>`；逐读加守卫，连接缺失或异常降级为类型化 failure。
-- `controller.ts`：`GitController`，每 session 的快照控制器（单航刷新 + 页面可见时 `refreshIntervalMs` 轮询 + turn 完成边沿刷新 + `connection/reset` 重拉）。隐藏时清理 timer，所有刷新入口延后到可见时合并补刷；在途响应可以完成但不派生尾随请求。`visibilityGeneration` 与 query signal 的 `ready` 让恢复后的子查询等待本次新鲜快照，`dispose` 释放可见性订阅。业务 `getSnapshot/subscribe` 与内容 `getQuerySignal/subscribeQueries` 独立：同摘要常规采样保留 snapshot/ready view 引用且不广播业务监听，但 tick/最新采样 sampledAt 仍推进；缺少摘要、首次/错误恢复照常发布，accept 强制业务发布。resync/accept 递增请求代次，废弃被超越的在途成功/失败；每次接受成功快照仅推进一次 tick 并原子发布，accept 消费此前待补刷但保留后来 resync。唯一 publish 入口先原子更新两个 store，再按引用变化通知对应订阅；重复 ensure 不为初次在途快照增加尾随刷新。
-- `visibility.ts` / `use-page-visibility.ts`：共享惰性 `pageVisibility`（无 document 默认可见，最后一个订阅释放后移除监听）及 React 响应式订阅；controller 可注入 `VisibilitySource` 供隔离测试。
-- `use-visible-request.ts`：总览列表、stash、工作区 diff、图片查询共用的请求闸口；按目标 key 防陈旧响应、复用同 key 在途请求，prop 承载页签/快照门，实时页面检查封住 React 重渲染前及异步续段的隐藏窗口；隐藏保留数据，恢复/下轮/显式重试仍可取数。`query-key.ts` 定义扁平只读 primitive tuple；各 hook 组合结构化 queryKey，仅在此入口序列化一次作为 effect/in-flight 键，不依赖数组引用。
-- `registry.ts`：per-session `GitController` 复用池与引用保活；`useGitView` 订阅业务 view，`useGitQuerySignal(sessionId,active,expectedRoot)` 为活动可见叶页签保活、ensure 并返回共享 gate，独立使用也可启动控制器。非活动叶页签只读取已有 controller，不创建无引用实例。最后一份保活释放后 60s 回收；disposeAll 清空 timers/refCounts，旧 cleanup/计时器不能操作同 session 的新 controller。`useGitView` 订阅后重读 getter，封住 render→effect 间隙。
-- `use-git-query-signal.ts`：`useControllerQuerySignal` 以 useState/useEffect 订阅独立 `{root,tick,sampledAt,ready}`；激活/换 controller 同步读当前 getter，订阅后重读补齐间隙。订阅条件是页面可见且活动，不含 ready；唯一 `useControllerQueryGate` 统一 ready/root/active 门与基础 queryKey，避免同摘要恢复无法解锁。root 匹配保护父组件旧 props 与新 store 的暂态混合，不因 controller 原子发布就省略。
-- `index.ts`：Cordis `apply` —— 挂 RPC 面、注册三个 slot（`conversation.view` / `conversation.input.left` / `plugins.bundle.config`）、注册 i18n。
-- `Panel.tsx`：主面板壳，内部子 tab 路由 + 焦点消费 + 版本条；子 tab 切换用平台 `SegmentedTabs`（容器 class `gp-tabbar__tabs`，轨道 / 胶囊 / 滑动 indicator / 键盘遍历都由平台负责，插件只提供每个 item 的 icon+label 节点），每个 tab 都配一个真实 `role=tabpanel` 节点（`useId` 生成实例级 id，`aria-controls` 恒可解析），页签内容仍按首次访问挂载；保留已访问子页签挂载，仅以页面可见性 × 当前活动页签下发 Overview/Changes 的 `visible`；新鲜快照门由叶页签的查询信号判断，Panel/pill 不订阅内容 tick；用 `layout.ts` 的 `usePanelLayout` 观测面板宽度，≤620px 时在根节点标 `data-layout="compact"` 并把 `compact` 下发给三个子 tab，触发单栏「钻取」布局；compact 的 tab 栏仍是单行：切换器只留图标（label 节点改 sr-only 保留可访问名，不 `display:none`）、字号三键同排（三键是 `role=group` 的互斥档位，当前档用 `aria-pressed` 标出并以 `bg-module-platform` 灰底 + `label-primary` 字 + 加粗（中性选中样式，与平台控件底色同源，深浅主题都成立），默认中档「A」也是明确选中态）、版本条（版本号 / 检查更新 / 星标）不挂载；宽布局版本条「检查新版本」按钮的图标槽 `.gp-tab__icon` 让 svg 在 15px 槽内居中（`.gp-verbar__btn` 只居中槽本身，12px 图标原本贴槽顶、比文字高 1.5px），保证图标与文字共用一条水平中线。
-- `layout.ts`：`usePanelLayout`——ResizeObserver 观测面板宽（`COMPACT_BP=620`，与 GitPill 的 `COMPACT_WIDTH` 同值），返回是否进入 compact 单栏布局。compact 的所有样式挂在 `.gp-panel[data-layout="compact"]` 下；宽布局本轮只在有意处改动（复制按钮组、全屏入口、版本按钮图标居中、文件树图标与字重、`.gp-btn` nowrap），同样有 e2e 断言；portaled 的 modal / bottom sheet 在 `.gp-panel` 之外，分别用自身 class / viewport media query 适配。窄视口（`max-width:640px`）下弹窗有独立尺寸契约：`.gp-modal`（大弹窗，含 commit 文件 diff）高 `min(90dvh,calc(100dvh-48px))`，近全屏但留出可点边距；`.gp-modal--sm`（确认框 / 标签 / 贮藏 / 重置）在媒体查询内**只重申 `height:auto`**，不让 90vh 流进来——其 max-height 基规则 `min(560px,86vh)` 已装得进 viewport-48px，重申只会把内容上限放宽到 796px。backdrop 上下 padding 24px 保证可点空白。compact 的 diff 工具栏与 commit 对比 modal 工具栏同样拆两行：`.gp-diff__toolbar-row` / `.gp-modal__bar-row`（第二行 `--controls` 收模式 seg + 展开/关闭；seg 按钮等宽分摊，但 `.gp-seg__btn` 统一 `white-space:nowrap` + `min-width:max-content`，空间不足时整条 seg 换到下一行（`--controls` 可 wrap）而不是把「变更前 / 变更后」压成两行），因为单行在手机宽度放不下「返回 + 路径 + 统计 + 展开 + 模式 seg」而会把 seg 挤成竖叠。这两处 class 不挂在 `data-layout` 下，故宽视口 + 窄面板也成立。
-- `OverviewTab.tsx`：Git 总览三栏（分支列表 / 提交历史图 / 提交详情 + comment）的组合层，含 hover 卡；取数状态拆进 `overview-hooks.ts`。提交详情顶部「提交操作」区：还原（`revert`）/ 重置（`ResetModal`，软 / 混合 / 硬 + 硬重置丢失清单与额外确认）走 `onAction`（经控制器喂回新快照 → 查询 tick 原子推进 → 历史图刷新），创建标签（`TagCreateModal`）/ 删除标签（标签片 ×）走 `run` 的 `tag-create` / `tag-delete`、以本地 `opBump` 刷新历史图与分支/标签列表（标签不动工作区，不会 bump 快照）。compact 时折叠为单栏：历史列表 ↔ 提交详情按 `pane` 钻取（带返回条），分支筛选走 bottom sheet，提交行两行式、graph svg 高度随行高拉伸以保证连线，禁用 hover 卡。历史工具栏在 compact 下统一成一种控件高度（分支筛选钮 / 搜索框 / 两个筛选触发器 / 图标钮都 30px，覆盖触屏 `@media (hover:none)` 只把 `.gp-btn` 顶到 36px 的旧规则，否则分支钮会比同排控件高一截），并默认只显示一行「分支筛选 + 搜索 + 更多筛选」；作者 / 时间 / 刷新收进 `.gp-toolbar__more`，由行尾 `gp-toolbar__more-toggle`（30×30 方钮 + 向下 chevron，展开后旋转 180° 变向上；折叠时不写 `aria-controls`，展开时指向第二行容器）按需展开成第二行，隐藏期间若有作者/时间筛选生效则该钮转 `gp-btn--primary` 提示「筛选藏在里面」，宽布局仍是平铺一行（同一套节点，仅 compact 包一层 `.gp-toolbar__more`）。钻取返回条（总览「返回列表」/ 文件浏览「返回文件树」/ 变更记录「返回变更列表」共用 `.gp-subhead__back`）在 compact 下也是 30px 高，与历史工具栏「按分支筛选」同高；提交详情的「提交操作」行（还原此提交 / 重置到此提交 / 创建标签）在 compact 下同为 30px 高（覆盖触屏 `@media (hover:none)` 把 `.gp-btn` 顶到 36px 的规则），三个按钮保持一行、不再显高。左列底部有固定状态栏（`renderStatusBar`，拆在 `overview-statusbar.tsx`，wide 下在滚动分支列表 `gp-col-left__scroll` 之下、compact 下在总览底部）：左=远程仓库链接（仅 GitHub 项目显示：`remote.hostKind==='github'` 时用 GitHub 标，非 GitHub 远程不显示链接；`webUrl` 新标签页打开、仓库路径与「打开」提示在 hover title，无 webUrl 的本地路径远程只显图标、URL 进 title），右=分支同步态（已同步 / 领先 / 落后 / 分叉 / 无上游）+「检查同步」（与历史工具栏 `fetch` 共用忙碌态，经 `onAction` 回灌新快照刷新 ahead/behind；失败在同步状态栏显示错误，重试时清除）+ 仅在「严格落后（behind>0 且 ahead===0）」时出现的「拉取同步」（`pull-ff`，走 confirm modal + 「信任 AI」提示，预览将引入的快进范围）+ 仅在「严格领先（ahead>0 且 behind===0）」时出现的「推送同步」（`push`，confirm modal 预览待推送范围）+ 无上游分支出现的「发布分支」（`publish` = `git push -u`，二次确认 modal）。分叉时推送/拉取都不提供。`snapshot.remote`/`hasUpstream` 缺失（旧快照）时降级为「无远程/无上游」而非崩溃。
-- `history-topology.ts`（host）：有效消息 / 作者 / 时间筛选的非空历史页追加一次无过滤 `rev-list --parents`，最多 10000 节点 / 2 MiB；输出残缺、超限、命令失败只退化祖先数据，不丢历史列表。`GraphCommit.parents` 保持原样，history 的可选 `topology` 只承载辅助原始父链；无筛选 / 仅 ref / 哈希跳转不加查询。
-- `filtered-graph.ts` / `CommitGraph.tsx`：前者将有界父链投影到已加载可见提交，直接边 / 跨隐藏祖先边分别为实线 / 断续线，缺失或预算不足路径只出短边界；保留真实 merge 语义，迭代解析并共享重复祖先结果。后者统一宽 / 窄布局 SVG，以仓库 snapshot.head 判定 current，画同心外圆环与实心中心点；实例级 mask 清除两者间的穿线，鼠标选择不参与该标记判定。不同线型到真实目标节点才汇合，避免 compact 模式把实线染成虚线；隐藏节点 post-order 折叠跳过已解析节点，避免收敛父链重复计算并重复消耗祖先预算。筛选图优先由响应的 topology 字段判定，旧 host 缺失该字段时用 host/types.ts 的共享 isHistoryFiltered(appliedFilter) 保守回退，不在 client 重写筛选语义。
-- `overview-hooks.ts`：`useBranchTree` / `useHistory`（分页 + 分代守卫 + `total:-1`，提交、topology、total 与 appliedFilter 原子发布；请求等待或失败时保留上一张完整图，禁止 pending filter 重新解释旧 rows；同代合并可选 topology，可见提交父列表权威、最新隐藏记录覆盖旧记录、隐藏节点缓存上限 20000）/ `useCommitDetail`（`show` LRU 缓存 + 文件 diff overlay + hover）三个数据 hook，`OverviewTab` 在叶组件订阅内容信号，刷新键为结构化 [root,tick,opBump]，不依赖业务 checkedAt 或数值相加；只有标签本地操作递增 opBump，其他动作由 accept 驱动，不额外 reloadTree。相对时间随采样时间渲染更新。tree/history 自动查询及分页按可见性门控，恢复只查当前目标并保留选择/滚动；branches 失败显示 treeError，tags 失败保留旧标签、authors 失败清空选项而不遮蔽分支；hover 和文件 diff 中的图片查询沿用页面门控。
-- `changes-hooks.ts`：`useChangesData` 编排可见期间的 stash-list 与打开的 diff，每次成功采样的独立 query key 仍重查 stash/已打开 diff 以检出非顶端删除及正文变化，不再用 snapshot 对象引用充当刷新信号；隐藏保留数据且继续修剪消失路径，恢复补查当前目标。diff key 含每次 showDiff 递增的 version，使同参数重复打开仍重新取数；草稿、勾选与确认态留在 `ChangesTab.tsx`；stash 操作成功由 controller accept 一次补查，不暴露无人调用的 loadStashes。
-- `image-diff-hook.ts`：`useImageDiff` 承接 `DiffView.tsx` 的图片二阶段查询；隐藏时 binary/SVG diff 完成不能派生 image-diff，恢复允许补查，保留旧图片且丢弃陈旧路径响应。
-- `hookkit.ts`：测试专用入口，导出真实 overview/changes/image/visibility/query-signal/gate hooks、registry 与 controller，React external；集成测试中的 controller/hooks 必须共用同一 bundle 的 pageVisibility 实例。
-- `ChangesTab.tsx` / `ChangeStats.tsx` / `DiffView.tsx`：变更记录页（stash/diff 编排委托 `changes-hooks.ts`）、统计条（读快照上的 `stats`，不再单发查询；`stats.partial` 为真时追加「统计已简化」提示；compact 下只渲染一行计数——nowrap + 裁切，变更/提交时间戳完全不渲染、无展开控件）、列表不完整提示（`snapshot.truncated` 按 `truncatedReason` 分文案：`cap` 说明只显示前 N 项、`lossy` 说明开头可能缺失；`untrackedCollapsed` 说明未跟踪侧已按目录折叠，两条都走 `NoticeBar`——带右侧关闭钮，关闭态按文案记忆（`useDismissedNotices`），文案变化（新计数/新原因）会重新出现，不静默丢行）、差异视图（`DiffView` 已 `memo`，图片取数委托 `useImageDiff` 并透传 `visible`；支持统一（`unified`，单栏行内）/ 并排（`split`，左右分栏）两种布局，默认视图由快照上的 `defaultDiffView` 决定，可在工具栏临时切换）。未提交变更列表按行虚拟化（分组头 + 文件行扁平成一个列表，前缀和算偏移，只挂视口窗口内的行，固定行高 `VROW_H`/`VHEAD_H` 由样式钉死；issue #16 数千变更不再一次性铺 DOM；被截断时分组头计数取 `stats` 全量值，整组行都落在截断之外时该组仍以空列表 + 全量计数出现）。虚拟化窗口数学抽在纯模块 `virtual-list.ts`（`buildTops`/`lowerBound`/`windowRange`/`findWindowRange`，吃任意高度数组，有单测），视口跟踪抽在 `use-viewport.ts` 的 `useViewportTracker`（callback-ref + 滚动/ResizeObserver，重挂自动重连、同尺寸不重渲染）；变更列表、文件浏览源码视图（`FilesTab.tsx`）与差异视图（`DiffView`）三处复用。**`findWindowRange`**：Find 的活动命中若已在窗口内，只按 overscan 扩边；若在窗口外，则把窗口**吸附**到命中邻域，绝不取「视口到命中」的连续区间——那种跨度会在一次 commit 里挂载中间所有行，正是虚拟化要消除的冻结（实测 547 行文件冷缓存下跳转到末尾命中：改前峰值 540 行 / 单帧长任务 231ms，改后 51 行）。**`DiffView` 行虚拟化**：「展开全部」= 带 `context: DIFF_EXPAND_CONTEXT`（2000，有界）重发 diff，大文件仍会留下按需展开的 gap，故 diff 视图只挂视口窗口内的行——行高「已测值优先，否则按行种类估算（code 20 / hunk 27 / gap 29）」，`useLayoutEffect` 每帧读已挂行的 `data-r` 真实高度回填（差值 >0.5px 才写，一次收敛），前后各一段 `grid-column:1/-1` 的 `.gp-diff__spacer` 撑出滚动条；长行仍 `pre-wrap` 换行，高度可变，所以必须实测而非固定行高。`DiffView` **自己拥有滚动容器**（`.gp-diff__wrap` flex 填满 → `.gp-diff__scroll` 滚动 → body），因为窗口数学在首帧就需要视口高度，调用方提供的容器给不出；Find 仍扫全部行（计数与导航完整），活动命中经 `findWindowRange` 挂载后 rAF `scrollIntoView` 居中（cell key 的数字后缀即行号）。**两处提示都由 DiffView 渲染**（`NoticeBar`，可关闭、关闭态按 `path + 文案` 记忆——视图实例跨文件复用，按纯文案记会让 A 文件关掉后 B 文件的同类提示静默；`expanded`/`truncated` 两个普通值 prop，不破坏 `memo`）：`diff.expandCapped` 的门是 `expanded && rows.some(r => r.kind === 'gap')`——读**实际剩下的 gap 行**而非请求的 context 大小，因为 git 在相邻改动把 hunk 合并时能用 2000 行上下文覆盖整个文件，也可能在 hunk 贴着文件一端时留下不足 4000 行的 gap；最后一个 gap 被消费后提示自动消失。**高亮按行缓存**：`highlight-cache.ts` 的 `memoizeHighlighter` 包住平台 `useCodeHighlighter`（`Map<行文本, spans>`，到 `HL_CACHE_MAX` 后整体丢弃；随 highlighter 身份变化自动失效），因为行会随窗口移动与祖先重渲染反复渲染，而 shiki 每行一次 `codeToTokens` 是这里最贵的操作（实测 JS 正则引擎中位数 0.22ms/行，313 字符的 JSX 行 13ms）。`DiffView` 的 `base`/`commit` 是**普通值而非对象**：此前每次渲染新建 `imageSpec` 对象字面量，`memo` 的浅比较永远不相等，任何祖先重渲染都会重跑整套高亮。变更页还含贮藏：工具栏「贮藏」按钮（`StashPushModal`）、`stash-list` 查询出的可折叠贮藏列表（应用 / 弹出 / 丢弃，丢弃走确认 modal），操作经 `onAction`（失败也 `resync` 以反映冲突后的工作区）。
-- `ops-modals.tsx`：写操作共享的 portaled 弹窗原语——`renderModalShell`（小弹窗统一外壳：backdrop 点击外部关闭 + Escape + `createPortal` + `.gp-modal--sm` 框 + bar(图标/标题/短哈希/关闭)，确认框 / 标签 / 贮藏 / 重置四类对话框都只提供 body+footer 经它渲染，关闭契约单处收口）、`renderConfirmModal`（纯文本确认框）、`renderModalFooter`（取消/确认按钮，`confirmBusy` 可在途禁用）、`renderAiHint`（底部恒显 `ops.aiHint`）、`opErrorText`（错误码→文案）。
-- `dialog-focus.ts`：portaled 模态的焦点生命周期（`useDialogFocus`）——打开时聚焦关闭钮、Tab 在弹窗内循环、捕获阶段 Escape（压过背后页面）、卸载时还原触发元素；`ZoomLightbox` 与 `FileFullscreen` 共用，弹窗契约不再各写一份。
-- `PillConfig.tsx`：插件详情页配置表单（`configForms` 读写 + 写后即时 resync）——「显示输入框标记」开关 + 「差异对比默认视图」统一/并排切换 + 「提交历史图线条样式」平行线（VSCode）/ 紧凑（git log）切换 + 「AI 生成提交信息」独立 card（开关 + 输入预算/输出上限/生成超时三项数值配置；范围与回退从 `host/types.ts` 的 `SUGGEST_LIMITS` 单源派生，client 经 `types.ts` 转出与 `imageMimeFor` 同路径；数值输入草稿态打字不阻塞、失焦/回车提交、显示值 clamp 到与 host 执行一致的范围、提交后乐观保持至写入落地）。
-- `tab-dot.ts`：Git 标签状态圆点（pill 隐藏时注入 / 恢复标记时清除）。
-- `ImageCompare.tsx`：图片新旧双栏对照（渲染 `image-diff` 查询结果，每栏内嵌 `ZoomableImage`）。
-- `ImageZoom.tsx`：图片缩放交互（文件浏览预览与 `ImageCompare` 两栏、灯箱内层共用同一组件）。`ZoomableImage` = 触摸板捏合/cursor 锚点缩放（10%–800%）+ 原生滚动平移 + **鼠标左键拖拽平移**（`grab`/`grabbing` 光标，`data-zoomed`/`data-dragging` 驱动）+ 浮动缩放条（− / 百分比 / + / 适应窗口 / 全屏）+ 双击 fit↔100%。**全屏入口只在工具栏**：图片单击不触发（内联「点击进全屏」与双击切换在物理上互斥——第一次单击就会进灯箱、双击永远切不成），灯箱内保留双击与捏合。灯箱 `ZoomLightbox`（portal、Esc/关闭钮/空白区 mousedown 关闭、焦点还原、Tab 在对话框内循环）契约对齐官方 `ImageLightbox`，但官方组件无缩放扩展点，故灯箱自研。
-- `ImageZoom.tsx` / `zoom.ts` 实现约束：缩放态只写 inline `width` 参与布局，`.gp-zoom__img` 必须 `flex:none`——flex item 的 replaced element 自动最小尺寸=自然宽度，缺它时 flex-shrink 会把渲染尺寸钉在 `max(自然宽, 视口宽)`，放大超过 100% 只剩标签在涨（e2e 曾因断言 `style.width` 而漏检）。居中用 `margin:auto`+视口 `flex-start`（`justify-content:center` 会让超宽图溢出侧拖不到）；`pointermove/pointerup` 挂 window 且**不捕获指针**（`setPointerCapture` 会把 `click` 目标改成捕获容器）——与 `resizable.ts` 同约定，仅 `pointerType==='mouse'` 接管、`DRAG_THRESHOLD`(3px) 才算拖拽，拖拽结束打时间戳避免「拖拽 + 快点击」被当成双击，`e.buttons===0` 兜丢失的 pointerup，滚动条槽位不接管。缩放比例一律读 DOM 真值；「适应百分比」只在 fit 态测量（RO 按 mode 门控、进 fit 时重测），换 `src` 复位缩放态。纯数学（delta 归一化 / 非对称因子 / 钳制 / 锚点滚动 / 拖拽阈值与平移换算）在 `zoom.ts`，经 testkit 单测。
-- `jump.ts`：面板/子 tab 一次性焦点中继（模块级 per-session Map）。
-- `branch-tree.ts` / `git-graph.ts` / `file-tree.ts` / `diff.ts`：自研纯算法（分支 ref 按 `/` 折目录树、提交图车道布局、路径折树、unified diff 拆行 → 并排行 + 块间隐藏上下文折叠为可展开 gap + 改动行前缀/后缀词级 diff）。gap 的 `count` 一律精确（尾部 gap 取 `newLines - rightNo + 1`），不存在「行数未知」的空 gap：数量非正就不渲染，`buildSideBySide` 对非有限计数按 0 处理，故控件不会因自身推导而「点了没反应然后自己消失」——计数过期（文件在两次查询之间变化）时仍可能一次拉回 0 行，此时 gap 直接消费、不再重复弹出同一个控件（`spliceGap` 的 'up' 分支），`retargetTrailingGap` 让同一文本下的新计数只重算尾部 gap、不重置已展开的行；`DiffView` 的 `newLines` 是必填 prop、与取数同源。提交图按车道（而非逐 commit）配色——一条连续线单色；车道续接跟随第一父，使主线钉在最左。线条样式由快照上的 `graphStyle` 决定：`parallel`（默认，VSCode 风格——合并的第一父各占一列，共享祖先以并行线表示、仅在祖先节点汇聚）/ `compact`（git log 风格——共享祖先提前合并为一列）。
-- `locales.ts` / `icons.tsx` / `time.ts` / `types.ts`：中英文案、图标、时间格式化、client 侧类型别名。
+- 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
+- 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
+- 页面：`Panel.tsx`（子 tab 路由、字号、版本条）、`OverviewTab.tsx` + `overview-hooks.ts` / `overview-statusbar.tsx` / `overview-modals.tsx`、`ChangesTab.tsx` + `changes-hooks.ts` / `ChangesToolbar.tsx` / `ChangeStats.tsx`、`DiffView.tsx` + `image-diff-hook.ts` / `ImageCompare.tsx`、`FilesTab.tsx`、`GitPill.tsx`、`PillConfig.tsx`。
+- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`discard-targets.ts`、`branch-options.ts`、`push-policy.ts`。
+- 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`（悬浮提示）、`notice.tsx`（可关闭提示条）、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`。
+- 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
+
+## 安全与信任边界
+
+- git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串；cwd 锁仓库根，带超时与输出上限。
+- 经 RPC 到来的 path / ref / 分支名 / 标签名 / remote 名是唯一不可信的 argv 素材，必须先过 `validate.ts`（`isSafePath` / `isSafeRev` / `isSafeBranchName` / `isSafeRemoteName`）；子命令支持时再用 `--end-of-options` 殿后。`checkout` / `reset` 不认该选项（旧 git 会直接失败），只靠校验兜底。贮藏 index 在 `actions.ts` 校验为非负整数。
+- `dir-list` / `file-content` / 未跟踪文件删除是插件唯一直接触碰未跟踪文件的入口：`isSafePath` + realpath 包含检查，软链指向仓库外一律拒，`.git` 不可浏览。
+- 远程链接（`remote.ts`）必须剥除 URL 内嵌凭据，避免 token 泄进 href。
+- 写操作不越权：push 绝不 `--force` 且仅在严格领先时提供；pull 只走 `--ff-only`；分叉时 push / pull 都不提供；绝不直接检出远程引用（落为同名跟踪分支，避免游离 HEAD）；publish 的 `HEAD`、pull-preview 的 `@{upstream}` 为固定字面量。
+- 放弃未跟踪条目由 host 直接删盘（`git restore` 摸不到）：任何删除失败都汇总成错误返回，绝不静默；条目本身是仓库（嵌套仓库 / 子模块 / bare 布局）时整批拒绝（`nested-repo`），删除循环内逐条复检（竞态命中报 `nested-repo-partial`）；只「包含」仓库的普通目录仍整体删除——这条边界是刻意的（issue #46），单测同时锁住两者。
+- 破坏性操作（discard、reset、stash-drop、删除标签、带贮藏的分支切换等）UI 必须二次确认，硬重置需列出将丢失的改动并额外勾选；「放弃更改」只作用于工作区侧，暂存侧需先取消暂存。
+- HTML 渲染预览走 `allow-scripts` 的隔离源 iframe，不在宿主页面执行。
 
 ## 数据流铁律
 
-- **快照单一来源**：pill、变更记录页、统计条共用同一 `GitController` 快照，禁止各自发起独立 snapshot，避免重复 git 命令。
-- **业务与刷新分离**：业务摘要相同只抑制业务 view 通知，不抑制成功 tick；稳定 snapshot 中 checkedAt 是上次业务发布的采样时间，最新采样时间从 query signal.sampledAt 读取。不得重新把业务 checkedAt/对象引用作为 query effect 触发器；active leaf 使用 root/tick/本地失效组成结构化 key，一次 action 或采样仅补一批。总览仍按 tick 刷新，stateFingerprint 不代表 refs 或 stash 未变；refs 探测属于另批优化。
-- **按需查询**：总览页 history/branches/show、图片 image-diff 走 `query` 端点，带分页、首页缓存、分代防竞态（新过滤请求接管、旧响应按代丢弃）。
-- **可见性门控**：页面后台不启动新 snapshot；隐藏 Overview/Changes 不启动新的自动列表、分页、stash/diff 或图片二阶段请求。在途响应允许完成，但不得继续隐藏期派生查询。恢复先补新 snapshot，再只为当前活动页签补查一次；本地草稿、选择集修剪仍执行。文件浏览的显式按需读取另有生命周期，不把 Git 页签计数断言推广为所有 query 零请求。
+- **快照单一来源**：pill、变更记录页、统计条共用同一 `GitController` 快照，禁止各自发起独立 snapshot。
+- **业务与刷新分离**：业务摘要（`stateFingerprint`）相同只抑制业务 view 通知，不抑制查询 tick；子查询的刷新键是结构化的 `[root, tick, 本地失效]`，不得把业务 `checkedAt` 或 snapshot 对象引用当作 effect 触发器。一次 action 或采样只补一批查询。`stateFingerprint` 不代表 refs / stash 未变，总览仍按 tick 刷新。
+- **按需查询**：history / branches / show / diff / image-diff 等走 `query` 端点，带分页、缓存与分代防竞态（新请求接管、旧响应按代丢弃）；请求等待或失败时保留上一份完整数据。
+- **可见性门控**：页面后台不启动新 snapshot；隐藏的子页签不启动新的自动查询、分页或二阶段请求。在途响应可完成但不得派生后续查询；恢复时先补新快照，再只为当前活动页签补查一次。
+- **写操作回灌**：动工作区的操作经 `onAction` 由 controller 接受新快照驱动刷新；标签操作不动工作区，以本地 `opBump` 刷新。分支切换成功后广播工作区世代（失效文件浏览缓存）并静默执行一次检查同步。
 - **双层信封**：RPC 返回 `{ ok, value }` 是传输层结果，业务结果 `{ ok, value|error }` 在 `value` 内，两层都要判。
-- **选择集随快照修剪**：变更列表勾选的路径，若在新快照中消失必须移除，否则提交序列会中止。
+- **选择集随快照修剪**：勾选的路径在新快照中消失必须移除，否则提交序列会中止。
+- **不完整数据不静默**：快照截断（`truncated` + `truncatedReason`）、未跟踪回落折叠（`untrackedCollapsed`）、统计降级（`stats.partial`）、diff 输出截断（`truncated`）、suggest 输入截断都要带标记并在 UI 用 `NoticeBar` 提示。`newLines` 为 0 表示新侧行数不可信，视图不得渲染尾部展开控件。
+- **大仓库限流**（issue #16）：逐文件 fan-out 有上限（`STATS_FANOUT_LIMIT`、`UNTRACKED_NUMSTAT_LIMIT`），超限降级统计而不是每轮轮询刷出几百个 git 进程；「展开全部」上下文是有界的 `DIFF_EXPAND_CONTEXT`，不要放大到整文件。
+
+## AI 生成提交信息
+
+- `llm` / `agentDefaultModel` 按请求解析（`getLlm` / `getAgentDefaultModel`），不在构造期冻结、不进 `static inject`；模型路由 config 覆盖（provider/model 必须成对）优先，否则 `agentDefaultModel.currentSelection()`。
+- 生成语言默认 `auto`：按仓库自身近期提交推断，先滤掉机械提交（release / merge / revert / fixup! / squash!，否则自动生成的英文提交会把结论翻成 `en`），本人提交足够时只看本人；**不跟随界面语言**。
+- 语言要求必须同时写进 system 和 user 消息末尾的独立 text block（位于 diff 截断预算之外）；只在 system 强调仍会输出错误语言。请求构造单测不代表模型遵循率，需经官方适配器 + 真实模型验证，不能用手工重组的 HTTP 请求替代。
+- diff 进预算前先折叠超长行（压缩产物会吃光预算），但结构性行（`@@`、`diff --git`、`---`/`+++` 等）一律不折；折叠不算截断。
+
+## UI 约定
+
+- 样式用 dsh 主题 CSS 变量（`--dsw-alias-*`），不硬编码颜色，保证深浅色主题一致。
+- compact 样式统一挂在 `.gp-panel[data-layout="compact"]` 下；portaled 的 modal / bottom sheet 在 `.gp-panel` 之外，用自身 class 或 viewport media query 适配。
+- 弹窗复用 `ops-modals.tsx`（`renderModalShell` / `renderConfirmModal` / `renderModalFooter`）与 `dialog-focus.ts`（`useDialogFocus`），关闭与焦点契约单处收口，不各写一份；在途操作用 `confirmBusy` 禁用并抑制 Escape / backdrop。
+- 带 `aria-controls` 的 tab / segmented 控件必须渲染对应的 `role=tabpanel` 节点，保证引用恒可解析。
+- 长列表（变更列表、源码视图、DiffView）用 `virtual-list.ts` + `use-viewport.ts` 虚拟化；查找跳转到窗口外命中时窗口吸附到命中邻域，不挂载中间的连续区间。
+- `memo` 组件的 props 传普通值，不在渲染中新建对象字面量（会让浅比较失效、重跑整套高亮）；逐行高亮经 `highlight-cache.ts` 缓存。
+- 图片缩放：`.gp-zoom__img` 必须 `flex:none`（否则放大超过 100% 不生效）；拖拽的 pointer 事件挂 window 且不 `setPointerCapture`（会改写 click 目标）。
 
 ## 依赖策略
 
 MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依赖。
 
-- 代码/差异高亮调用平台 `@deepseek-ai/dsh-client-ui-primitives` 的 `languageForPath` 与 `useCodeHighlighter`；返回逐行 `HighlightSpan`，语法色采用宿主 `--shiki-*` 主题变量。语法资源由宿主按需加载；加载期间展示纯文本。词级高亮用 `code-spans.ts` 把完整代码行的 token 按改动区间切开，保留 token 样式。
-- Markdown 渲染使用同一平台模块的 `MarkdownText`，不额外引入 marked/dompurify。
-- 下拉筛选（总览工具栏的作者 / 时间）使用同一平台模块的 `Menu`，不再用原生 `<select>`：触发器由插件自绘（`gp-select-trigger`，自带 `aria-haspopup`/`aria-expanded`），`portal:true` + `align:'start'`，`onSelect` 必须自己关（Menu 不会自动关）；时间筛选的值→文案是单源 `SINCE_OPTIONS`。e2e 的平台桩（`test/e2e/harness.html`）必须提供 `Menu`/`MenuItemButton`，否则面板在 e2e 里直接崩。
-- 文件预览的「源码 / 渲染」二选一使用同一平台模块的 `SegmentedControl`：`id` + `<id>-<value>` 的 tab 与 `<id>-<value>-panel` 的面板契约由插件按布局自建（宽 / compact 都成立，两个 panel 节点都挂、只让当前模式有内容）；全屏 modal 用 `.gp-modal` 近全屏壳。e2e 平台桩必须同时提供 `SegmentedControl`。
-- 面板子页签切换（总览 / 变更记录 / 文件浏览）使用同一平台模块的 `SegmentedTabs`：轨道、胶囊、滑动 indicator（`transform: translateX(index*100%)` 即动效）与键盘遍历全归平台，插件只传 `items`（每个 item 的 `label` 里放自己的 icon/label 节点）与容器 class `gp-tabbar__tabs`，并自建 `role=tabpanel` 节点让 `aria-controls` 可解析。平台桩同样必须提供 `SegmentedTabs`。
-- 平台模块（`react` / `react-dom` / `@deepseek-ai/*`）一律 external，由宿主提供，不打包。只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行）才自研。
+- 平台模块（`react` / `react-dom` / `@deepseek-ai/*`）一律 external，由宿主提供，不打包。
+- 优先用 `@deepseek-ai/dsh-client-ui-primitives` 的现成组件：代码高亮 `languageForPath` / `useCodeHighlighter`（语法色走宿主 `--shiki-*` 变量）、`MarkdownText`、`Menu`（`onSelect` 需自行关闭）、`SegmentedControl`、`SegmentedTabs`、`FileTypeIcon` 等。不额外引入 marked / dompurify 之类的同类库。
+- 新用到的平台组件必须同步加进 e2e 平台桩 `test/e2e/harness.html`，否则面板在 e2e 中直接崩溃。
+- 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行等）才自研。
 - 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。
 
 ## 构建
 
 `build.mjs` 用 esbuild 出产物 + tsc 出类型声明：
 
-1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`（`emitDeclarationOnly`）。
-2. esbuild 把 `src/host/*.ts` **逐文件**转译成 `lib/host/*.js`（`bundle: false`，输出结构与 `src/host/` 一一对应，读栈追踪直接落在出问题的模块；ESM 裸导入 `@deepseek-ai/*` 不打包，由宿主解析；**绝不压缩**——typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约）。
-3. esbuild 把 `src/client/index.ts` 打成 `lib/client.js`（cjs + banner/footer 包成 `window.__ModuleLoader__.load({id,factory})`；平台模块 external；client 可 minify）。
+1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`。
+2. esbuild 把 `src/host/*.ts` **逐文件**转译成 `lib/host/*.js`（`bundle: false`，与 `src/host/` 一一对应；`@deepseek-ai/*` 不打包）。host **绝不压缩**：typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约。
+3. esbuild 把 `src/client/index.ts` 打成 `lib/client.js`（cjs，包成 `window.__ModuleLoader__.load({id,factory})`，平台模块 external，可 minify）。
 
-`lib/testkit.mjs` / `lib/hookkit.mjs` 分别由 esbuild 从 `src/client/testkit.ts` / `src/client/hookkit.ts` 打出，供算法/controller 单测与真实 React hooks 测试消费；均已 gitignore，`npm run test:unit` 会重建。两个入口的 controller 都来自同一源码；可见性集成测试从 hookkit 同时导入 controller/hooks，避免跨 bundle 单例分离。
-
-命令：
+`lib/testkit.mjs` / `lib/hookkit.mjs` 是测试专用 bundle（已 gitignore，`npm run test:unit` 会重建）。集成测试中的 controller 与 hooks 必须从同一个 bundle（hookkit）导入，否则 `pageVisibility` 单例会分裂。
 
 ```bash
-node build.mjs        # 全量构建 host + client + testkit
-npx tsc --noEmit      # 类型检查
+node build.mjs        # 全量构建 host + client + testkit/hookkit
+npm run typecheck     # 类型检查
 ```
 
-构建只作为显式脚本手动执行，**不挂 `prepare` 等安装期生命周期钩子**：`lib/` 已提交入库即为发布产物，DSH STORE 上架契约会拦截「安装期执行 install lifecycle script」的插件（`plugin-contract.test.mjs` 有回归测试守住这条不变量）。改动 `src/` 后手动 `node build.mjs` 并把 `lib/` 一起提交。
+构建只作为显式脚本手动执行，**不挂 `prepare` 等安装期生命周期钩子**：`lib/` 入库即发布产物，DSH STORE 上架契约会拦截安装期执行脚本的插件（`plugin-contract.test.mjs` 守住）。改动 `src/` 后手动 `node build.mjs` 并把 `lib/` 一起提交。
 
 ## 验证
 
-- host 改动：`tsc --noEmit` 通过 + 端点逻辑单测。
-- client 改动：`node build.mjs` 产出 `lib/client.js` 成功，再用隔离浏览器/隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权；用户要求隔离验证时，测试只连接独立实例。
-- 测试放在 `test/` 下：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点），`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。
-- 提交前跑一次完整 `node build.mjs`，确保 host 与 client 均无错。
-- 一键门禁 `npm run check`（`typecheck` + `test` + `git diff --exit-code -- lib/`）：类型、单测/e2e、以及「`lib/` 与 `src/` 一致（构建产物已提交且新鲜）」三道一起过。
+- host 改动：类型检查通过 + 端点逻辑单测。
+- client 改动：`node build.mjs` 成功后，用隔离浏览器 / 隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权。
+- 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。
+- 一键门禁 `npm run check`：类型检查 + 全部测试 + `git diff --exit-code -- lib/`（构建产物已提交且新鲜）。提交前必须通过。
 
 ## 代码约定
 
 - TypeScript 严格模式，无隐式 any。
-- 相对导入一律写 `./x.js` 后缀（不写 `./x.ts`）：`src/` 是 TypeScript、`lib/` 是 JS，同一份源码要同时产出可运行的 `lib/host/*.js` 和能解析到真实文件的 `lib/host/*.d.ts`，两种产物都与 `src/host/` 同名同构。
-- 数据模型改动从 `host/types.ts` 起，client 侧的 RPC 类型直接从它复用——单一权威源，不存在需要手工同步的第二份定义。
+- 相对导入一律写 `./x.js` 后缀：同一份源码要同时产出可运行的 `lib/host/*.js` 和能解析的 `lib/host/*.d.ts`。
+- 数据模型改动从 `host/types.ts` 起，client 直接复用，不存在第二份需手工同步的定义；常量范围（如 `SUGGEST_LIMITS`）同样单源，UI 与 host 校验从同一处派生。
+- 新增 wire 字段保持向后兼容：旧 client 可忽略新字段，client 对旧 host 缺失字段要降级而非崩溃。
 - 注释精简，只写最终实现意图，不写演进历史。
-- git 命令一律用 argv 数组经 subprocess 执行，禁止拼接 shell 字符串（注入防护 + cwd 锁定）。
-- 面向未提交变更的操作（commit / discard / stage）属破坏性或写操作，UI 需二次确认或明确入口，host 侧校验路径安全（拒绝仓库外路径、`..` 穿越）。
-- 样式用 dsh 主题 CSS 变量（`--dsw-alias-*`），不硬编码颜色，保证深浅色主题一致。
-- 安装身份三处必须一致且等于实际安装的包名 `@xbzbing/dsh-git-panel`：`package.json.name`、`cordis.patch.yml` 的 row `name`、`build.mjs` 产出的 ModuleLoader 注册 `id`。任一不一致，DSH 会以 `patch: name mismatch ... skipping` 跳过该行，或浏览器端注册 id 对不上 graph 行，两者都表现为面板整个消失（`plugin-contract.test.mjs` 有回归测试）。
+- 安装身份三处必须一致且等于包名 `@xbzbing/dsh-git-panel`：`package.json.name`、`cordis.patch.yml` 的 row `name`、`build.mjs` 产出的 ModuleLoader 注册 `id`。任一不一致，面板会整个消失（`plugin-contract.test.mjs` 守住）。
 
 ## 目录与提交
 
-- `docs/local/` 是本地设计稿目录，已在 `.gitignore` 忽略，**不提交**。
-- `lib/` **提交入库**：这样 `dsh plugin add github:xbzbing/dsh-git-panel` 能直接安装已构建的树，无需在安装端跑构建。只有测试期生成的 `lib/testkit.mjs` 忽略（`npm run test:unit` 会重建）。`node_modules/` 不提交。
+- `docs/local/` 是本地设计稿目录，已 gitignore，**不提交**。
+- `lib/` **提交入库**，使 `dsh plugin add github:xbzbing/dsh-git-panel` 无需在安装端构建；仅测试期 bundle（`lib/testkit.mjs` / `lib/hookkit.mjs`）忽略。`node_modules/` 不提交。
 - 只在用户明确要求时创建 commit；优先暂存具体文件而非 `git add .`。
