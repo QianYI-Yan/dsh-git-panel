@@ -2,7 +2,7 @@
  * Changes tab: stats bar + uncommitted change list (checkboxes) + commit box
  * (with Amend) on the left; the selected file's diff on the right.
  */
-import { createElement as h, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { useChangesData } from './changes-hooks.js'
@@ -17,6 +17,7 @@ import { statusChar, statusClass } from './status.js'
 import { useResizableColumn } from './resizable.js'
 import { segButtons } from './seg.js'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals.js'
+import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { pickDiscardTargets } from './discard-targets.js'
@@ -75,21 +76,33 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [suggesting, setSuggesting] = useState(false)
   const [armedSuggest, setArmedSuggest] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  // Snapshot-derived banners are dismissible until their text changes.
+  const dismissedNotices = useDismissedNotices()
   // Compact drill-in: 'list' shows the change list + commit box, 'diff' the
   // selected file's diff. Ignored by the wide layout (both columns at once).
   const [pane, setPane] = useState<'list' | 'diff'>('list')
+  // Compact: the commit editor starts folded into a one-row bar so the change
+  // list keeps the panel's scarce height; tapping the bar opens it in place.
+  const [commitOpen, setCommitOpen] = useState(false)
   // Stash stack (queried on demand), its collapse state, the push dialog, and
   // the drop-confirm target index.
   const [stashClosed, setStashClosed] = useState(true)
   const [stashPushOpen, setStashPushOpen] = useState(false)
   const [stashDrop, setStashDrop] = useState<StashEntry | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
+  const commitBoxRef = useRef<HTMLDivElement | null>(null)
+  // Focus on mount when the compact bar is expanded from a tap: a callback ref
+  // fires inside the click's own commit, so the iOS keyboard still opens.
+  const setMsgEl = useCallback((el: HTMLTextAreaElement | null) => {
+    msgRef.current = el
+    if (el !== null && compact && commitOpen) el.focus()
+  }, [compact, commitOpen])
   // Virtualized change-list viewport, tracked by the shared hook (re-attaches
   // across the compact list↔diff remount).
   const { setEl: setListEl, viewport } = useViewportTracker()
   // Row action hints: the icon-only buttons explain themselves on hover, via the
   // shared fast tooltip (ported to body so the list's overflow cannot clip it).
-  const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'above', maxWidth: 300 })
+  const { tipProps, tipNode, hideTip, showTipNow } = useHoverTip({ placement: 'above', maxWidth: 300 })
 
   const staged = useMemo(() => snapshot.changes.filter((c) => c.staged).sort(byPath), [snapshot])
   const unstaged = useMemo(() => snapshot.changes.filter((c) => !c.staged && c.status !== 'untracked').sort(byPath), [snapshot])
@@ -168,6 +181,37 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Path pruning belongs to the data hook even while hidden; keep compact
   // navigation in sync without gating local selection/draft cleanup.
   useEffect(() => { if (diffPath === null) setPane('list') }, [diffPath])
+  // Drilling into a diff hides the list pane; fold the editor so coming back
+  // to the list does not land on a half-screen editor.
+  useEffect(() => { if (pane === 'diff') setCommitOpen(false) }, [pane])
+  // Compact editor: pressing anywhere outside it folds it back (blank list
+  // space, the toolbar, another row). The draft stays in state, so folding
+  // loses nothing; pointerdown keeps it ahead of the click a row still needs.
+  useEffect(() => {
+    if (!compact || !commitOpen || typeof document === 'undefined') return
+    const onOutside = (e: PointerEvent): void => {
+      // A generation in flight owns the editor: folding it would expose a Commit
+      // for the pre-generation draft while the suggestion is still on its way.
+      if (suggesting) return
+      const box = commitBoxRef.current
+      if (box !== null && e.target instanceof Node && box.contains(e.target)) return
+      // Notice banners (and their close button) sit right above the editor while
+      // AI suggest runs; interacting with them must not fold the editor away.
+      if (e.target instanceof Element && e.target.closest('.gp-notice') !== null) return
+      setCommitOpen(false)
+    }
+    document.addEventListener('pointerdown', onOutside)
+    return () => document.removeEventListener('pointerdown', onOutside)
+  }, [compact, commitOpen, suggesting])
+  // Returning from the editor (fold button or a successful commit) must not drop
+  // focus to <body>; ring the collapsed bar's open control instead.
+  const barOpenRef = useRef<HTMLButtonElement | null>(null)
+  const wasCommitOpen = useRef(false)
+  useEffect(() => {
+    const was = wasCommitOpen.current
+    wasCommitOpen.current = compact && commitOpen
+    if (compact && was && !commitOpen) barOpenRef.current?.focus({ preventScroll: true })
+  }, [compact, commitOpen])
 
   // Disarm a pending discard confirmation when the snapshot changes (the row
   // may be gone) so the destructive "click again" state can't linger.
@@ -217,7 +261,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     // Selection keys carry a :s/:w side suffix; commit works on bare paths.
     const paths = selected.size > 0 ? [...new Set([...selected].map((k) => k.replace(/:[sw]$/, '')))] : undefined
     const ok = await run({ kind: 'commit', message: text, ...(paths ? { paths } : {}), ...(amend ? { amend: true } : {}) })
-    if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false) }
+    if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false); setCommitOpen(false) }
   }
 
   // Stash: push the current changes (optional message), then apply / pop / drop
@@ -314,8 +358,95 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const diffModes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effDiffMode: DiffMode = compact && diffMode === 'split' ? 'unified' : diffMode
 
+  // Commit box. Wide: always the full editor. Compact: folded into one bar
+  // (placeholder or the draft's first line + commit) until tapped, which opens
+  // the editor in place — the change list gets the height back.
+  const draft = message.trim()
+  const draftLine = draft.split('\n')[0] ?? ''
+  // One guard for both layouts: folding the editor must never expose a Commit
+  // that the full editor would have disabled (a suggestion is in flight).
+  const commitDisabled = busy || suggesting || draft === ''
+  const commitEditor = h('div', { key: 'box', className: 'gp-commitbox', ref: commitBoxRef }, [
+    h('div', {
+      key: 'msg',
+      className: `gp-commitbox__msg-wrap${suggesting ? ' gp-commitbox__msg-wrap--busy' : ''}`,
+    }, [
+      h('textarea', {
+        key: 'ta',
+        className: 'gp-commitbox__msg',
+        placeholder: t('commit.placeholder'),
+        value: message,
+        ref: setMsgEl,
+        // Locked while a suggestion is in flight so typing can't race the
+        // incoming message (readOnly, not disabled: focus() lands on success).
+        readOnly: suggesting,
+        'aria-busy': suggesting,
+        onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
+      }),
+      // Spinner inside the field itself: the lock should read as "working",
+      // not as a broken input. Decorative — aria-busy above carries the state.
+      suggesting
+        ? h('span', { key: 'spin', className: 'gp-commitbox__spin', 'aria-hidden': 'true' })
+        : null,
+    ]),
+    h('div', { key: 'row', className: 'gp-commitbox__row' }, [
+      h('label', { key: 'amend', className: 'gp-commitbox__amend' }, [
+        h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, disabled: suggesting, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),
+        t('commit.amend'),
+      ]),
+      h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
+        snapshot.suggestEnabled !== false
+          ? h('button', {
+            key: 'suggest', type: 'button', className: 'gp-btn',
+            disabled: busy || suggesting || snapshot.changes.length === 0,
+            onClick: () => void suggest(),
+            title: t('commit.suggest'),
+          }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
+          : null,
+        h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: commitDisabled, onClick: () => void commit() }, t('commit.commit')),
+        compact
+          ? h('button', {
+            key: 'fold', type: 'button', className: 'gp-icon-btn gp-commitbox__fold',
+            disabled: suggesting,
+            title: t('commit.collapse'),
+            'aria-label': t('commit.collapse'),
+            onClick: () => setCommitOpen(false),
+          }, h(ChevronIcon, { key: 'i', size: 13, open: true }))
+          : null,
+      ]),
+    ]),
+  ])
+  const commitBox = !compact || commitOpen
+    ? commitEditor
+    : h('div', { key: 'box', className: 'gp-commitbar' }, [
+      h('button', {
+        key: 'open', type: 'button', className: 'gp-commitbar__open',
+        ref: barOpenRef,
+        title: t('commit.edit'),
+        'aria-label': t('commit.edit'),
+        // One tap opens the editor and puts the caret in it (no extra step
+        // compared with typing straight into a permanently visible field).
+        onClick: () => setCommitOpen(true),
+      }, draft === ''
+        ? h('span', { key: 'ph', className: 'gp-commitbar__ph' }, t('commit.placeholder'))
+        : h('span', { key: 'draft', className: 'gp-commitbar__draft' }, draftLine)),
+      h('button', {
+        key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary gp-commitbar__commit',
+        disabled: commitDisabled,
+        onClick: () => void commit(),
+      }, t('commit.commit')),
+    ])
+
+  const collapsedNotice = t('changes.untrackedCollapsed')
+  const truncatedNotice = t(
+    snapshot.truncatedReason === 'lossy'
+      ? 'changes.truncatedLossy'
+      : snapshot.truncatedReason === 'cap' ? 'changes.truncatedCap' : 'changes.truncatedUnknown',
+    { n: snapshot.changes.length },
+  )
+
   const leftChildren = [
-    h(ChangeStats, { key: 'stats', stats: snapshot.stats, t }),
+    h(ChangeStats, { key: 'stats', stats: snapshot.stats, compact, t }),
     h(ChangesToolbar, {
       key: 'toolbar', snapshot, busy, hasDiscardTargets: discardTargets.paths.length > 0,
       onStageAll: () => void run({ kind: 'stage-all' }),
@@ -326,20 +457,17 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onRefresh, t,
     }),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
-    notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
+    notice !== null
+      ? h(NoticeBar, { key: 'notice', text: notice, closeLabel: t('common.close'), onClose: () => setNotice(null) })
+      : null,
     // The list can be incomplete in two independent ways; both are surfaced so
     // an entry never disappears from the panel without an explanation. They
     // appear after a poll, so `role="status"` announces them once.
-    snapshot.untrackedCollapsed === true
-      ? h('div', { key: 'collapsed', className: 'gp-notice', role: 'status' }, t('changes.untrackedCollapsed'))
+    snapshot.untrackedCollapsed === true && !dismissedNotices.isDismissed(collapsedNotice)
+      ? h(NoticeBar, { key: 'collapsed', status: true, text: collapsedNotice, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(collapsedNotice) })
       : null,
-    snapshot.truncated
-      ? h('div', { key: 'truncated', className: 'gp-notice', role: 'status' }, t(
-        snapshot.truncatedReason === 'lossy'
-          ? 'changes.truncatedLossy'
-          : snapshot.truncatedReason === 'cap' ? 'changes.truncatedCap' : 'changes.truncatedUnknown',
-        { n: snapshot.changes.length },
-      ))
+    snapshot.truncated && !dismissedNotices.isDismissed(truncatedNotice)
+      ? h(NoticeBar, { key: 'truncated', status: true, text: truncatedNotice, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(truncatedNotice) })
       : null,
     h('div', { key: 'list', className: 'gp-changes__list', ref: setListEl },
       snapshot.changes.length === 0
@@ -385,6 +513,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
               },
               tipProps,
               hideTip,
+              showTipNow,
               t,
             }))
           }))),
@@ -402,48 +531,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         t,
       }))),
     ]) : null,
-    // commit box
-    h('div', { key: 'box', className: 'gp-commitbox' }, [
-      h('div', {
-        key: 'msg',
-        className: `gp-commitbox__msg-wrap${suggesting ? ' gp-commitbox__msg-wrap--busy' : ''}`,
-      }, [
-        h('textarea', {
-          key: 'ta',
-          className: 'gp-commitbox__msg',
-          placeholder: t('commit.placeholder'),
-          value: message,
-          ref: msgRef,
-          // Locked while a suggestion is in flight so typing can't race the
-          // incoming message (readOnly, not disabled: focus() lands on success).
-          readOnly: suggesting,
-          'aria-busy': suggesting,
-          onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
-        }),
-        // Spinner inside the field itself: the lock should read as "working",
-        // not as a broken input. Decorative — aria-busy above carries the state.
-        suggesting
-          ? h('span', { key: 'spin', className: 'gp-commitbox__spin', 'aria-hidden': 'true' })
-          : null,
-      ]),
-      h('div', { key: 'row', className: 'gp-commitbox__row' }, [
-        h('label', { key: 'amend', className: 'gp-commitbox__amend' }, [
-          h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: amend, disabled: suggesting, onChange: () => { setAmend((v) => !v); setAmendPrefilled(false) } }),
-          t('commit.amend'),
-        ]),
-        h('div', { key: 'actions', className: 'gp-commitbox__actions' }, [
-          snapshot.suggestEnabled !== false
-            ? h('button', {
-              key: 'suggest', type: 'button', className: 'gp-btn',
-              disabled: busy || suggesting || snapshot.changes.length === 0,
-              onClick: () => void suggest(),
-              title: t('commit.suggest'),
-            }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
-            : null,
-          h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: busy || suggesting || message.trim() === '', onClick: () => void commit() }, t('commit.commit')),
-        ]),
-      ]),
-    ]),
+    commitBox,
   ]
 
   const diffBlock = diffPath === null
@@ -604,6 +692,8 @@ interface RowActions {
   /** Hover explanation for the icon-only row buttons (see `tip.tsx`). */
   tipProps: (text: string) => Record<string, unknown>
   hideTip: () => void
+  /** Raise a hint at once (no hover wait) — the arming press uses it. */
+  showTipNow: (el: HTMLElement, text: string) => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -633,7 +723,14 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
         style: a.armed ? { color: 'var(--dsw-alias-state-error-primary)' } : {},
         disabled: a.busy,
         ...a.tipProps(a.armed ? a.t('changes.discardTipArmed') : a.t('changes.discardTip')),
-        onClick: (e: Event) => { e.stopPropagation(); a.hideTip(); a.onDiscard() },
+        // The first press only arms, so it raises the confirm wording itself
+        // instead of waiting for another hover; the second press executes.
+        onClick: (e: Event) => {
+          e.stopPropagation()
+          if (a.armed) { a.hideTip(); a.onDiscard(); return }
+          a.onDiscard()
+          a.showTipNow(e.currentTarget as HTMLElement, a.t('changes.discardTipArmed'))
+        },
       }, '\u21ba'),
     ]),
   ])

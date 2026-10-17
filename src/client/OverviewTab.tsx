@@ -5,7 +5,7 @@
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
-import { createElement as h, useCallback, useEffect, useMemo, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { IconChevronDownOutlineRegular, Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -116,6 +116,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const [sinceOpen, setSinceOpen] = useState(false)
   const [searchEl, setSearchEl] = useState<HTMLElement | null>(null)
   const searchNarrow = useNarrow(searchEl, SEARCH_HINT_MIN_W)
+  /** Compact-only: the secondary filters (author / since / refresh) hide behind
+   * one chevron so the first row keeps the branch filter, search and the toggle. */
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreId = useId()
   /** Rows whose open state differs from its default (sections and top-level ref
    * dirs open, deeper dirs closed); `onToggle` flips membership. */
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
@@ -542,49 +546,72 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     h(IconChevronDownOutlineRegular, { key: 'c', className: 'gp-select-trigger__chevron', size: 14 }),
   ])
 
-  const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-    h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, [
-      compact ? h('button', {
+  // The refresh action leaves the compact first row with everything else that
+  // is not needed for the common "pick a branch, search" flow.
+  const moreToggle = compact ? h('button', {
+    key: 'more', type: 'button',
+    className: `gp-btn gp-toolbar__more-toggle${filter.author !== '' || filter.since !== '' ? ' gp-btn--primary' : ''}`,
+    title: t('overview.moreFilters'), 'aria-label': t('overview.moreFilters'),
+    'aria-expanded': moreOpen,
+    // Only name the panel while it exists: a dangling IDREF is an ARIA error.
+    ...(moreOpen ? { 'aria-controls': moreId } : {}),
+    onClick: () => setMoreOpen((v) => !v),
+  }, h('span', {
+    key: 'c', className: `gp-toolbar__chev${moreOpen ? ' gp-toolbar__chev--up' : ''}`,
+  }, h(ChevronIcon, { size: 14, open: true }))) : null
+  const fetchButton = h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), disabled: syncBusy, onClick: () => void runCheckSync() }, h(RefreshIcon, { size: 14 }))
+  const authorMenu = h(Menu, {
+    key: 'author',
+    open: authorOpen,
+    onClose: () => setAuthorOpen(false),
+    items: authorItems,
+    selectedId: filter.author,
+    onSelect: (id: string) => {
+      setAuthorOpen(false)
+      setFilter((prev) => ({ ...prev, author: id }))
+    },
+    align: 'start',
+    portal: true,
+    className: 'gp-filter',
+    anchor: renderFilterTrigger(authorOpen, authorLabel, () => setAuthorOpen((v) => !v)),
+  })
+  const sinceMenu = h(Menu, {
+    key: 'since',
+    open: sinceOpen,
+    onClose: () => setSinceOpen(false),
+    items: sinceItems,
+    selectedId: filter.since,
+    onSelect: (id: string) => {
+      setSinceOpen(false)
+      setFilter((prev) => ({ ...prev, since: id }))
+    },
+    align: 'start',
+    portal: true,
+    className: 'gp-filter',
+    anchor: renderFilterTrigger(sinceOpen, sinceLabel, () => setSinceOpen((v) => !v)),
+  })
+  const searchInputEl = h('input', {
+    key: 'search', className: 'gp-search', placeholder: t(searchNarrow || compact ? 'overview.searchShort' : 'overview.search'), value: searchInput,
+    onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
+  })
+  const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
+  const toolbarChildren: JSX.Element[] = compact
+    ? [
+      h('button', {
         key: 'filter', type: 'button',
         className: `gp-btn${filter.ref !== null ? ' gp-btn--primary' : ''}`,
         title: t('overview.filterBranch'), onClick: () => setSheetOpen(true),
-      }, [h(FilterIcon, { key: 'ic', size: 13 }), filter.ref ?? t('overview.filterBranch')]) : null,
-      h('input', {
-        key: 'search', className: 'gp-search', placeholder: t(searchNarrow || compact ? 'overview.searchShort' : 'overview.search'), value: searchInput,
-        onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
-      }),
-      h(Menu, {
-        key: 'author',
-        open: authorOpen,
-        onClose: () => setAuthorOpen(false),
-        items: authorItems,
-        selectedId: filter.author,
-        onSelect: (id: string) => {
-          setAuthorOpen(false)
-          setFilter((prev) => ({ ...prev, author: id }))
-        },
-        align: 'start',
-        portal: true,
-        className: 'gp-filter',
-        anchor: renderFilterTrigger(authorOpen, authorLabel, () => setAuthorOpen((v) => !v)),
-      }),
-      h(Menu, {
-        key: 'since',
-        open: sinceOpen,
-        onClose: () => setSinceOpen(false),
-        items: sinceItems,
-        selectedId: filter.since,
-        onSelect: (id: string) => {
-          setSinceOpen(false)
-          setFilter((prev) => ({ ...prev, since: id }))
-        },
-        align: 'start',
-        portal: true,
-        className: 'gp-filter',
-        anchor: renderFilterTrigger(sinceOpen, sinceLabel, () => setSinceOpen((v) => !v)),
-      }),
-      h('button', { key: 'fetch', type: 'button', className: 'gp-icon-btn', title: t('overview.fetch'), disabled: syncBusy, onClick: () => void runCheckSync() }, h(RefreshIcon, { size: 14 })),
-    ]),
+      }, [h(FilterIcon, { key: 'ic', size: 13 }), h('span', { key: 'l', className: 'gp-btn__label' }, filter.ref ?? t('overview.filterBranch'))]),
+      searchInputEl,
+      ...(moreToggle === null ? [] : [moreToggle]),
+      ...(moreOpen
+        ? [h('div', { key: 'more', id: moreId, className: 'gp-toolbar__more' }, secondaryFilters)]
+        : []),
+    ]
+    : [searchInputEl, ...secondaryFilters]
+
+  const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
+    h('div', { key: 'tb', className: 'gp-toolbar', ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0
         ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))

@@ -8,10 +8,12 @@ import { absoluteTime, timeAgo } from './time.js'
 interface StatsProps {
   /** Stats ride the snapshot (single git source); no separate query. */
   readonly stats: WorktreeStats
+  /** Phone / narrow panel: the counts on one line, timestamps omitted. */
+  readonly compact?: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export function ChangeStats({ stats, t }: StatsProps): JSX.Element {
+export function ChangeStats({ stats, compact = false, t }: StatsProps): JSX.Element {
   const now = Date.now()
 
   const items: JSX.Element[] = [
@@ -39,7 +41,15 @@ export function ChangeStats({ stats, t }: StatsProps): JSX.Element {
   if (stats.headCommittedAt !== null) {
     times.push(h('span', { key: 'hc', className: 'gp-stats__item', title: absoluteTime(stats.headCommittedAt) }, t('stats.lastCommit', { time: timeAgo(stats.headCommittedAt, now, t) })))
   }
-  if (times.length > 0) items.push(h('span', { key: 'times', className: 'gp-stats__times' }, times))
+  const timesBlock = times.length > 0
+    ? h('span', { key: 'times', className: 'gp-stats__times' }, times)
+    : null
 
-  return h('div', { className: 'gp-stats' }, items)
+  // Wide: everything rides one wrapping bar. Compact: only the counts, on a
+  // single clipped line — the timestamps (and any disclosure control) are
+  // dropped so the bar never costs a second row above the change list.
+  if (!compact) {
+    return h('div', { className: 'gp-stats' }, timesBlock === null ? items : [...items, timesBlock])
+  }
+  return h('div', { className: 'gp-stats gp-stats--compact' }, h('div', { key: 'main', className: 'gp-stats__main' }, items))
 }

@@ -63,11 +63,14 @@ const out = await page.evaluate(async (snap) => {
           if (q.kind === 'diff') return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1,2 @@\n line1\n+line2\n', newLines: 2 } } }
           if (q.kind === 'dir-list') {
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'a.txt', dir: false, size: 12 },
+              { name: 'src', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'README.md', dir: false, size: 24 },
             ] } } }
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [{ name: 'index.ts', dir: false, size: 40 }] } } }
           }
-          if (q.kind === 'file-content') return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\n', lines: 1 } } }
+          if (q.kind === 'file-content') {
+            const md = typeof q.path === 'string' && q.path.endsWith('.md')
+            return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: md ? '# Hello\n\nbody line\n' : 'const x = 1\n', lines: md ? 3 : 1 } } }
+          }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }
           if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
         }
@@ -135,6 +138,45 @@ const out = await page.evaluate(async (snap) => {
   // the filter button reflects the active ref.
   const filterBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => (b.textContent || '').includes('overview.filterBranch'))
   result.ovHasFilterButton = filterBtn != null
+  // Compact history toolbar: branch pill / search / more-toggle share one 30px
+  // height and one row; author + since + refresh hide behind the chevron.
+  const tb = document.querySelector('.gp-history .gp-toolbar')
+  const tbSearch = tb?.querySelector('.gp-search')
+  const tbToggle = tb?.querySelector('.gp-toolbar__more-toggle')
+  const heights = [filterBtn, tbSearch, tbToggle].map((n) => Math.round(n?.getBoundingClientRect().height ?? 0))
+  const centers = [...(tb?.children ?? [])].map((n) => {
+    const b = n.getBoundingClientRect()
+    return Math.round(b.top + b.height / 2)
+  })
+  result.ovToolbarEqualHeights = heights.every((v) => v === 30)
+  const tbToggleRect = tbToggle?.getBoundingClientRect()
+  result.ovMoreToggleSize = tbToggleRect !== undefined
+    && Math.round(tbToggleRect.width) === 30 && Math.round(tbToggleRect.height) === 30
+  result.ovToolbarOneRow = new Set(centers).size === 1
+  result.ovMoreCollapsed = tb?.querySelector('.gp-toolbar__more') === null
+    && tb?.querySelectorAll('.gp-select-trigger').length === 0
+    && tbToggle?.getAttribute('aria-expanded') === 'false'
+  // A collapsed panel must not name an element that does not exist.
+  result.ovMoreAriaControls = tbToggle?.getAttribute('aria-controls') === null
+  tbToggle?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  const moreGroup = tb?.querySelector('.gp-toolbar__more')
+  result.ovMoreExpanded = moreGroup !== null
+    && moreGroup.querySelectorAll('.gp-select-trigger').length === 2
+    && moreGroup.querySelector('button[title="overview.fetch"]') !== null
+    && tbToggle?.getAttribute('aria-expanded') === 'true'
+  result.ovMoreAriaControlsExpanded = tbToggle?.getAttribute('aria-controls') === moreGroup?.id
+  result.ovMoreSecondRow = moreGroup !== null
+    && Math.round(moreGroup.getBoundingClientRect().top) >= Math.round(tbToggle.getBoundingClientRect().bottom)
+  const moreHeights = [...(moreGroup?.querySelectorAll('.gp-select-trigger, button[title="overview.fetch"]') ?? [])]
+    .map((n) => Math.round(n.getBoundingClientRect().height))
+  result.ovMoreHeights = moreHeights.length === 3 && moreHeights.every((v) => v === 30)
+  result.ovfToolbar = rootFits(tb)
+  tbToggle?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.ovMoreRecollapsed = tb?.querySelector('.gp-toolbar__more') === null
+    && tbToggle?.getAttribute('aria-expanded') === 'false'
+    && tbToggle?.getAttribute('aria-controls') === null
   filterBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
   result.sheetOpened = document.querySelector('.gp-sheet') !== null
@@ -179,7 +221,12 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 400))
   result.ovDrilledToDetail = document.querySelector('.gp-overview--compact .gp-detail') !== null && document.querySelector('.gp-overview--compact .gp-commit-row') === null
   result.ovDetailHasBack = [...document.querySelectorAll('.gp-subhead__back')].some((b) => (b.textContent || '').includes('overview.backToList'))
+  result.ovBackBtnHeight = Math.round(document.querySelector('.gp-overview--compact .gp-subhead__back').getBoundingClientRect().height)
   result.ovDetailShowsFiles = document.querySelector('.gp-detail__files') !== null
+  // Commit ops are low-frequency: compact keeps them at the 30px control height
+  // instead of the 36px touch .gp-btn height.
+  result.ovDetailActionBtnHeight = [...document.querySelectorAll('.gp-detail__actions .gp-btn')]
+    .map((b) => Math.round(b.getBoundingClientRect().height))
   result.ovfOverviewDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-detail'))
   document.querySelector('.gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
@@ -227,13 +274,16 @@ const out = await page.evaluate(async (snap) => {
   tabByText('tab.changes')?.click()
   await new Promise((r) => setTimeout(r, 400))
   result.chSingleColumn = document.querySelector('.gp-changes--compact') !== null
-  result.chListShown = document.querySelector('.gp-changes--compact .gp-changes__left') !== null && document.querySelector('.gp-changes--compact .gp-commitbox') !== null
+  result.chListShown = document.querySelector('.gp-changes--compact .gp-changes__left') !== null
+    && document.querySelector('.gp-changes--compact .gp-commitbar, .gp-changes--compact .gp-commitbox') !== null
   result.ovfChangesList = rootFits(panelRoot) && rootFits(document.querySelector('.gp-changes--compact'))
   const chFileRow = document.querySelector('.gp-file-row')
   chFileRow?.click()
   await new Promise((r) => setTimeout(r, 400))
-  result.chDrilledToDiff = document.querySelector('.gp-changes--compact .gp-changes__right') !== null && document.querySelector('.gp-changes--compact .gp-commitbox') === null
+  result.chDrilledToDiff = document.querySelector('.gp-changes--compact .gp-changes__right') !== null
+    && document.querySelector('.gp-changes--compact .gp-commitbar, .gp-changes--compact .gp-commitbox') === null
   result.chDiffHasBack = [...document.querySelectorAll('.gp-diff__toolbar .gp-subhead__back')].some((b) => (b.textContent || '').includes('changes.backToList'))
+  result.chBackBtnHeight = Math.round(document.querySelector('.gp-diff__toolbar .gp-subhead__back').getBoundingClientRect().height)
   // Compact drops the side-by-side mode button from the diff seg.
   result.chNoSplitButton = [...document.querySelectorAll('.gp-diff__toolbar .gp-seg__btn')].every((b) => (b.textContent || '') !== 'diff.split')
   // The fixture's defaultDiffView is 'split', so compact must fall back to
@@ -257,23 +307,126 @@ const out = await page.evaluate(async (snap) => {
     result.chSegOneLine = segBtns.length >= 2 && new Set(tops).size === 1
     const widths = segBtns.map((b) => Math.round(b.getBoundingClientRect().width))
     result.chSegEvenWidth = widths.length >= 2 && Math.max(...widths) - Math.min(...widths) <= 2
+    // The label itself must never wrap ("变更前" broke into 变更 / 前 when the
+    // equal-width buttons were allowed to shrink below their content).
+    result.chSegLabelsOneLine = segBtns.length >= 2
+      && segBtns.every((b) => b.getBoundingClientRect().height <= 28 && getComputedStyle(b).whiteSpace === 'nowrap')
+    // The whole track may wrap below the expand toggle, but never below itself.
+    result.chSegTrackFits = (() => {
+      const seg = ctrlRow.querySelector('.gp-seg')
+      const row = ctrlRow.getBoundingClientRect()
+      const r = seg.getBoundingClientRect()
+      return r.left >= row.left - 1 && r.right <= row.right + 1
+    })()
   }
   result.ovfChangesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-changes--compact'))
   document.querySelector('.gp-diff__toolbar .gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
-  result.chBackToList = document.querySelector('.gp-changes--compact .gp-commitbox') !== null
+  result.chBackToList = document.querySelector('.gp-changes--compact .gp-commitbar, .gp-changes--compact .gp-commitbox') !== null
 
   // Files compact: drill tree → preview → back.
   tabByText('tab.files')?.click()
   await new Promise((r) => setTimeout(r, 400))
   result.flTreeShown = document.querySelector('.gp-files--compact .gp-files__tree') !== null
   result.ovfFilesTree = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
+  // The official folder glyphs carry the expansion state: closed by default,
+  // open while a directory is expanded, closed again after collapsing.
+  const dirRow = () => [...document.querySelectorAll('.gp-files__tree .gp-files__entry--dir')]
+    .find((r) => (r.textContent || '').includes('src'))
+  result.flDirClosedIcon = dirRow()?.querySelector('svg[data-folder="closed"]') != null
+  dirRow()?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.flDirOpenIcon = dirRow()?.querySelector('svg[data-folder="open"]') != null
+  result.flDirChildren = (document.querySelector('.gp-files__tree')?.textContent || '').includes('index.ts')
+  dirRow()?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.flDirReclosedIcon = dirRow()?.querySelector('svg[data-folder="closed"]') != null
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   txtRow?.click()
   await new Promise((r) => setTimeout(r, 400))
   result.flDrilledToPreview = document.querySelector('.gp-files--compact .gp-files__preview') !== null && document.querySelector('.gp-files--compact .gp-files__tree') === null
   result.flPreviewHasBack = [...document.querySelectorAll('.gp-files__bar .gp-subhead__back')].some((b) => (b.textContent || '').includes('files.backToTree'))
+  result.flBackBtnHeight = Math.round(document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().height)
   result.ovfFilesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
+  // The compact toolbar drops the relative path and both copy buttons; a plain
+  // text file has no source/render switch, only fullscreen + properties.
+  result.flNoPath = document.querySelector('.gp-files__bar .gp-files__path') === null
+  result.flNoCopy = document.querySelector('.gp-files__bar .gp-files__copy-path') === null
+  result.flPlainNoMode = document.querySelector('.gp-files__bar [role="tablist"]') === null
+  result.flHasFullscreen = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]') !== null
+  result.flHasProps = document.querySelector('.gp-files__bar [aria-label="files.propsTitle"]') !== null
+  // Trailing icons stay pinned to the toolbar's right edge even when the file
+  // has no source/render switcher to take up the space between.
+  const barEl = document.querySelector('.gp-files__bar--compact')
+  const propsBtn = document.querySelector('.gp-files__bar [aria-label="files.propsTitle"]')
+  const barContentRight = barEl.getBoundingClientRect().right - parseFloat(getComputedStyle(barEl).paddingRight)
+  result.flPropsRightAligned = Math.abs(propsBtn.getBoundingClientRect().right - barContentRight) <= 1
+  result.flIconsOneRow = Math.abs(
+    propsBtn.getBoundingClientRect().top + propsBtn.getBoundingClientRect().height / 2
+    - (document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().top
+      + document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().height / 2),
+  ) <= 2
+  // The two icon buttons match the 30px back button / mode control, not their
+  // inline 24px size.
+  const barEndBtns = [...document.querySelectorAll('.gp-files__bar-end .gp-files__props')]
+  result.flBarEndHeights = barEndBtns.length === 2
+    && barEndBtns.every((b) => Math.round(b.getBoundingClientRect().height) === 30)
+  // Fullscreen renders the same mode in the near-fullscreen modal and closes on Escape.
+  // Focus the trigger first: a programmatic .click() does not focus it, and the
+  // dialog is expected to restore focus to the control that opened it.
+  const fullBtn = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')
+  fullBtn?.focus()
+  fullBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.flFullscreenOpened = document.querySelector('.gp-modal-backdrop .gp-modal') !== null
+  result.flFullscreenCode = document.querySelector('.gp-modal .gp-files__code') !== null
+  result.flFullscreenHasPath = document.querySelector('.gp-modal .gp-modal__path') !== null
+  // The dialog owns focus while open (shared dialog lifecycle).
+  result.flFullscreenFocusIn = document.activeElement instanceof HTMLElement
+    && document.activeElement.closest('.gp-modal') !== null
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 200))
+  result.flFullscreenEscClosed = document.querySelector('.gp-modal-backdrop') === null
+  result.flFullscreenFocusRestored = document.activeElement instanceof HTMLElement
+    && document.activeElement.getAttribute('aria-label') === 'files.fullscreen'
+
+  // Rich file (Markdown): the official source/render SegmentedControl replaces
+  // the two custom buttons and its panels resolve.
+  document.querySelector('.gp-files__bar .gp-subhead__back')?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  const mdRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
+  mdRow?.click()
+  await new Promise((r) => setTimeout(r, 400))
+  const modeList = document.querySelector('.gp-files__bar [role="tablist"]')
+  const modeTabs = [...document.querySelectorAll('.gp-files__bar [role="tab"]')]
+  result.flModeSegShown = modeList !== null && modeList.getAttribute('aria-label') === 'files.previewMode' && modeTabs.length === 2
+  result.flModePanelsResolve = modeTabs.every((tab) => {
+    const panel = document.getElementById(tab.getAttribute('aria-controls') || '')
+    return panel !== null && panel.getAttribute('role') === 'tabpanel' && panel.getAttribute('aria-labelledby') === tab.id
+  })
+  const richBar = document.querySelector('.gp-files__bar--compact')
+  const richProps = document.querySelector('.gp-files__bar [aria-label="files.propsTitle"]')
+  const richContentRight = richBar.getBoundingClientRect().right - parseFloat(getComputedStyle(richBar).paddingRight)
+  result.flModePropsRightAligned = Math.abs(richProps.getBoundingClientRect().right - richContentRight) <= 1
+  result.flRenderDefault = document.querySelector('.gp-files__preview-content [data-markdown-rendered]') !== null
+  const sourceTab = modeTabs.find((tab) => (tab.textContent || '') === 'files.source')
+  sourceTab?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.flSourceMode = document.querySelector('.gp-files__preview-content .gp-files__code') !== null
+    && document.querySelector('.gp-files__preview-content [data-markdown-rendered]') === null
+  document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.flScreenSource = document.querySelector('.gp-modal .gp-files__code') !== null
+    && document.querySelector('.gp-modal [data-markdown-rendered]') === null
+  document.querySelector('.gp-modal-backdrop')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+  document.querySelector('.gp-modal-backdrop')?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.flScreenBackdropClosed = document.querySelector('.gp-modal-backdrop') === null
+  // Back in the panel the render mode comes back with the official switcher.
+  const renderTab = [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((tab) => (tab.textContent || '') === 'files.render')
+  renderTab?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.flRenderModeRestored = document.querySelector('.gp-files__preview-content [data-markdown-rendered]') !== null
   document.querySelector('.gp-files__bar .gp-subhead__back')?.click()
   await new Promise((r) => setTimeout(r, 300))
   result.flBackToTree = document.querySelector('.gp-files--compact .gp-files__tree') !== null
@@ -318,7 +471,9 @@ try {
   assert.equal(out.switchConfirmClosed, true, 'a landed switch closes the confirm')
   assert.equal(out.ovDrilledToDetail, true, 'tapping a commit drills into the detail pane')
   assert.equal(out.ovDetailHasBack, true, 'the detail pane shows a back-to-list button')
+  assert.equal(out.ovBackBtnHeight, 30, 'the detail back button matches the 30px toolbar controls')
   assert.equal(out.ovDetailShowsFiles, true, 'the detail pane lists the commit changed files')
+  assert.deepEqual(out.ovDetailActionBtnHeight, [30, 30, 30], 'compact commit ops keep one 30px height')
   assert.equal(out.ovBackToList, true, 'back returns to the commit list')
   assert.equal(out.statusBarShown, true, 'the overview renders a left-column status bar')
   assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
@@ -338,6 +493,7 @@ try {
   assert.equal(out.ovfChangesList, true, 'the compact changes list fits without horizontal overflow')
   assert.equal(out.chDrilledToDiff, true, 'tapping a change drills into the diff pane')
   assert.equal(out.chDiffHasBack, true, 'the compact diff pane shows a back-to-list button')
+  assert.equal(out.chBackBtnHeight, 30, 'the diff back button matches the 30px toolbar controls')
   assert.equal(out.chNoSplitButton, true, 'the compact diff drops the side-by-side mode')
   assert.equal(out.chUnifiedRender, true, 'the split default falls back to unified rendering')
   assert.equal(out.chNoSideRender, true, 'compact never renders the side-by-side diff layout')
@@ -348,13 +504,53 @@ try {
   assert.equal(out.chBackOnFirstRow, true, 'the back button stays on the first row')
   assert.equal(out.chSegOneLine, true, 'the seg buttons sit side by side on one line')
   assert.equal(out.chSegEvenWidth, true, 'the seg buttons are evenly sized')
+  assert.equal(out.chSegLabelsOneLine, true, 'each mode label stays on one line')
+  assert.equal(out.chSegTrackFits, true, 'the wrapped seg track still fits inside its row')
   assert.equal(out.ovfChangesDrill, true, 'the compact diff pane fits without horizontal overflow')
   assert.equal(out.chBackToList, true, 'back returns to the change list')
+  assert.equal(out.ovToolbarEqualHeights, true, 'branch pill, search and more-toggle share one control height')
+  assert.equal(out.ovMoreToggleSize, true, 'the more-filters toggle is a 30px square')
+  assert.equal(out.ovToolbarOneRow, true, 'the compact history toolbar keeps a single row by default')
+  assert.equal(out.ovMoreCollapsed, true, 'author / since / refresh start collapsed behind the chevron')
+  assert.equal(out.ovMoreAriaControls, true, 'collapsed: the toggle names no missing element')
+  assert.equal(out.ovMoreExpanded, true, 'the chevron reveals the secondary filter group')
+  assert.equal(out.ovMoreAriaControlsExpanded, true, 'expanded: the toggle controls the revealed group')
+  assert.equal(out.ovMoreSecondRow, true, 'the revealed filters take a second row below the toggle')
+  assert.equal(out.ovMoreHeights, true, 'the revealed controls match the first row height')
+  assert.equal(out.ovfToolbar, true, 'the compact toolbar never overflows horizontally')
+  assert.equal(out.ovMoreRecollapsed, true, 'the chevron folds the second row again')
   assert.equal(out.flTreeShown, true, 'files shows the tree full width in compact')
+  assert.equal(out.flDirClosedIcon, true, 'a collapsed directory shows the closed folder glyph')
+  assert.equal(out.flDirOpenIcon, true, 'an expanded directory shows the open folder glyph')
+  assert.equal(out.flDirChildren, true, 'expanding a directory reveals its children')
+  assert.equal(out.flDirReclosedIcon, true, 'collapsing the directory restores the closed glyph')
   assert.equal(out.ovfFilesTree, true, 'the compact file tree fits without horizontal overflow')
   assert.equal(out.flDrilledToPreview, true, 'tapping a file drills into the preview pane')
   assert.equal(out.flPreviewHasBack, true, 'the compact preview shows a back-to-tree button')
+  assert.equal(out.flBackBtnHeight, 30, 'the files back button matches the 30px toolbar controls')
   assert.equal(out.ovfFilesDrill, true, 'the compact preview fits without horizontal overflow')
+  assert.equal(out.flNoPath, true, 'the compact preview toolbar drops the relative path')
+  assert.equal(out.flNoCopy, true, 'the compact preview toolbar drops both copy buttons')
+  assert.equal(out.flPlainNoMode, true, 'a plain text file shows no source/render switch')
+  assert.equal(out.flHasFullscreen, true, 'the compact toolbar carries the fullscreen entry')
+  assert.equal(out.flHasProps, true, 'the compact toolbar keeps the properties entry')
+  assert.equal(out.flPropsRightAligned, true, 'without a mode switcher the properties entry still sits at the right edge')
+  assert.equal(out.flIconsOneRow, true, 'the back button and the trailing icons share one row')
+  assert.equal(out.flBarEndHeights, true, 'fullscreen / properties match the 30px bar height')
+  assert.equal(out.flFullscreenOpened, true, 'fullscreen opens the near-fullscreen modal')
+  assert.equal(out.flFullscreenCode, true, 'the fullscreen modal renders the code view')
+  assert.equal(out.flFullscreenHasPath, true, 'the fullscreen modal shows the file path')
+  assert.equal(out.flFullscreenFocusIn, true, 'opening fullscreen moves focus into the dialog')
+  assert.equal(out.flFullscreenEscClosed, true, 'Escape closes the fullscreen modal')
+  assert.equal(out.flFullscreenFocusRestored, true, 'closing fullscreen restores the toolbar control')
+  assert.equal(out.flModeSegShown, true, 'a rich file shows the official two-choice source/render control')
+  assert.equal(out.flModePanelsResolve, true, 'each mode tab controls its own tabpanel')
+  assert.equal(out.flModePropsRightAligned, true, 'the properties entry stays right-aligned next to the mode switcher')
+  assert.equal(out.flRenderDefault, true, 'the rich file previews rendered by default')
+  assert.equal(out.flSourceMode, true, 'the source tab swaps the rendered body for the code view')
+  assert.equal(out.flScreenSource, true, 'fullscreen honours the selected source mode')
+  assert.equal(out.flScreenBackdropClosed, true, 'a backdrop click closes the fullscreen modal')
+  assert.equal(out.flRenderModeRestored, true, 'the render tab restores the rendered body')
   assert.equal(out.flBackToTree, true, 'back returns to the file tree')
   assert.equal(out.restoredWide, true, 'widening the panel restores the wide layout')
   assert.equal(out.ovfWide, true, 'the widened panel fits without horizontal overflow')

@@ -19,6 +19,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import { DIFF_EXPAND_CONTEXT, type GitQuery } from './types.js'
 import { useImageDiff } from './image-diff-hook.js'
+import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
 
 /** unified = single inline column; split = side-by-side; before/after show one
@@ -86,6 +87,7 @@ interface DiffViewProps {
 }
 
 export const DiffView = memo(function DiffView({ visible = true, text, mode, path, remote, sessionId, base, commit, expanded, truncated, newLines, t }: DiffViewProps): JSX.Element {
+  const dismissedNotices = useDismissedNotices()
   const baseRows = useMemo(() => buildSideBySide(text, newLines), [text, newLines])
   const binary = isBinaryDiff(text)
 
@@ -350,12 +352,20 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   // cover a whole file at 2000 lines of context when nearby edits merge their
   // hunks, and can leave a gap short of 4000 lines when a hunk hugs one file edge.
   const capped = expanded === true && rows.some((r) => r.kind === 'gap')
+  const truncatedText = t('diff.truncated')
+  const cappedText = t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })
+  // Dismissal is scoped to the file: this instance survives file switches (the
+  // changes pane keys it 'diff'), so a text-only key would suppress the banner
+  // for every later truncated file.
+  const noticeKey = (text: string): string => `${path ?? ''}\u0000${text}`
   const wrapped = h('div', { className: 'gp-diff__wrap', ref: containerRef }, [
     findBox,
-    truncated === true
-      ? h('div', { key: 'truncated', className: 'gp-notice' }, t('diff.truncated'))
+    truncated === true && !dismissedNotices.isDismissed(noticeKey(truncatedText))
+      ? h(NoticeBar, { key: 'truncated', text: truncatedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(truncatedText)) })
       : null,
-    capped ? h('div', { key: 'capped', className: 'gp-notice' }, t('diff.expandCapped', { n: DIFF_EXPAND_CONTEXT })) : null,
+    capped && !dismissedNotices.isDismissed(noticeKey(cappedText))
+      ? h(NoticeBar, { key: 'capped', text: cappedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(cappedText)) })
+      : null,
     h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl }, body),
   ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
