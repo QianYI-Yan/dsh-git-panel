@@ -4,14 +4,14 @@
  * modules import from one place without reaching across into host code.
  */
 export type {
-  GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
+  GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitGraphNode, GitRef,
   GitChange, GitChangeStatus, GitAction, GitActionRequest, GitActionResult, GitErrorCode,
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage,
 } from '../host/types.js'
 
-export { imageMimeFor, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
+export { imageMimeFor, isHistoryFiltered, SUGGEST_LIMITS, DIFF_EXPAND_CONTEXT, SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT } from '../host/types.js'
 import type { GitQueryResult } from '../host/types.js'
 
 /**

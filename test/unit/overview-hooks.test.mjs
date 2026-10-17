@@ -16,10 +16,16 @@ function historyRemote(page) {
     query: async (req) => {
       if (req.query.kind !== 'history') return { ok: true, value: { kind: req.query.kind, commits: [], total: 0 } }
       const p = page(req.query)
-      return { ok: true, value: { kind: 'history', commits: p.commits, total: p.total } }
+      // Forward the optional field only when the scripted page sets it, so an
+      // omitted topology models an unfiltered page or an older host.
+      return { ok: true, value: { kind: 'history', commits: p.commits, total: p.total, ...(p.topology !== undefined ? { topology: p.topology } : {}) } }
     },
   }
 }
+
+/** A full object id, so topology fixtures read as real hashes. */
+const H = (c) => c.repeat(40)
+const FILTERED = { ref: null, search: 'x', author: '', since: '' }
 
 test('useHistory loads page 0 on mount and appends on loadMore', async () => {
   const remote = historyRemote((q) => q.skip === 0
@@ -89,6 +95,239 @@ test('useHistory resets selection on a filter change but not on a plain poll ref
   h.rerender()
   await h.settle()
   assert.equal(resets, 1)
+  h.unmount()
+})
+
+test('useHistory publishes rows, topology and applied filter together across delayed and stale responses', async () => {
+  const pending = []
+  const remote = { query: (req) => new Promise((resolve) => pending.push({ query: req.query, resolve })) }
+  const a = { hash: H('a'), parents: [H('b')] }
+  const b = { hash: H('b'), parents: [] }
+  const author = { ...F, author: '疯狂的 dabing' }
+  const props = { filter: author }
+  const publications = []
+  const h = mount(() => {
+    const result = useHistory(remote, 's', props.filter, [0], () => {})
+    publications.push({ commits: result.commits, topology: result.topology, filter: result.appliedFilter })
+    return result
+  }, { autoRender: true })
+  const respond = (request, commits, topology) => request.resolve({ ok: true, value: { kind: 'history', commits, total: 10, ...(topology ? { topology } : {}) } })
+  respond(pending[0], [a], [a, b])
+  await h.settle()
+  const original = h.value
+  props.filter = F
+  h.rerender()
+  await h.settle()
+  assert.equal(h.value.commits, original.commits, 'pending request retains the old rows')
+  assert.equal(h.value.topology, original.topology, 'pending request retains their topology')
+  assert.equal(h.value.appliedFilter, author, 'layout still uses the filter that produced the rows')
+  const start = publications.length
+  respond(pending[1], [a, b])
+  await h.settle()
+  for (const value of publications.slice(start)) {
+    if (value.commits.length === 2) {
+      assert.equal(value.topology, undefined, 'new unfiltered rows never carry stale filtered topology')
+      assert.equal(value.filter, F, 'new layout policy is published with the new rows')
+    }
+  }
+  assert.equal(h.value.appliedFilter, F)
+  props.filter = author
+  h.rerender()
+  const oldRequest = pending.at(-1)
+  const latestFilter = { ...F, author: 'xbzbing' }
+  props.filter = latestFilter
+  h.rerender()
+  const latestRequest = pending.at(-1)
+  respond(latestRequest, [b], [b])
+  await h.settle()
+  respond(oldRequest, [a], [a, b])
+  await h.settle()
+  assert.deepEqual(h.value.commits, [b])
+  assert.equal(h.value.appliedFilter, latestFilter, 'stale response cannot change the applied filter')
+  assert.deepEqual(h.value.topology, [b])
+  h.unmount()
+})
+
+test('useHistory cannot append the pending filter to retained rows after a failed replacement', async () => {
+  const calls = []
+  let fail = false
+  const remote = { query: async (req) => {
+    calls.push(req.query)
+    if (fail) return { ok: false, error: { code: 'git-error', message: 'failed' } }
+    return { ok: true, value: { kind: 'history', commits: [{ hash: H('a'), parents: [] }], total: 10 } }
+  } }
+  const props = { filter: F, key: [0] }
+  const h = mount(() => useHistory(remote, 's', props.filter, props.key, () => {}))
+  await h.settle()
+  fail = true
+  props.filter = { ...F, author: '疯狂的 dabing' }
+  h.rerender()
+  await h.settle()
+  assert.equal(h.value.listError, true)
+  assert.equal(h.value.appliedFilter, F)
+  const count = calls.length
+  h.value.loadMore()
+  await h.settle()
+  assert.equal(calls.length, count, 'failed page 0 blocks appending the new filter at an old offset')
+  fail = false
+  props.key = [1]
+  h.rerender()
+  await h.settle()
+  assert.equal(h.value.appliedFilter, props.filter)
+  h.value.loadMore()
+  await h.settle()
+  assert.equal(calls.at(-1).skip, 1, 'successful page 0 restores pagination')
+  h.unmount()
+})
+
+// ── filtered-graph topology ───────────────────────────────────────────────
+
+test('useHistory accumulates topology across pages of one generation', async () => {
+  const remote = historyRemote((q) => q.skip === 0
+    ? {
+      commits: [{ hash: H('a'), parents: [H('b')] }], total: 2,
+      topology: [{ hash: H('a'), parents: [H('b')] }, { hash: H('b'), parents: [] }],
+    }
+    : { commits: [{ hash: H('c'), parents: [] }], total: 2, topology: [{ hash: H('c'), parents: [] }] })
+  const props = { remote, sid: 's', filter: FILTERED, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  assert.deepEqual(h.value.topology.map((n) => n.hash), [H('a'), H('b')])
+  h.value.loadMore()
+  await h.settle()
+  assert.deepEqual(h.value.topology.map((n) => n.hash).sort(), [H('a'), H('b'), H('c')].sort(), 'later pages merge by hash')
+  h.unmount()
+})
+
+test('useHistory leaves topology undefined when the host omits the field', async () => {
+  // An unfiltered page, and equally an older host: no field, no projection.
+  const remote = historyRemote(() => ({ commits: [{ hash: H('a'), parents: [] }], total: 1 }))
+  const props = { remote, sid: 's', filter: F, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  assert.equal(h.value.topology, undefined)
+  h.unmount()
+})
+
+test('useHistory resets topology when the filter is cleared', async () => {
+  const remote = historyRemote((q) => q.search === 'x'
+    ? { commits: [{ hash: H('a'), parents: [] }], total: 1, topology: [{ hash: H('a'), parents: [] }] }
+    : { commits: [{ hash: H('a'), parents: [] }], total: 1 })
+  const props = { remote, sid: 's', filter: FILTERED, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  assert.equal(h.value.topology?.length, 1)
+  props.filter = F
+  h.rerender()
+  await h.settle()
+  assert.equal(h.value.topology, undefined, 'a fresh unfiltered generation drops the projection')
+  h.unmount()
+})
+
+test('useHistory drops a stale page topology together with its commits', async () => {
+  let release
+  const gate = new Promise((r) => { release = r })
+  let call = 0
+  const remote = {
+    query: async (req) => {
+      if (req.query.kind !== 'history') return { ok: true, value: { kind: req.query.kind } }
+      call += 1
+      if (call === 1) {
+        await gate
+        return { ok: true, value: { kind: 'history', commits: [{ hash: H('s') }], total: 1, topology: [{ hash: H('s'), parents: [] }] } }
+      }
+      return { ok: true, value: { kind: 'history', commits: [{ hash: H('f') }], total: 1, topology: [{ hash: H('f'), parents: [] }] } }
+    },
+  }
+  const props = { remote, sid: 's', filter: F, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  props.filter = { ref: 'feature', search: '', author: '', since: '' }
+  h.rerender()
+  await h.settle()
+  release()
+  await h.settle()
+  assert.deepEqual(h.value.commits.map((c) => c.hash), [H('f')])
+  assert.deepEqual(h.value.topology.map((n) => n.hash), [H('f')], 'stale topology cannot leak into the new generation')
+  h.unmount()
+})
+
+test('useHistory fills visible commits the bounded walk missed or truncated', async () => {
+  // The walk dropped a seed under its budget and reported a shallow boundary
+  // with no parents; the page's own %P still has them.
+  const remote = historyRemote(() => ({
+    commits: [
+      { hash: H('a'), parents: [H('b')] },
+      { hash: H('c'), parents: [H('d')] },
+    ],
+    total: 2,
+    topology: [{ hash: H('a'), parents: [] }],
+  }))
+  const props = { remote, sid: 's', filter: FILTERED, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  const byHash = new Map(h.value.topology.map((n) => [n.hash, n.parents]))
+  assert.deepEqual(byHash.get(H('a')), [H('b')], 'a parentless node is repaired from the visible commit')
+  assert.deepEqual(byHash.get(H('c')), [H('d')], 'a seed missing from the walk is added from the visible commit')
+  h.unmount()
+})
+
+test('useHistory lets a visible commit override the walk for the same hash', async () => {
+  // The walk reported a shallow boundary (no parents) for a commit the page
+  // shows with real parents: the visible %P must win, not merely fill a gap.
+  const remote = historyRemote(() => ({
+    commits: [{ hash: H('a'), parents: [H('b')] }],
+    total: 1,
+    topology: [{ hash: H('a'), parents: [H('x')] }, { hash: H('x'), parents: [] }],
+  }))
+  const props = { remote, sid: 's', filter: FILTERED, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  const byHash = new Map(h.value.topology.map((n) => [n.hash, n.parents]))
+  assert.deepEqual(byHash.get(H('a')), [H('b')], 'the visible commit is authoritative for its own hash')
+  assert.deepEqual(byHash.get(H('x')), [], 'a hidden node with a different hash still rides along')
+  assert.equal(h.value.topology.filter((n) => n.hash === H('a')).length, 1, 'no duplicate node for a visible hash')
+  h.unmount()
+})
+
+test('useHistory caps the hidden topology cache without dropping a visible commit', async () => {
+  const hidden = (i) => `f${i.toString(16).padStart(39, '0')}`
+  const many = Array.from({ length: 20050 }, (_, i) => ({ hash: hidden(i), parents: [] }))
+  const remote = historyRemote(() => ({
+    commits: [{ hash: H('a'), parents: [] }],
+    total: 1,
+    topology: [{ hash: H('a'), parents: [] }, ...many],
+  }))
+  const props = { remote, sid: 's', filter: FILTERED, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  const nodes = h.value.topology
+  assert.equal(nodes.length, 20001, 'visible node + the 20000 hidden budget')
+  assert.equal(nodes.some((n) => n.hash === H('a')), true, 'the visible commit is never dropped')
+  assert.equal(new Set(nodes.map((n) => n.hash)).size, nodes.length, 'no duplicate hashes')
+  assert.equal(nodes.some((n) => n.hash === hidden(20049)), true, 'newest hidden node kept')
+  assert.equal(nodes.some((n) => n.hash === hidden(0)), false, 'oldest hidden node dropped past the cap')
+  h.unmount()
+})
+
+test('useHistory lets a newer hidden record replace an earlier empty one', async () => {
+  // Page 0 can only see a shallow boundary for 'b' (no parents); page 1 has the
+  // real links. A first-wins merge would freeze the empty record and truncate
+  // the path.
+  const remote = historyRemote((q) => q.skip === 0
+    ? {
+      commits: [{ hash: H('a'), parents: [H('b')] }], total: 2,
+      topology: [{ hash: H('a'), parents: [H('b')] }, { hash: H('b'), parents: [] }],
+    }
+    : { commits: [{ hash: H('c'), parents: [] }], total: 2, topology: [{ hash: H('b'), parents: [H('d')] }] })
+  const props = { remote, sid: 's', filter: FILTERED, queryKey: [0] }
+  const h = mount(() => useHistory(props.remote, props.sid, props.filter, props.queryKey, () => {}))
+  await h.settle()
+  assert.deepEqual(new Map(h.value.topology.map((n) => [n.hash, n.parents])).get(H('b')), [], 'page 0 saw a boundary')
+  h.value.loadMore()
+  await h.settle()
+  const byHash = new Map(h.value.topology.map((n) => [n.hash, n.parents]))
+  assert.deepEqual(byHash.get(H('b')), [H('d')], 'the newer page completes the path')
+  assert.equal(h.value.topology.filter((n) => n.hash === H('b')).length, 1, 'still a single node for the hash')
   h.unmount()
 })
 

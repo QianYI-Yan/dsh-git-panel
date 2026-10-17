@@ -31,6 +31,105 @@
         return window.React.createElement('article', { 'data-markdown-rendered': '' },
           window.React.createElement('h1', null, text.replace(/^#\s*/, '').trim()));
       },
+      // Official dsh Menu: a controlled anchored dropdown. The stub keeps the
+      // observable contract the plugin relies on — a role="menu" surface with
+      // role="menuitem" rows, onSelect(id), and onClose on Escape or an outside
+      // pointerdown — so the e2e can drive open/pick/dismiss for real. The
+      // anchor is rendered as-is; the plugin owns its aria-haspopup/aria-expanded.
+      Menu: function (props) {
+        window.React.useEffect(function () {
+          if (!props.open) return undefined;
+          var onKey = function (event) { if (event.key === 'Escape') props.onClose(); };
+          var onDown = function (event) {
+            var target = event.target;
+            var inside = target && target.closest
+              && (target.closest('.dsh-menu-root') || target.closest('.dsh-menu-list'));
+            if (!inside) props.onClose();
+          };
+          document.addEventListener('keydown', onKey);
+          document.addEventListener('pointerdown', onDown);
+          return function () {
+            document.removeEventListener('keydown', onKey);
+            document.removeEventListener('pointerdown', onDown);
+          };
+        }, [props.open, props.onClose]);
+        var items = props.items || [];
+        var list = props.open ? window.React.createElement('div', {
+          className: 'dsh-menu-list', role: 'menu', 'data-menu-surface': '',
+        }, items.map(function (item) {
+          var selected = item.id === props.selectedId;
+          return window.React.createElement('button', {
+            key: item.id, type: 'button', role: 'menuitem',
+            className: selected ? 'dsh-menu-item dsh-menu-item--selected' : 'dsh-menu-item',
+            'aria-checked': selected, disabled: item.disabled === true,
+            onClick: function () { if (props.onSelect) props.onSelect(item.id); },
+          }, item.label);
+        })) : null;
+        // Positional children, not an array: no key warnings from a wrapper.
+        return window.React.createElement('span', { className: 'dsh-menu-root' }, props.anchor, list);
+      },
+      MenuItemButton: function (props) {
+        return window.React.createElement('button', {
+          type: 'button', role: 'menuitem', className: 'dsh-menu-item',
+          disabled: props.disabled === true, onClick: props.onSelect,
+        }, props.children);
+      },
+      IconChevronDownOutlineRegular: function (props) {
+        return window.React.createElement('svg', {
+          'data-chevron': '', 'aria-hidden': 'true', className: props.className,
+          width: props.size || 14, height: props.size || 14,
+        });
+      },
+      // Official dsh SegmentedTabs: a controlled tab list with a sliding
+      // indicator. The stub keeps the observable contract the plugin and the
+      // e2e rely on — role="tablist" + aria-label, one aria-hidden indicator
+      // span whose translateX tracks the active index, one role="tab" button per
+      // item carrying aria-selected/aria-controls/tabIndex, click → onChange,
+      // and the Arrow/Home/End walk — mirroring the shell's own implementation.
+      SegmentedTabs: function (props) {
+        var R = window.React;
+        var items = props.items || [];
+        var index = items.findIndex(function (item) { return item.value === props.value; });
+        var walk = function (event, from) {
+          var next;
+          switch (event.key) {
+            case 'ArrowLeft': next = (from + items.length - 1) % items.length; break;
+            case 'ArrowRight': next = (from + 1) % items.length; break;
+            case 'Home': next = 0; break;
+            case 'End': next = items.length - 1; break;
+            default: return;
+          }
+          event.preventDefault();
+          var list = event.currentTarget.parentElement;
+          var picked = items[next];
+          if (list === null || picked === undefined) return;
+          var buttons = list.querySelectorAll('[role="tab"]');
+          if (buttons[next]) buttons[next].focus();
+          props.onChange(picked.value);
+        };
+        return R.createElement('div', {
+          role: 'tablist', 'aria-label': props.label, className: props.className,
+          style: { gridTemplateColumns: 'repeat(' + items.length + ', minmax(0, 1fr))' },
+        },
+          R.createElement('span', {
+            key: 'indicator', 'aria-hidden': 'true', className: 'dsh-segmented-indicator',
+            style: {
+              width: 'calc((100% - 8px) / ' + items.length + ')',
+              transform: 'translateX(' + (index * 100) + '%)',
+            },
+          }),
+          items.map(function (item, i) {
+            var selected = props.value === item.value;
+            return R.createElement('button', {
+              key: item.value, id: item.id, type: 'button', role: 'tab',
+              className: 'dsh-segmented-tab',
+              'aria-selected': selected, 'aria-controls': item.panelId,
+              tabIndex: selected ? 0 : -1,
+              onClick: function () { props.onChange(item.value); },
+              onKeyDown: function (event) { walk(event, i); },
+            }, item.label);
+          }));
+      },
       // Mirrors the platform's writeClipboard: the async Clipboard API when the
       // context has it, else the execCommand fallback a remote plain-HTTP
       // origin needs (there navigator.clipboard is undefined).

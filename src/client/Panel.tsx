@@ -3,8 +3,9 @@
  * slot. Snapshot state chooses the initial tab unless the input-bar pill
  * supplied a one-shot focus request.
  */
-import { createElement as h, useEffect, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { SegmentedTabs, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import { gitPanelRemoteOf, hasSession, type ClientCtx, type GitPanelRemote } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
 import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump.js'
@@ -130,56 +131,90 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   ]
   // A non-git directory exposes only the Files tab.
   const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
+  // The switcher is the platform SegmentedTabs primitive: it owns the tablist
+  // role, the sliding indicator and the keyboard walk; we own the panes and
+  // wire them up with instance-scoped ids (a panel can be mounted per session).
+  const tabsId = useId()
+  const tabItems: Array<SegmentedTab> = tabs.map((tb) => ({
+    value: tb.key,
+    label: [
+      h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon),
+      h('span', { key: 'l', className: 'gp-tab__label' }, tb.label),
+    ],
+    id: `${tabsId}-${tb.key}`,
+    panelId: `${tabsId}-${tb.key}-panel`,
+  }))
+  // SegmentedTabs requires the value to belong to items; before a snapshot lands
+  // (cold/loading/no-cwd) there is no active pane, so show the first tab.
+  const selectedTab: SubTab = activeTab ?? tabs[0]?.key ?? 'overview'
 
-  const body = ((): JSX.Element => {
-    if (!hasSession(sessionId)) return h('div', { className: 'gp-empty' }, t('error.noCwd'))
-    if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
+  // Every tab in `tabs` always gets its own role=tabpanel node — in the ready
+  // view and in the loading / no-cwd / error / files-only states alike — so a
+  // tab's aria-controls never dangles. While the body is a placeholder it lives
+  // in the selected pane; pane *content* still mounts on first visit.
+  const placeholder: JSX.Element | null = ((): JSX.Element | null => {
+    if (!hasSession(sessionId) || view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
+    if (filesOnly) return null
+    if (view.state === 'error') return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
+    if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
+    return null
+  })()
+
+  const paneContent = (key: SubTab): JSX.Element | null => {
+    // The state placeholder (loading / no-cwd / error, including no-session)
+    // lives in the selected pane; the guard below only narrows sessionId for the
+    // tab components.
+    if (placeholder !== null) return key === selectedTab ? placeholder : null
+    if (!hasSession(sessionId)) return null
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot: null, t }) : null
-      // git-not-installed inside a repo: stack a notice above the browser.
-      if (gitMissingInRepo) {
-        return h('div', { className: 'gp-files-wrap' }, [
-          h('div', { key: 'notice', className: 'gp-notice' }, t('files.gitNotInstalled')),
-          files,
-        ])
-      }
-      return h('div', { style: { display: 'contents' } }, files)
+      return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot: null, t }) : null
     }
-    if (view.state === 'error') {
-      return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
-    }
-    if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
-    // Mount each git-only tab on first visit, then hide it to retain its state.
-    // Keying on sessionId resets per-session caches and selection on a switch.
+    if (view.state !== 'ready') return null
     const snapshot = view.snapshot
-    return h('div', { style: { display: 'contents' } }, [
-      visited.current.tabs.has('overview') ? h('div', { key: 'overview', style: activeTab === 'overview' ? { display: 'contents' } : { display: 'none' } },
-        h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })) : null,
-      visited.current.tabs.has('changes') ? h('div', { key: 'changes', style: activeTab === 'changes' ? { display: 'contents' } : { display: 'none' } },
-        h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, compact, t })) : null,
-      // Files tab mounts on first visit (keeps cold cost zero — no dir-list
-      // until the user opens it), then stays mounted to retain its tree state.
-      filesVisited
-        ? h('div', { key: 'files', style: activeTab === 'files' ? { display: 'contents' } : { display: 'none' } },
-          h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot, t }))
-        : null,
-    ])
-  })()
+    if (key === 'overview') {
+      return visited.current.tabs.has('overview')
+        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })
+        : null
+    }
+    if (key === 'changes') {
+      return visited.current.tabs.has('changes')
+        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, compact, t })
+        : null
+    }
+    // Files tab mounts on first visit (keeps cold cost zero — no dir-list
+    // until the user opens it), then stays mounted to retain its tree state.
+    return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot, t }) : null
+  }
+
+  const panes = tabs.map((tb) => h('div', {
+    key: tb.key, id: `${tabsId}-${tb.key}-panel`, role: 'tabpanel', 'aria-labelledby': `${tabsId}-${tb.key}`,
+    style: selectedTab === tb.key ? { display: 'contents' } : { display: 'none' },
+  }, paneContent(tb.key)))
+
+  // git-not-installed inside a repo: stack a notice above the browser.
+  const body = gitMissingInRepo
+    ? h('div', { className: 'gp-files-wrap' }, [h('div', { key: 'notice', className: 'gp-notice' }, t('files.gitNotInstalled')), ...panes])
+    : h('div', { style: { display: 'contents' } }, panes)
 
   // `data-conversation-composer-overlay` opts the view into the shell's
   // full-height layout: the view area is fixed to the visible height with its
   // own overflow, and the composer/input bar floats over the bottom. Without
   // it the view grows with content and the whole conversation scrolls.
   return h('div', { className: 'gp-panel', ref: setRootEl, 'data-conversation-composer-overlay': '', 'data-font-delta': fontDelta, 'data-layout': compact ? 'compact' : 'wide' }, [
-    h('div', { key: 'tabs', className: 'gp-tabbar', role: 'tablist' }, [
-      ...tabs.map((tb) =>
-        h('button', {
-          key: tb.key, type: 'button', role: 'tab',
-          'aria-selected': activeTab === tb.key,
-          className: `gp-tab${activeTab === tb.key ? ' gp-tab--active' : ''}`,
-          onClick: () => { if (hasSession(sessionId)) setSelection({ sessionId, tab: tb.key }) },
-        }, [h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon), h('span', { key: 'l', className: 'gp-tab__label' }, tb.label)])),
+    h('div', { key: 'tabs', className: 'gp-tabbar' }, [
+      h(SegmentedTabs, {
+        key: 'switcher',
+        className: 'gp-tabbar__tabs',
+        label: t('panel.tabs'),
+        items: tabItems,
+        value: selectedTab,
+        // The primitive hands back a plain string; accept only one of our tabs.
+        onChange: (next: string) => {
+          const picked = tabs.find((tb) => tb.key === next)
+          if (picked !== undefined && hasSession(sessionId)) setSelection({ sessionId, tab: picked.key })
+        },
+      }),
       // Trailing cluster (font stepper + version bar). `display:contents` in the
       // wide layout keeps it transparent to the tab-bar flex (identical to the
       // flat layout); in compact it becomes a wrapped second row.

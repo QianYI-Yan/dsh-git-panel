@@ -3,9 +3,19 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 
 interface IconProps { readonly size?: number }
+export type SyncDirection = 'ahead' | 'behind'
 
-function svg(path: JSX.Element | JSX.Element[], size = 15): JSX.Element {
-  return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round' }, path)
+/** Shared glyphs: the tag outline and the star, reused by the branch-row icons. */
+const TAG_PATH = 'M2 7V3h4l8 8-4 4z'
+const STAR_PATH = 'M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.78l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57z'
+
+/** `hidden` marks a purely decorative glyph: its label lives on the wrapper. */
+function svg(path: JSX.Element | JSX.Element[], size = 15, hidden = false): JSX.Element {
+  return h('svg', {
+    width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+    ...(hidden ? { 'aria-hidden': true } : {}),
+  }, path)
 }
 
 export function CommitIcon({ size }: IconProps): JSX.Element {
@@ -20,8 +30,12 @@ export function BranchIcon({ size }: IconProps): JSX.Element {
   return svg([h('circle', { key: 'a', cx: 4, cy: 3, r: 1.6 }), h('circle', { key: 'b', cx: 4, cy: 13, r: 1.6 }), h('circle', { key: 'c', cx: 12, cy: 5, r: 1.6 }), h('path', { key: 'd', d: 'M4 4.6v6.8' }), h('path', { key: 'e', d: 'M12 6.6c0 3-4 2.4-8 4' })], size)
 }
 
+function tagGlyph(size: number | undefined, hidden = false): JSX.Element {
+  return svg([h('path', { key: 'a', d: TAG_PATH }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size, hidden)
+}
+
 export function TagIcon({ size }: IconProps): JSX.Element {
-  return svg([h('path', { key: 'a', d: 'M2 7V3h4l8 8-4 4z' }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size)
+  return tagGlyph(size)
 }
 
 export function ChevronIcon({ size, open }: IconProps & { open?: boolean }): JSX.Element {
@@ -56,6 +70,11 @@ export function SparkleIcon({ size }: IconProps): JSX.Element {
 
 export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
+}
+
+/** Folder glyph marking a ref directory row (a group of refs, not a file). */
+export function FolderIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M2 12.5V3.5h4l1.5 2H14v7z' })], size)
 }
 
 /** Archive box glyph for the stash action. */
@@ -114,10 +133,41 @@ export function InfoIcon({ size }: IconProps): JSX.Element {
 
 /** Five-point star glyph. `filled` paints it solid (the "starred" state). */
 export function StarIcon({ size = 15, filled }: IconProps & { filled?: boolean }): JSX.Element {
-  const d = 'M8 1.8l1.76 3.57 3.94.57-2.85 2.78.67 3.92L8 10.78l-3.52 1.85.67-3.92L2.3 5.94l3.94-.57z'
   return h('svg', {
     width: size, height: size, viewBox: '0 0 16 16',
     fill: filled ? 'currentColor' : 'none', stroke: 'currentColor',
     strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
-  }, h('path', { d }))
+  }, h('path', { d: STAR_PATH }))
+}
+
+/** Tag outline for the checked-out branch row (the tag glyph, named for the row). */
+export function BranchCurrentIcon({ size }: IconProps): JSX.Element {
+  return tagGlyph(size, true)
+}
+
+/** Filled star for the repository's primary branch row. */
+export function BranchPrimaryIcon({ size = 15 }: IconProps): JSX.Element {
+  return h('svg', {
+    width: size, height: size, viewBox: '0 0 16 16',
+    fill: 'currentColor', stroke: 'currentColor',
+    strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+    'aria-hidden': true,
+  }, h('path', { d: STAR_PATH }))
+}
+
+/**
+ * Diagonal sync arrow: `ahead` points up-right, `behind` down-left. The row's
+ * wrapper carries the label and the track colour, so the glyph itself only
+ * exposes the direction (for styling and tests).
+ */
+export function BranchSyncIcon({ size, direction }: IconProps & { readonly direction: SyncDirection }): JSX.Element {
+  const s = size ?? 15
+  const shaft = direction === 'ahead' ? 'M4.5 11.5L11.5 4.5' : 'M11.5 4.5L4.5 11.5'
+  const head = direction === 'ahead' ? 'M6.5 4.5h5v5' : 'M9.5 11.5h-5v-5'
+  return h('svg', {
+    className: 'gp-branch-row__sync-icon', 'data-direction': direction,
+    width: s, height: s, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+    'aria-hidden': true,
+  }, [h('path', { key: 'a', d: shaft }), h('path', { key: 'b', d: head })])
 }

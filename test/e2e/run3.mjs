@@ -119,7 +119,7 @@ const out = await page.evaluate(async (snap) => {
   const rootFits = (el) => el != null && el.scrollWidth <= el.clientWidth
 
   // Dirty workspace defaults to Changes; go to the Overview tab first.
-  const tabByText = (txt) => [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes(txt))
+  const tabByText = (txt) => [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes(txt))
   tabByText('tab.overview')?.click()
   await new Promise((r) => setTimeout(r, 400))
 
@@ -156,7 +156,9 @@ const out = await page.evaluate(async (snap) => {
   result.ovNoToolbarSwitch = ![...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => b.getAttribute('title') === 'switch.entry')
   filterBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
-  const sheetRow = (name) => [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent || '') === name) || null
+  // Match by the full ref name in `title` — a ref nested in a directory row
+  // only shows its last path segment.
+  const sheetRow = (name) => [...document.querySelectorAll('.gp-sheet .gp-branch-row')].find((r) => (r.getAttribute('title') || '') === name) || null
   result.sheetCurrentNoSwitch = sheetRow('main') !== null && sheetRow('main').querySelector('.gp-branch-row__switch') === null
   const sheetSwitch = sheetRow('feature')?.querySelector('.gp-branch-row__switch') ?? null
   result.sheetHasSwitch = sheetSwitch !== null

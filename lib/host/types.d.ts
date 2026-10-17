@@ -122,9 +122,15 @@ export interface GitCommit {
     readonly author: string;
     readonly dateIso: string;
 }
-/** A commit with parent links and ref decorations (graph rendering). */
-export interface GraphCommit extends GitCommit {
+/** One node of the commit graph's raw ancestry: a full hash and its raw parent
+ * hashes. `parents` is empty for a true root — and equally for a shallow
+ * boundary, which git cannot tell apart from a root. */
+export interface GitGraphNode {
+    readonly hash: string;
     readonly parents: readonly string[];
+}
+/** A commit with parent links and ref decorations (graph rendering). */
+export interface GraphCommit extends GitCommit, GitGraphNode {
     readonly refs: readonly GitRef[];
 }
 export interface GitRef {
@@ -229,6 +235,16 @@ export interface GitActionRequest {
     readonly sessionId: string;
     readonly action: GitAction;
 }
+/**
+ * True when a history `search` is a commit-hash prefix jump rather than a
+ * message regex: 7–40 hex chars after trimming.
+ */
+export declare function isHistoryHashSearch(search: string): boolean;
+/** Whether Git's effective content filters hide commits; hash jumps ignore them.
+ * Shared with clients receiving history from a host that omits topology. */
+export declare function isHistoryFiltered(query: Pick<Extract<GitQuery, {
+    kind: 'history';
+}>, 'search' | 'author' | 'since'>): boolean;
 export type GitQuery = {
     readonly kind: 'history';
     readonly limit: number;
@@ -360,6 +376,11 @@ export type GitQueryResult = {
     readonly kind: 'history';
     readonly commits: readonly GraphCommit[];
     readonly total: number;
+    /** Raw ancestry for a filtered page: the page's commits plus the ancestors
+     * an effective search/author/since filter hid from the page itself. Absent
+     * when no effective filter is active (or on a hash jump); `[]` means the
+     * bounded auxiliary walk failed, so the graph is incomplete. */
+    readonly topology?: readonly GitGraphNode[];
 }
 /**
  * Unified diff text plus the new-side line count. The count is the fact the

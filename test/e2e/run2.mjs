@@ -32,6 +32,7 @@ const errors = []
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
 await page.goto(harness)
 await page.addScriptTag({ path: resolve(DIR, 'client.js') })
+await page.addScriptTag({ path: resolve(DIR, 'panel-aria-helper.mjs') })
 
 const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const result = {}
@@ -68,11 +69,11 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const cleanPanelRoot = ReactDOM.createRoot(cleanPanel)
   cleanPanelRoot.render(registered['conversation.view'].component({ sessionId: 'clean-default' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.cleanDefault = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
+  result.cleanDefault = cleanPanel.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.overview') ?? false
   result.cleanAvoidsFileListing = cleanFileListings === 0
   cleanPanelRoot.render(registered['conversation.view'].component({ sessionId: 'clean-second' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-tab--active')?.textContent?.includes('tab.overview') ?? false
+  result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.overview') ?? false
 
   // Fake tab bar → the pill click should click a role=tab button labeled panel.tab.
   // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here,
@@ -113,8 +114,8 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   const view2 = registered['conversation.view']
   ReactDOM.createRoot(document.getElementById('panel')).render(view2.component({ sessionId: 's2' }))
   await new Promise((r) => setTimeout(r, 300))
-  result.notGitFilesOnly = document.querySelectorAll('#panel .gp-tab').length === 1
-    && document.querySelector('#panel .gp-tab--active')?.textContent?.includes('tab.files')
+  result.notGitFilesOnly = document.querySelectorAll('#panel .gp-panel [role="tab"]').length === 1
+    && document.querySelector('#panel .gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.files')
   result.notGitFileListed = document.querySelector('#panel .gp-files__tree')?.textContent?.includes('note.md')
 
   // Case 3: showInputPill=false → the input-bar marker is hidden and the Git
@@ -149,6 +150,12 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   await new Promise((r) => setTimeout(r, 300))
   result.expandsWhenWide = host.querySelector('.gp-pill')?.classList.contains('gp-pill--compact') === false
 
+  // Case 5: every visible sub-tab owns a resolvable, correctly-labelled
+  // role=tabpanel in every view state (ready / loading / no-cwd / error /
+  // files-only / no-session) — never a dangling aria-controls. Runs last: it
+  // applies its own contexts and leaves its scenario roots mounted.
+  result.panelAria = await window.runPanelAriaScenarios({ snap, nonGitDir })
+
   return result
 }, { snap: cleanSnap(), nonGitDir: NON_GIT_DIR })
 
@@ -173,6 +180,31 @@ try {
   assert.equal(out.compactKeepsStatus, true, 'the collapsed marker keeps its git status class')
   assert.equal(out.compactDotShown, true, 'the status dot is visible when collapsed')
   assert.equal(out.expandsWhenWide, true, 'widening the workspace expands the marker again')
+  // Sub-tab ARIA: a tab's aria-controls must resolve to its own labelled
+  // tabpanel in every view state, with exactly one selected/shown pane.
+  const aria = out.panelAria
+  const soundPanel = (state) => state.everyTabResolves && state.everyPaneLabelledByOwnTab
+    && state.exactlyOneSelected && state.selectionMatchesShownPane
+  for (const state of ['ready', 'loading', 'noCwd', 'error', 'filesOnly', 'gitUnavailable', 'noSession']) {
+    assert.equal(soundPanel(aria[state]), true, state + ': every tab resolves to its own labelled tabpanel')
+  }
+  assert.equal(aria.ready.tabCount, 3, 'a git repo shows three tabs')
+  assert.deepEqual(aria.ready.contentByLabel, { 'tab.overview': true, 'tab.changes': false, 'tab.files': false },
+    'only the visited tab pane carries content (lazy mount preserved)')
+  assert.equal(aria.ready.statePlaceholderText, null, 'a ready panel renders the tab, not a state placeholder')
+  assert.equal(aria.loading.tabCount, 3, 'loading still shows three tabs')
+  assert.equal(aria.loading.statePlaceholderText, 'common.loading', 'loading shows the loading placeholder in its pane')
+  assert.equal(aria.noCwd.statePlaceholderText, 'error.noCwd', 'no-cwd shows the no-cwd placeholder in its pane')
+  assert.equal(aria.error.statePlaceholderText, 'pill.unavailable', 'a generic error shows the unavailable placeholder in its pane')
+  assert.equal(aria.filesOnly.tabCount, 1, 'a non-git directory exposes the Files tab alone')
+  assert.equal(aria.filesOnly.contentByLabel['tab.files'], true, 'files-only mounts the file browser')
+  assert.equal(aria.filesOnly.statePlaceholderText, null, 'files-only renders the browser, not a state placeholder')
+  assert.equal(aria.filesOnly.noticeText, null, 'a plain non-git directory shows no install notice')
+  assert.equal(aria.gitUnavailable.tabCount, 1, 'git-unavailable also exposes the Files tab alone')
+  assert.equal(aria.gitUnavailable.contentByLabel['tab.files'], true, 'git-unavailable still mounts the file browser')
+  assert.equal(aria.gitUnavailable.noticeText, 'files.gitNotInstalled', 'git-unavailable inside a repo stacks the install notice')
+  assert.equal(aria.noSession.tabCount, 3, 'no session still renders the tab list')
+  assert.equal(aria.noSession.statePlaceholderText, 'error.noCwd', 'no session shows the no-cwd placeholder in its pane')
   assert.equal(errors.length, 0, 'no page errors: ' + JSON.stringify(errors))
   console.log('e2e run2.mjs: PASS', JSON.stringify(out))
 } catch (e) {

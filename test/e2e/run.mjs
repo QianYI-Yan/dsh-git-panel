@@ -8,6 +8,7 @@
  */
 import { chromium } from 'playwright-core'
 import { assertPanelResults } from './assert-panel-results.mjs'
+import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
@@ -52,6 +53,16 @@ await page.addScriptTag({ path: resolve(DIR, 'confirmation-state-helper.mjs') })
 const out = await page.evaluate(async (snap) => {
   const result = { steps: [] }
   const { fixture, connection } = window.createGitPanelMock(snap)
+  // Record the full history query objects (fixture.queries keeps kinds only) so
+  // the filter-menu assertions can see the author/since params that actually
+  // reach the RPC. Patched before apply() so the client's captured caller wraps it.
+  const historyQueries = []
+  const mockCall = connection.rpc.call
+  connection.rpc.call = async (channel, endpoint, payload) => {
+    const q = payload && payload.args && payload.args.request && payload.args.request.query
+    if (endpoint === 'gitPanel/query' && q && q.kind === 'history') historyQueries.push(q)
+    return mockCall(channel, endpoint, payload)
+  }
   const entry = window.__getLoaded()
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
@@ -87,9 +98,60 @@ const out = await page.evaluate(async (snap) => {
   function CountedPanel(props) { fixture.renders.panel++; return panelElement.type(props) }
   viewRoot.render(window.React.createElement(CountedPanel, panelElement.props))
   await new Promise((r) => setTimeout(r, 500))
-  result.tabCount = document.querySelectorAll('.gp-tab').length
-  result.dirtyDefault = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
+  result.tabCount = document.querySelectorAll('.gp-panel [role="tab"]').length
+  result.dirtyDefault = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.changes') ?? false
   result.noInitialFileListing = fixture.fileQueries.length === 0
+
+  // The sub-tab switcher is the platform SegmentedTabs primitive: a role=tablist
+  // owning one role=tab button per pane (aria-selected/aria-controls/tabIndex)
+  // plus one aria-hidden sliding indicator whose translateX tracks the active
+  // index. Asserted on observable DOM only; the click test restores the
+  // dirty-default (Changes) selection it started from.
+  result.segmentedTabs = await (async () => {
+    const list = document.querySelector('.gp-panel [role="tablist"]')
+    const tabs = [...document.querySelectorAll('.gp-panel [role="tab"]')]
+    // The indicator is the tablist's own direct aria-hidden span.
+    const indicator = list?.querySelector(':scope > span[aria-hidden="true"]') ?? null
+    const selectedIndex = () => tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true')
+    const selectedText = () => tabs[selectedIndex()]?.textContent ?? null
+    const paneOf = (tab) => tab === undefined ? null : document.getElementById(tab.getAttribute('aria-controls') || '')
+    const paneShown = (key) => {
+      const tab = tabs.find((t) => (t.textContent || '').includes(key))
+      return paneOf(tab)?.style.display === 'contents'
+    }
+    const out = {
+      hasTablist: list !== null,
+      ariaLabel: list?.getAttribute('aria-label') ?? null,
+      tabCount: tabs.length,
+      everyTabHasAria: tabs.length === 3 && tabs.every((t) => t.hasAttribute('aria-selected') && (t.getAttribute('aria-controls') || '') !== ''),
+      // Each aria-controls must resolve to that tab's own role=tabpanel node.
+      controlsResolve: tabs.every((t) => paneOf(t)?.getAttribute('role') === 'tabpanel'),
+      uniqueIds: new Set(tabs.map((t) => t.id)).size === tabs.length,
+      onlySelectedIsTabStop: tabs.every((t) => (t.getAttribute('tabindex') === '0') === (t.getAttribute('aria-selected') === 'true')),
+      indicatorHidden: indicator?.getAttribute('aria-hidden') === 'true',
+      indicatorTransformAtChanges: indicator?.style.transform ?? null,
+      activeAtChanges: selectedText(),
+      changesPaneShown: paneShown('tab.changes'),
+      overviewPaneHidden: !paneShown('tab.overview'),
+      // The hand-rolled tab markup is gone.
+      legacyTabButtons: document.querySelectorAll('.gp-panel .gp-tab').length,
+    }
+    const clickTab = async (key) => {
+      tabs.find((t) => (t.textContent || '').includes(key))?.click()
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    await clickTab('tab.overview')
+    out.activeAfterOverview = selectedText()
+    out.indicatorTransformAtOverview = indicator?.style.transform ?? null
+    out.overviewPaneShown = paneShown('tab.overview')
+    out.changesPaneHidden = !paneShown('tab.changes')
+    await clickTab('tab.changes')
+    out.activeAfterChanges = selectedText()
+    out.indicatorTransformAtChangesAgain = indicator?.style.transform ?? null
+    out.changesPaneShownAgain = paneShown('tab.changes')
+    return out
+  })()
+
   const panelRoot = document.querySelector('.gp-panel')
   result.fontDefault = getComputedStyle(panelRoot).fontSize
   document.querySelector('.gp-font__increase')?.click()
@@ -124,7 +186,7 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 120))
   result.restoresLayout = panelRoot.getAttribute('data-layout')
   result.restoresLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
-  const changesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))
+  const changesTab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.changes'))
   if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
@@ -256,7 +318,7 @@ const out = await page.evaluate(async (snap) => {
   if (svgRenderBtn) { svgRenderBtn.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.svgRenderRestored = document.querySelector('.gp-svgdiff .gp-imgcmp') !== null
 
-  const tabs = [...document.querySelectorAll('.gp-tab')]
+  const tabs = [...document.querySelectorAll('.gp-panel [role="tab"]')]
   const overviewTab = tabs.find((t) => (t.textContent || '').includes('tab.overview'))
   if (overviewTab) { overviewTab.click(); await new Promise((r) => setTimeout(r, 500)) }
   result.hasBranchList = document.querySelector('.gp-branch-group') !== null
@@ -313,17 +375,114 @@ const out = await page.evaluate(async (snap) => {
 
   // ── branch switch (wide): row switch button → confirm → run payload ──
   const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-  const leftRow = (name) => [...document.querySelectorAll('.gp-col--left .gp-branch-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent || '') === name) || null
+
+  // ── filter dropdowns: the official Menu primitive, not a native <select> ──
+  // Opening shows a role="menu" surface; picking an author reaches the next
+  // history query (the params, not just the kind) and closes the menu; Escape
+  // and an outside pointerdown close without applying anything; the trigger
+  // label reflects the current value. Asserted on observable DOM + RPC only.
+  result.filterMenu = await (async () => {
+    const toolbar = document.querySelector('.gp-history .gp-toolbar')
+    const triggers = [...(toolbar?.querySelectorAll('.gp-select-trigger') || [])]
+    const menu = () => document.querySelector('[role="menu"]')
+    const itemWith = (text) => [...(menu()?.querySelectorAll('[role="menuitem"]') || [])]
+      .find((b) => (b.textContent || '') === text) || null
+    const out = {
+      nativeSelects: document.querySelectorAll('.gp-history .gp-toolbar select').length,
+      triggerCount: triggers.length,
+      fetchStillDirect: toolbar?.querySelector(':scope > button[title="overview.fetch"]') != null,
+    }
+    const [authorTrigger, sinceTrigger] = triggers
+    if (authorTrigger === undefined || sinceTrigger === undefined) return out
+    out.initialAuthor = authorTrigger.textContent || ''
+    out.initialSince = sinceTrigger.textContent || ''
+
+    authorTrigger.click(); await wait(150)
+    out.openShowsMenu = menu() !== null
+    out.openAriaExpanded = authorTrigger.getAttribute('aria-expanded')
+    out.itemsListed = [...(menu()?.querySelectorAll('[role="menuitem"]') || [])].map((b) => b.textContent)
+
+    const queriesBefore = historyQueries.length
+    itemWith('Tester')?.click(); await wait(300)
+    out.pickClosesMenu = menu() === null
+    out.pickAriaExpanded = authorTrigger.getAttribute('aria-expanded')
+    out.authorLabelAfterPick = authorTrigger.textContent || ''
+    out.historyCarriedAuthor = historyQueries.slice(queriesBefore).some((q) => q.author === 'Tester')
+    // Filtering retains nodes and only draws parent connections with evidence.
+    result.graphShownOnAuthorFilter = document.querySelector('.gp-history .gp-graph-svg') !== null
+
+    const sinceBefore = historyQueries.length
+    sinceTrigger.click(); await wait(150)
+    out.sinceMenuOpened = menu() !== null
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wait(200)
+    out.escapeClosesMenu = menu() === null
+    out.escapeKeepsFilter = (sinceTrigger.textContent || '') === out.initialSince
+    out.escapeAppliedNothing = !historyQueries.slice(sinceBefore).some((q) => q.since !== undefined)
+
+    sinceTrigger.click(); await wait(150)
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await wait(200)
+    out.outsideClickClosesMenu = menu() === null
+    out.outsideClickKeepsFilter = (sinceTrigger.textContent || '') === out.initialSince
+    return out
+  })()
+
+  // Rows are matched by the full ref name in `title`: a ref nested in a
+  // directory row shows only its last path segment, while the directory row
+  // carries the directory path.
+  const leftRow = (name) => [...document.querySelectorAll('.gp-col--left .gp-branch-row')].find((r) => (r.getAttribute('title') || '') === name) || null
   const switchBtnOf = (name) => leftRow(name)?.querySelector('.gp-branch-row__switch') ?? null
   result.switchNoFixedEntry = document.querySelector('.gp-switch-row') === null
+  // The repo's primary branch leads the local list (host order otherwise).
+  const localGroup = [...document.querySelectorAll('.gp-col--left .gp-branch-group')].find((g) => (g.textContent || '').includes('overview.local'))
+  result.branchPrimaryFirst = localGroup?.querySelector('.gp-branch-row')?.getAttribute('title') === 'main'
   // The remote section starts collapsed; expand it so its rows are listed.
   ;[...document.querySelectorAll('.gp-col--left .gp-branch-group__head')].find((el) => (el.textContent || '').includes('overview.remote'))?.click()
   await wait(60)
+  // Remote refs sharing the `origin/` prefix fold into one collapsible dir row
+  // that carries a folder glyph instead of a branch icon; deeper dirs start
+  // closed so a remote with many `origin/feat/*` refs does not unfold at once.
+  const originDir = leftRow('origin')
+  result.branchDirRow = originDir?.classList.contains('gp-branch-row--dir') === true
+  result.branchDirLabel = originDir?.querySelector('.gp-tree-name')?.textContent ?? null
+  result.branchDirHasFolder = originDir?.querySelector('.gp-branch-row__ic--folder') !== null
+  result.branchLeafHasNoFolder = leftRow('origin/main')?.querySelector('.gp-branch-row__ic--folder') === null
+  result.branchDirHasNoCount = document.querySelectorAll('.gp-branch-dir__count').length === 0
+  result.branchDirExpandedDefault = originDir?.getAttribute('aria-expanded') === 'true'
+  // A dir row is a child of its section head, so its chevron must sit to the
+  // right of the section chevron — never flush with it.
+  const leftOf = (el) => el?.getBoundingClientRect().left ?? -1
+  const remoteHead = [...document.querySelectorAll('.gp-col--left .gp-branch-group__head')].find((el) => (el.textContent || '').includes('overview.remote'))
+  result.branchDirIndentedFromSection = leftOf(originDir?.querySelector('.gp-branch-row__chev svg')) > leftOf(remoteHead?.querySelector('svg'))
+  // Labels are compared by their laid-out x so the indent is real, not just padding.
+  const labelX = (name) => leftRow(name)?.querySelector('.gp-tree-name')?.getBoundingClientRect().left ?? -1
+  result.branchLeafIndented = labelX('origin/main') > labelX('origin')
+  const nestedDir = leftRow('origin/feat')
+  result.branchNestedDirCollapsed = nestedDir?.getAttribute('aria-expanded') === 'false' && leftRow('origin/feat/branch-tree') === null
+  nestedDir?.click()
+  await wait(60)
+  result.branchNestedDirExpands = leftRow('origin/feat/branch-tree') !== null && leftRow('origin/feat')?.getAttribute('aria-expanded') === 'true'
+  result.branchNestedLeafIndented = labelX('origin/feat/branch-tree') > labelX('origin/feat')
+  leftRow('origin/feat')?.click()
+  await wait(60)
+  result.branchNestedDirRecollapses = leftRow('origin/feat/branch-tree') === null
+  // The row's left corners are square (flush against the panel edge, so the
+  // highlight and its inset accent bar reach it) while the right end is rounded.
+  const rowStyle = getComputedStyle(leftRow('origin/main'))
+  result.branchRowLeftSquare = rowStyle.borderTopLeftRadius === '0px' && rowStyle.borderBottomLeftRadius === '0px'
+  result.branchRowRightRounded = rowStyle.borderTopRightRadius === '6px' && rowStyle.borderBottomRightRadius === '6px'
+  originDir?.click()
+  await wait(60)
+  result.branchDirCollapsedHidesChild = leftRow('origin/main') === null && leftRow('origin')?.getAttribute('aria-expanded') === 'false'
+  leftRow('origin')?.click()
+  await wait(60)
+  result.branchDirReexpanded = leftRow('origin/main') !== null
   // Only rows with a real target carry the button: not the checked-out branch,
-  // not the remote ref resolving to it, never tags.
+  // not the remote ref resolving to it, never tags, never a directory row.
   result.switchBtnRows = [...document.querySelectorAll('.gp-col--left .gp-branch-row')]
     .filter((r) => r.querySelector('.gp-branch-row__switch') !== null)
-    .map((r) => r.querySelector('.gp-tree-name')?.textContent)
+    .map((r) => r.getAttribute('title'))
   // Hidden until hover (no pointer in the headless run), revealed by a hover rule.
   result.switchBtnHidden = switchBtnOf('feature') !== null && getComputedStyle(switchBtnOf('feature')).display === 'none'
   result.switchBtnHoverRule = [...document.styleSheets].some((sheet) => {
@@ -501,11 +660,11 @@ const out = await page.evaluate(async (snap) => {
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
   document.querySelector('#pill .gp-pill')?.click()
   await new Promise((r) => setTimeout(r, 100))
-  result.livePillJump = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.changes') ?? false
+  result.livePillJump = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.changes') ?? false
 
   // Files tab: open it, the root tree lists entries; expand a dir; select a
   // text file → code preview; select an image → inline image pane.
-  const filesTab = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.files'))
+  const filesTab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.files'))
   if (filesTab) { filesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesTreeRows = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
   const cacheRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('cache'))
@@ -916,7 +1075,7 @@ const out = await page.evaluate(async (snap) => {
   // a view-tab switch unmounts the panel; returning within the window must
   // restore the Files tab, the expanded dir, and the selection (not reset to
   // the root). Simulate the switch by unmounting and remounting the view root.
-  result.preUnmountFilesActive = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
+  result.preUnmountFilesActive = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.files') ?? false
   result.preUnmountSelected = document.querySelector('.gp-files__tree .gp-tree-row--active')?.textContent?.trim() ?? null
   result.preUnmountChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
   viewRoot.unmount()
@@ -924,7 +1083,7 @@ const out = await page.evaluate(async (snap) => {
   const viewRoot2 = ReactDOM.createRoot(document.getElementById('panel'))
   viewRoot2.render(window.React.createElement(CountedPanel, panelElement.props))
   await new Promise((r) => setTimeout(r, 500))
-  result.restoredFilesActive = document.querySelector('.gp-tab--active')?.textContent?.includes('tab.files') ?? false
+  result.restoredFilesActive = document.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.files') ?? false
   result.restoredChildVisible = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('a.txt'))
   result.restoredSelected = document.querySelector('.gp-files__tree .gp-tree-row--active')?.textContent?.trim() ?? null
   result.restoredPreviewShown = document.querySelector('.gp-files__code, .gp-files__markdown, .gp-files__image') !== null
@@ -932,8 +1091,8 @@ const out = await page.evaluate(async (snap) => {
   // Work-tree generation: a branch switch replaces every file under the root, so
   // the Files tab must drop its preserved state and re-list the root instead of
   // serving the previous branch's tree from its sticky cache.
-  const filesTabBtn = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.files'))
-  const overviewTabBtn = [...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.overview'))
+  const filesTabBtn = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.files'))
+  const overviewTabBtn = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.overview'))
   overviewTabBtn?.click()
   await wait(400)
   const rootListsBefore = fixture.fileQueries.filter((p) => p === '').length
@@ -966,7 +1125,7 @@ const out = await page.evaluate(async (snap) => {
   } finally { fixture.secondaryQueryFailure = null }
 
   // Reopening the same row must reload without waiting for another snapshot.
-  ;[...document.querySelectorAll('.gp-tab')].find((t) => (t.textContent || '').includes('tab.changes'))?.click()
+  ;[...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.changes'))?.click()
   await wait(100)
   const repeatDiffRow = [...document.querySelectorAll('.gp-file-row')].find((row) => (row.textContent || '').includes('a.txt'))
   fixture.repeatedDiffRevision = 0
@@ -993,7 +1152,7 @@ const out = await page.evaluate(async (snap) => {
   let fakeHidden = false
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => fakeHidden })
   const setHidden = (hidden) => { fakeHidden = hidden; document.dispatchEvent(new Event('visibilitychange')) }
-  const pickTab = (key) => [...document.querySelectorAll('.gp-tab')].find((button) => (button.textContent || '').includes(key))?.click()
+  const pickTab = (key) => [...document.querySelectorAll('.gp-panel [role="tab"]')].find((button) => (button.textContent || '').includes(key))?.click()
   try {
     pickTab('tab.changes'); await wait(100)
     fixture.deferBinaryDiff = true
@@ -1093,6 +1252,52 @@ await browser.close()
 
 try {
   assertPanelResults(out, realInput, errors)
+  // The two Overview filters are the official Menu, not native <select>: opening
+  // shows the surface, picking applies + closes, Escape/outside dismiss without
+  // applying. Kept in this runner (rather than assert-panel-results.mjs) so the
+  // change stays inside this task's declared write scope.
+  assert.deepEqual(out.filterMenu, {
+    nativeSelects: 0,
+    triggerCount: 2,
+    fetchStillDirect: true,
+    initialAuthor: 'overview.allUsers',
+    initialSince: 'overview.allTime',
+    openShowsMenu: true,
+    openAriaExpanded: 'true',
+    itemsListed: ['overview.allUsers', 'Tester'],
+    pickClosesMenu: true,
+    pickAriaExpanded: 'false',
+    authorLabelAfterPick: 'Tester',
+    historyCarriedAuthor: true,
+    sinceMenuOpened: true,
+    escapeClosesMenu: true,
+    escapeKeepsFilter: true,
+    escapeAppliedNothing: true,
+    outsideClickClosesMenu: true,
+    outsideClickKeepsFilter: true,
+  }, 'the author/since filters are the official Menu (open / pick / Escape / outside click)')
+  assert.deepEqual(out.segmentedTabs, {
+    hasTablist: true,
+    ariaLabel: 'panel.tabs',
+    tabCount: 3,
+    everyTabHasAria: true,
+    controlsResolve: true,
+    uniqueIds: true,
+    onlySelectedIsTabStop: true,
+    indicatorHidden: true,
+    indicatorTransformAtChanges: 'translateX(100%)',
+    activeAtChanges: 'tab.changes',
+    changesPaneShown: true,
+    overviewPaneHidden: true,
+    legacyTabButtons: 0,
+    activeAfterOverview: 'tab.overview',
+    indicatorTransformAtOverview: 'translateX(0%)',
+    overviewPaneShown: true,
+    changesPaneHidden: true,
+    activeAfterChanges: 'tab.changes',
+    indicatorTransformAtChangesAgain: 'translateX(100%)',
+    changesPaneShownAgain: true,
+  }, 'the sub-tab switcher is the official SegmentedTabs (tablist + sliding indicator + pane switch)')
   console.log('e2e run.mjs: PASS', JSON.stringify(out))
 } catch (e) {
   console.error('e2e run.mjs: FAIL', e.message)
