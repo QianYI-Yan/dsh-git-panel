@@ -2217,7 +2217,11 @@ test('pull-preview reports the incoming fast-forward scope (commits/files/+-line
   const a = join(base, 'a')
   const b = join(base, 'b')
   try {
-    execFileSync('git', ['init', '-q', '--bare', origin])
+    // `--initial-branch` pins origin's HEAD: a bare repo created without it
+    // points HEAD at the machine's default branch name, and `git push` never
+    // repoints an unborn HEAD, so B's clone below would land on a branch with
+    // no upstream wherever that default is not `main` (CI runners: master).
+    execFileSync('git', ['init', '-q', '--bare', '--initial-branch=main', origin])
     // Clone A, seed one commit, push main as the upstream.
     execFileSync('git', ['clone', '-q', origin, a])
     await runGit(a, ['config', 'user.email', 't@t.co'])
