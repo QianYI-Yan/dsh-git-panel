@@ -1285,6 +1285,29 @@ test('a bare repository whose objects/ is a symlink to a directory is still refu
   }
 })
 
+test('a dangling objects symlink (shared store gone) is still refused as a repository', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-baredangle-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
+    const { symlinkSync, existsSync, rmSync: rm } = await import('node:fs')
+    // A shared-object layout whose target is not there right now (unmounted
+    // volume, moved directory). refs/ and HEAD are still real data, so the
+    // entry must count as a repository rather than be deleted as a stale dir.
+    rm(join(dir, 'bare.git', 'objects'), { recursive: true, force: true })
+    symlinkSync(join(dir, 'nowhere-objects'), join(dir, 'bare.git', 'objects'))
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
+    assert.equal(res.ok, false, 'a bare repository with a dangling objects/ symlink is refused')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'bare.git', 'HEAD')), true, 'its HEAD/refs were not deleted')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a repository appearing after the batch pre-flight is caught by the per-path re-check', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-race-'))
   try {

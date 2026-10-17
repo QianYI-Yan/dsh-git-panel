@@ -23,7 +23,7 @@ async function fixture({ root = '/fixture', statusExitCode = 0, statusLossy = fa
       else assert.fail(`unexpected command: ${argv.join(' ')}`)
       return { stdout, exitCode, stdoutLossy, stderr: '', timedOut: false, cancelled: false }
     } },
-    fs: { realpath: async (path) => path, stat: async () => ({ mtimeMs: 1234, size: 10 }) },
+    fs: { realpath: async (path) => path, stat: async () => ({ mtimeMs: 1234, size: 10, isDirectory: () => false }) },
     sessions: { liveCwd: () => root, persistedMeta: async () => undefined },
   }
   const result = await snapshotForSession(deps, { ...DEFAULT_CONFIG, ...config }, 's')

@@ -365,17 +365,26 @@ async function looksLikeRepository(deps: SnapshotDeps, target: string): Promise<
     await deps.fs.stat(join(target, '.git'))
     return true
   } catch { /* not a nested repo / submodule — check the bare layout below */ }
-  // Type the three bare markers with `stat` (which follows symlinks): a plain
-  // folder holding three similarly named *files* is not a repository and must
-  // not be refused as one, while an `objects/` that is a directory *or* a
-  // symlink to one still counts — refusing is the safe direction here.
+  // Type the two markers that must really be there first, with `stat` (which
+  // follows symlinks): an `objects/` that is a directory *or* a symlink to one
+  // counts, while a plain folder holding three similarly named *files* is not a
+  // repository and must not be refused as one.
+  let refsIsDirectory: boolean
   try {
     const head = await deps.fs.stat(join(target, 'HEAD'))
-    const objects = await deps.fs.stat(join(target, 'objects'))
-    const refs = await deps.fs.stat(join(target, 'refs'))
-    return !head.isDirectory() && objects.isDirectory() && refs.isDirectory()
+    if (head.isDirectory()) return false
+    refsIsDirectory = (await deps.fs.stat(join(target, 'refs'))).isDirectory()
   } catch {
     return false
+  }
+  if (!refsIsDirectory) return false
+  try {
+    return (await deps.fs.stat(join(target, 'objects'))).isDirectory()
+  } catch {
+    // `objects` is there but unreadable: a shared-object layout whose target is
+    // gone (unmounted volume, moved directory). The refs and HEAD beside it are
+    // still real data, so this stays a repository for refusal purposes.
+    return (await deps.fs.symlinkTarget(join(target, 'objects'))) !== null
   }
 }
 
