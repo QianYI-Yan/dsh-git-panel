@@ -9,6 +9,7 @@ import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
 import { useHoverTip } from './tip.js'
+import { canPush as canPushSnapshot } from './push-policy.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -109,7 +110,7 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   // Push is offered only when strictly ahead (ahead>0, behind=0): the push can
   // only fast-forward the remote. A diverged branch (both ahead and behind) is
   // deliberately not offered — the user must reconcile first.
-  const canPush = hasUpstream && ahead > 0 && behind === 0
+  const canPush = canPushSnapshot(snapshot)
   // A branch with no upstream yet can be published (push -u) when a remote
   // exists to publish to.
   const canPublish = !hasUpstream && branch !== null && remote !== null

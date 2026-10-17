@@ -22,6 +22,8 @@ import { useViewportTracker } from './use-viewport.js'
 import { pickDiscardTargets } from './discard-targets.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
+import { ChangesToolbar } from './ChangesToolbar.js'
+import { PushModal } from './PushModal.js'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -29,6 +31,7 @@ interface ChangesTabProps {
   readonly visible?: boolean
   readonly snapshot: GitSnapshot
   readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
+  readonly onRefresh: () => Promise<void>
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -51,12 +54,15 @@ type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean } }
   | { readonly kind: 'row'; readonly c: GitChange }
 
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, compact, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
   const [amend, setAmend] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [actionBusy, setBusy] = useState(false)
+  const [pushOpen, setPushOpen] = useState(false)
+  const [pushBusy, setPushBusy] = useState(false)
+  const busy = actionBusy || pushBusy
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
@@ -310,16 +316,15 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
 
   const leftChildren = [
     h(ChangeStats, { key: 'stats', stats: snapshot.stats, t }),
-    h('div', { key: 'toolbar', className: 'gp-toolbar' }, [
-      h('button', { key: 'sa', type: 'button', className: 'gp-btn', disabled: busy || snapshot.changes.length === 0, onClick: () => void run({ kind: 'stage-all' }) }, t('changes.stageAll')),
-      h('button', { key: 'ua', type: 'button', className: 'gp-btn', disabled: busy || snapshot.staged === 0, onClick: () => void run({ kind: 'unstage-all' }) }, t('changes.unstageAll')),
-      h('button', {
-        key: 'dp', type: 'button', className: 'gp-btn gp-changes__discard-picked',
-        disabled: busy || discardTargets.paths.length === 0,
-        onClick: () => { setError(null); setDiscardPickedOpen(true) },
-      }, t('changes.discardPicked')),
-      h('button', { key: 'stash', type: 'button', className: 'gp-btn', disabled: busy || (snapshot.staged === 0 && snapshot.modified === 0), title: t('changes.stash'), onClick: () => { setError(null); setStashPushOpen(true) } }, [h(StashIcon, { key: 'ic', size: 13 }), t('changes.stash')]),
-    ]),
+    h(ChangesToolbar, {
+      key: 'toolbar', snapshot, busy, hasDiscardTargets: discardTargets.paths.length > 0,
+      onStageAll: () => void run({ kind: 'stage-all' }),
+      onUnstageAll: () => void run({ kind: 'unstage-all' }),
+      onDiscard: () => { setError(null); setDiscardPickedOpen(true) },
+      onStash: () => { setError(null); setStashPushOpen(true) },
+      onPush: () => { hideTip(); setPushOpen(true) },
+      onRefresh, t,
+    }),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
     // The list can be incomplete in two independent ways; both are surfaced so
@@ -482,6 +487,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Write-op dialogs (stash push / stash drop / batch discard), portaled;
   // rendered by both layouts.
   const modals: (JSX.Element | null)[] = [
+    pushOpen ? h(PushModal, { key: 'remote-push', remote, sessionId, snapshot, onAction, onClose: () => setPushOpen(false), onBusyChange: setPushBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
     stashDrop !== null ? renderConfirmModal({
       title: t('stash.dropTitle'),

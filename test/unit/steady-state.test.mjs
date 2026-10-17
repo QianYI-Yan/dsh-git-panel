@@ -116,6 +116,25 @@ test('controller does not start a queued trailing refresh when the in-flight req
   assert.equal(h.timers, 1)
 })
 
+test('manual refresh waits for the trailing sample when a poll is already in flight', async (t) => {
+  const poll = deferred(), trailing = deferred()
+  const h = setup(t, false, (n) => n === 1 ? poll.promise : trailing.promise)
+  h.controller.ensure()
+  let completed = false
+  const manual = h.controller.refresh().then(() => { completed = true })
+  assert.equal(h.calls, 1, 'manual request shares the active poll')
+  poll.resolve(ok())
+  await drain()
+  assert.equal(h.calls, 2, 'one catch-up sample starts after the old poll')
+  assert.equal(completed, false, 'manual refresh is still busy during catch-up')
+  const fresh = { ...snapshot, checkedAt: 2 }
+  trailing.resolve(ok(fresh))
+  await manual
+  assert.equal(completed, true)
+  assert.equal(h.controller.getSnapshot().snapshot, fresh)
+  assert.equal(h.calls, 2)
+})
+
 test('controller coalesces restore during an old in-flight request into one trailing catch-up', async (t) => {
   const gate = deferred()
   const h = setup(t, false, (n) => n === 1 ? gate.promise : Promise.resolve(ok()))

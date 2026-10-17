@@ -29,7 +29,9 @@ import { opErrorText, renderConfirmModal } from './ops-modals.js'
 import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
-import { pullScopeNode, pushScopeNode, renderStatusBar } from './overview-statusbar.js'
+import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
+import { PushModal } from './PushModal.js'
+import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
 
@@ -145,8 +147,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Incoming fast-forward scope shown in the pull confirm: null = not loaded,
   // 'loading' while the query runs, else the diffstat preview.
   const [pullPreview, setPullPreview] = useState<'loading' | { commits: number; files: number; insertions: number; deletions: number } | null>(null)
-  // Outgoing scope shown in the push confirm (same shape as the pull preview).
-  const [pushPreview, setPushPreview] = useState<'loading' | { commits: number; files: number; insertions: number; deletions: number } | null>(null)
   // Compact drill-in: 'list' shows the history, 'detail' the selected commit.
   // Ignored by the wide layout, which renders both columns at once.
   const [pane, setPane] = useState<'list' | 'detail'>('list')
@@ -184,20 +184,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     })
     return () => { alive = false }
   }, [pullConfirm, remote, sessionId])
-
-  // The push confirm mirrors the pull one, previewing the outgoing scope
-  // (@{upstream}..HEAD). Publish has no upstream baseline, so it shows no scope.
-  useEffect(() => {
-    if (!pushConfirm) { setPushPreview(null); return }
-    let alive = true
-    setPushPreview('loading')
-    void remote.query({ sessionId, query: { kind: 'push-preview' } }).then((res) => {
-      if (!alive) return
-      const pv = queryAs(res, 'push-preview')
-      setPushPreview(pv !== null && pv.hasUpstream ? { commits: pv.commits, files: pv.files, insertions: pv.insertions, deletions: pv.deletions } : null)
-    })
-    return () => { alive = false }
-  }, [pushConfirm, remote, sessionId])
 
   const { tree, treeError, authors, reload: reloadTree } = useBranchTree(remote, sessionId, overviewQueryKey, queryVisible)
   // Switch targets keyed like the branch rows (`local:<name>` / `remote:<ref>`);
@@ -397,16 +383,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPullBusy(false) }
   }
-  const runPush = async (): Promise<void> => {
-    if (pushBusy) return
-    setOpError(null)
-    setPushBusy(true)
-    try {
-      const res = await onAction({ kind: 'push' })
-      if (res.ok) setPushConfirm(false)
-      else setOpError(res.error ?? t('error.generic'))
-    } finally { setPushBusy(false) }
-  }
   const runPublish = async (): Promise<void> => {
     if (publishBusy || snapshot.remote === null) return
     setOpError(null)
@@ -422,7 +398,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     syncBusy, syncError, pullBusy, pushBusy, publishBusy,
     onCheck: () => void runCheckSync(),
     onPull: () => { setOpError(null); setPullConfirm(true) },
-    onPush: () => { setOpError(null); setPushConfirm(true) },
+    onPush: () => { if (canPush(snapshot) && !pushBusy) setPushConfirm(true) },
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
   }
@@ -503,17 +479,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onClose: () => setPullConfirm(false),
       t,
     }) : null,
-    pushConfirm ? renderConfirmModal({
-      title: t('status.pushConfirmTitle'),
-      body: t('status.pushConfirmBody', { branch: snapshot.branch ?? 'HEAD', ahead: snapshot.ahead }),
-      extra: pushScopeNode(pushPreview, t),
-      confirmLabel: t('status.pushConfirm'),
-      danger: false,
-      error: opError,
-      confirmBusy: pushBusy,
-      busyLabel: t('status.pushing'),
-      onConfirm: () => void runPush(),
+    pushConfirm ? h(PushModal, {
+      key: 'push',
+      remote,
+      sessionId,
+      snapshot,
+      onAction,
       onClose: () => setPushConfirm(false),
+      onBusyChange: setPushBusy,
       t,
     }) : null,
     publishConfirm ? renderConfirmModal({

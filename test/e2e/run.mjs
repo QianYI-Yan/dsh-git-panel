@@ -207,7 +207,7 @@ const out = await page.evaluate(async (snap) => {
     untracked: 1200,
     stats: { ...fixture.snapshot.stats, fileCount: 1204, modified: 4, untracked: 1200 },
   }
-  const stageAllBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')][0]
+  const stageAllBtn = document.querySelector('.gp-changes__stage-all')
   stageAllBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
   result.truncatedReloadAction = fixture.actions[fixture.actions.length - 1]?.kind
@@ -231,7 +231,7 @@ const out = await page.evaluate(async (snap) => {
   result.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
   // Stash: the toolbar carries a stash button; the stash list (mock → one entry)
   // expands to a row, and the drop confirm shows the shared AI hint.
-  result.hasStashBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')].some((b) => (b.textContent || '').includes('changes.stash'))
+  result.hasStashBtn = document.querySelector('.gp-changes__stash')?.getAttribute('aria-label') === 'changes.stash'
   const stashHead = document.querySelector('.gp-stash .gp-group-head')
   if (stashHead) { stashHead.click(); await new Promise((r) => setTimeout(r, 150)) }
   result.stashRows = document.querySelectorAll('.gp-stash-row').length
@@ -244,7 +244,7 @@ const out = await page.evaluate(async (snap) => {
   result.stashDropEscClosed = document.querySelector('.gp-modal--sm') === null
   // Stash push dialog (shares renderModalShell): the toolbar button opens it with
   // the AI hint, and Escape dismisses it.
-  const stashPushBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => (b.textContent || '').includes('changes.stash'))
+  const stashPushBtn = document.querySelector('.gp-changes__stash')
   if (stashPushBtn) { stashPushBtn.click(); await new Promise((r) => setTimeout(r, 150)) }
   result.stashPushOpened = document.querySelector('.gp-modal--sm') !== null
   result.stashPushHint = (document.querySelector('.gp-modal--sm .gp-modal__hint')?.textContent || '') === 'ops.aiHint'

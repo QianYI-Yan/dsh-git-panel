@@ -86,7 +86,12 @@ export class GitController {
       this.clearPoll()
       return Promise.resolve()
     }
-    if (this.inflight !== undefined) { this.pendingRefresh = true; return this.inflight }
+    if (this.inflight !== undefined) {
+      this.pendingRefresh = true
+      // Await the catch-up started in finally, so manual refresh stays busy
+      // until its requested sample (rather than the older poll) completes.
+      return this.inflight.then(() => this.inflight)
+    }
     this.pendingRefresh = false
     this.clearPoll()
     const generation = this.visibilityGeneration

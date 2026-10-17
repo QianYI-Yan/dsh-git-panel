@@ -59,6 +59,13 @@ const CSS = `
 .gp-files-wrap>.gp-files{flex:1;min-height:0;height:auto}
 .gp-notice{flex:none;padding:8px 14px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+.gp-changes__toolbar{flex-wrap:nowrap;gap:4px;overflow-x:auto}
+.gp-changes__toolbar .gp-icon-btn{flex:none}
+.gp-changes__toolbar .gp-icon-btn:disabled{opacity:.4;cursor:default}
+.gp-changes__toolbar .gp-icon-btn:hover:disabled{background:transparent}
+.gp-changes__toolbar .gp-icon-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-changes__toolbar .gp-icon-btn>span{display:inline-flex}
+.gp-changes__refresh--busy svg{animation:gp-spin 1s linear infinite}
 .gp-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
 .gp-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-btn:disabled{opacity:.5;cursor:default}
