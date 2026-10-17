@@ -14,7 +14,7 @@ import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, Re
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
-import { buildBranchTree, pinPrimaryFirst, primaryBranchName, type BranchTreeNode } from './branch-tree.js'
+import { buildBranchTree, pinPrimaryFirst, primaryBranchName, primaryRemoteRef, type BranchTreeNode } from './branch-tree.js'
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
 import { statusChar, statusClass } from './status.js'
@@ -206,6 +206,21 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     for (const o of buildBranchOptions(tree)) if (isSelectable(o, tree.current)) map.set(o.key, o)
     return map
   }, [tree])
+  // Primary remote's name, shared by the pin selection and the row switch keys.
+  const remoteName = snapshot.remote?.name ?? null
+  // Section trees: pinning and folding read every ref name, so they run once per
+  // snapshot — a render that only moves selection, expand state or a filter draft
+  // reuses these arrays instead of refolding the list.
+  const branchTrees: BranchTrees = useMemo(() => {
+    const local = tree?.local ?? []
+    const remote = tree?.remote ?? []
+    const defaultBranch = tree?.defaultBranch ?? null
+    return {
+      local: buildBranchTree(pinPrimaryFirst(local, primaryBranchName(local, defaultBranch))),
+      remote: buildBranchTree(pinPrimaryFirst(remote, primaryRemoteRef(remote, remoteName, defaultBranch))),
+      tags: buildBranchTree(tree?.tags ?? []),
+    }
+  }, [tree?.local, tree?.remote, tree?.tags, tree?.defaultBranch, remoteName])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
   const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
@@ -680,9 +695,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
-        remoteName: snapshot.remote?.name ?? null,
         t,
-      }) : null,
+      }, branchTrees) : null,
     ])
   }
 
@@ -698,9 +712,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onSwitch: openSwitch,
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
-        remoteName: snapshot.remote?.name ?? null,
         t,
-      })),
+      }, branchTrees)),
       renderStatusBar(snapshot, statusCbs),
     ]),
     leftCol.divider,
@@ -752,12 +765,17 @@ interface BranchCbs {
   onSwitch: (option: BranchOption) => void
   onToggle: (section: string) => void
   onRetry: () => void
-  /** Primary remote's name, so its `<remote>/<primary>` ref can be pinned too. */
-  remoteName: string | null
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs): JSX.Element {
+/** Folded trees for the three ref sections, built once per snapshot. */
+interface BranchTrees {
+  readonly local: readonly BranchTreeNode[]
+  readonly remote: readonly BranchTreeNode[]
+  readonly tags: readonly BranchTreeNode[]
+}
+
+function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs, trees: BranchTrees): JSX.Element {
   if (treeError) {
     return h('div', { className: 'gp-empty' }, [
       h('span', { key: 'm' }, cb.t('overview.branchesError')),
@@ -817,10 +835,9 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       walk(node.children, depth + 1, sectionKey, icon, rows)
     }
   }
-  /** `pin` is the ref to hoist to the top of this section (host order otherwise). */
-  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, pin: string | null): JSX.Element => {
+  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, nodes: readonly BranchTreeNode[]): JSX.Element => {
     const rows: JSX.Element[] = []
-    if (!closed.has(key)) walk(buildBranchTree(pinPrimaryFirst(items, pin)), 0, key, icon, rows)
+    if (!closed.has(key)) walk(nodes, 0, key, icon, rows)
     return h('div', { key, className: 'gp-branch-group' }, [
       h('div', { key: 'head', className: 'gp-branch-group__head', onClick: () => cb.onToggle(key) }, [
         h(ChevronIcon, { key: 'c', size: 11, open: !closed.has(key) }),
@@ -829,15 +846,11 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       ...rows,
     ])
   }
-  // The repo's primary branch (main / master / the default) leads the list, the
-  // same ref under the primary remote leads the remote section.
-  const primary = primaryBranchName(tree.local, tree.defaultBranch)
-  const remotePrimary = primary === null || cb.remoteName === null ? null : `${cb.remoteName}/${primary}`
   return h('div', {}, [
     h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
-    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 }), primary),
-    section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 }), remotePrimary),
-    section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 }), null),
+    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 }), trees.local),
+    section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 }), trees.remote),
+    section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 }), trees.tags),
   ])
 }
 
@@ -848,7 +861,7 @@ interface BranchSheetCbs extends BranchCbs {
 /** Compact branch/ref filter: a bottom sheet carrying the same branch list,
  * portaled over the panel. Selecting a ref applies the filter and closes it;
  * the backdrop and the close button dismiss it. */
-function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchSheetCbs): JSX.Element | null {
+function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchSheetCbs, trees: BranchTrees): JSX.Element | null {
   if (typeof document === 'undefined') return null
   const sheet = h('div', {
     className: 'gp-sheet-backdrop',
@@ -859,7 +872,7 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
       h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'body', className: 'gp-sheet__body' },
-      renderBranchList(tree, treeError, activeRef, closed, cb)),
+      renderBranchList(tree, treeError, activeRef, closed, cb, trees)),
   ]))
   return createPortal(sheet, document.body, 'branch-filter-sheet')
 }

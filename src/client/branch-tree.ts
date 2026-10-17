@@ -61,29 +61,33 @@ export function buildBranchTree(branches: readonly GitBranch[]): BranchTreeNode[
     }
   }
 
+  // Absolute dir path → node, shared by every level: a dir is created once and
+  // found in O(1), so a wide sibling list is never rescanned per ref.
+  const dirs = new Map<string, BuilderDir>()
   const roots: BuilderNode[] = []
   for (const { segments, branch } of entries) {
     const name = segments.join('/')
     // A branch named like a dir path attaches as that dir's `self`, never as a
     // duplicate same-named sibling.
     const isDirName = dirPaths.has(name)
-    let level = roots
+    let children = roots
     let acc = ''
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]!
       acc = acc === '' ? seg : `${acc}/${seg}`
       const last = i === segments.length - 1
       if (last && !isDirName) {
-        level.push({ kind: 'leaf', label: seg, path: name, branch })
+        children.push({ kind: 'leaf', label: seg, path: name, branch })
         break
       }
-      let dir = level.find((node): node is BuilderDir => node.kind === 'dir' && node.path === acc)
+      let dir = dirs.get(acc)
       if (dir === undefined) {
         dir = { kind: 'dir', label: seg, path: acc, self: null, children: [] }
-        level.push(dir)
+        dirs.set(acc, dir)
+        children.push(dir)
       }
       if (last) dir.self = branch
-      else level = dir.children
+      else children = dir.children
     }
   }
   return collapse(roots)
@@ -140,4 +144,21 @@ export function pinPrimaryFirst(branches: readonly GitBranch[], name: string | n
   const at = branches.findIndex((b) => b.name === name)
   if (at <= 0) return branches
   return [branches[at]!, ...branches.slice(0, at), ...branches.slice(at + 1)]
+}
+
+/**
+ * Full ref to lead the remote section: `<primary remote>/<default branch>`, else
+ * the same remote's `main`, else its `master`. Resolved from the remote refs
+ * alone — a remote-tracking ref is worth pinning even when the local branch of
+ * that name is missing or named differently, so this never consults the local
+ * list (unlike `primaryBranchName`).
+ */
+export function primaryRemoteRef(remote: readonly GitBranch[], remoteName: string | null, defaultBranch: string | null): string | null {
+  if (remoteName === null) return null
+  const names = defaultBranch === null ? ['main', 'master'] : [defaultBranch, 'main', 'master']
+  for (const name of names) {
+    const ref = `${remoteName}/${name}`
+    if (remote.some((b) => b.name === ref)) return ref
+  }
+  return null
 }

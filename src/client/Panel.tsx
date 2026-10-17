@@ -148,49 +148,54 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // (cold/loading/no-cwd) there is no active pane, so show the first tab.
   const selectedTab: SubTab = activeTab ?? tabs[0]?.key ?? 'overview'
 
-  const body = ((): JSX.Element => {
-    if (!hasSession(sessionId)) return h('div', { className: 'gp-empty' }, t('error.noCwd'))
-    if (view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
+  // Every tab in `tabs` always gets its own role=tabpanel node — in the ready
+  // view and in the loading / no-cwd / error / files-only states alike — so a
+  // tab's aria-controls never dangles. While the body is a placeholder it lives
+  // in the selected pane; pane *content* still mounts on first visit.
+  const placeholder: JSX.Element | null = ((): JSX.Element | null => {
+    if (!hasSession(sessionId) || view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
+    if (filesOnly) return null
+    if (view.state === 'error') return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
+    if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
+    return null
+  })()
+
+  const paneContent = (key: SubTab): JSX.Element | null => {
+    // The state placeholder (loading / no-cwd / error, including no-session)
+    // lives in the selected pane; the guard below only narrows sessionId for the
+    // tab components.
+    if (placeholder !== null) return key === selectedTab ? placeholder : null
+    if (!hasSession(sessionId)) return null
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      const files = filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot: null, t }) : null
-      const panel = h('div', { key: 'panel', id: `${tabsId}-files-panel`, role: 'tabpanel', 'aria-labelledby': `${tabsId}-files`, style: { display: 'contents' } }, files)
-      // git-not-installed inside a repo: stack a notice above the browser.
-      if (gitMissingInRepo) {
-        return h('div', { className: 'gp-files-wrap' }, [
-          h('div', { key: 'notice', className: 'gp-notice' }, t('files.gitNotInstalled')),
-          panel,
-        ])
-      }
-      return panel
+      return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot: null, t }) : null
     }
-    if (view.state === 'error') {
-      return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
-    }
-    if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
-    // Mount each git-only tab on first visit, then hide it to retain its state.
-    // Keying on sessionId resets per-session caches and selection on a switch.
-    // Every tab's panel node exists even before its content mounts, so the
-    // tab's aria-controls always resolves to a real tabpanel.
+    if (view.state !== 'ready') return null
     const snapshot = view.snapshot
-    const pane = (key: SubTab, node: JSX.Element | null): JSX.Element => h('div', {
-      key, id: `${tabsId}-${key}-panel`, role: 'tabpanel', 'aria-labelledby': `${tabsId}-${key}`,
-      style: activeTab === key ? { display: 'contents' } : { display: 'none' },
-    }, node)
-    return h('div', { style: { display: 'contents' } }, [
-      pane('overview', visited.current.tabs.has('overview')
+    if (key === 'overview') {
+      return visited.current.tabs.has('overview')
         ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, t })
-        : null),
-      pane('changes', visited.current.tabs.has('changes')
+        : null
+    }
+    if (key === 'changes') {
+      return visited.current.tabs.has('changes')
         ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, compact, t })
-        : null),
-      // Files tab mounts on first visit (keeps cold cost zero — no dir-list
-      // until the user opens it), then stays mounted to retain its tree state.
-      pane('files', filesVisited
-        ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot, t })
-        : null),
-    ])
-  })()
+        : null
+    }
+    // Files tab mounts on first visit (keeps cold cost zero — no dir-list
+    // until the user opens it), then stays mounted to retain its tree state.
+    return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, worktreeGen, snapshot, t }) : null
+  }
+
+  const panes = tabs.map((tb) => h('div', {
+    key: tb.key, id: `${tabsId}-${tb.key}-panel`, role: 'tabpanel', 'aria-labelledby': `${tabsId}-${tb.key}`,
+    style: selectedTab === tb.key ? { display: 'contents' } : { display: 'none' },
+  }, paneContent(tb.key)))
+
+  // git-not-installed inside a repo: stack a notice above the browser.
+  const body = gitMissingInRepo
+    ? h('div', { className: 'gp-files-wrap' }, [h('div', { key: 'notice', className: 'gp-notice' }, t('files.gitNotInstalled')), ...panes])
+    : h('div', { style: { display: 'contents' } }, panes)
 
   // `data-conversation-composer-overlay` opts the view into the shell's
   // full-height layout: the view area is fixed to the visible height with its

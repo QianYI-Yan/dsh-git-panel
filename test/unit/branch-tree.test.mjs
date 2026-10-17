@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildBranchTree, pinPrimaryFirst, primaryBranchName } from '../../lib/testkit.mjs'
+import { buildBranchTree, pinPrimaryFirst, primaryBranchName, primaryRemoteRef } from '../../lib/testkit.mjs'
 
 const br = (name, extra = {}) => ({ name, shortHash: 'abc1234', ...extra })
 
@@ -196,4 +196,64 @@ test('pinPrimaryFirst moves the primary ref to the front, order otherwise stable
   // Remote tracking refs pin by their full name.
   const remote = [br('origin/release'), br('origin/main')]
   assert.deepEqual(pinPrimaryFirst(remote, 'origin/main').map((b) => b.name), ['origin/main', 'origin/release'])
+})
+
+test('primaryRemoteRef resolves the remote primary from the remote refs alone', () => {
+  // PR #39 R1: with no local `main` / `develop`, the remote section must still
+  // lead with its own primary ref, so this never consults the local list.
+  const remote = [br('origin/feature'), br('origin/main')]
+  assert.equal(primaryRemoteRef(remote, 'origin', 'main'), 'origin/main')
+  assert.equal(primaryRemoteRef([br('origin/feature'), br('origin/develop')], 'origin', 'develop'), 'origin/develop')
+  // The repo default wins; main / master are only fallbacks.
+  assert.equal(primaryRemoteRef([br('origin/main'), br('origin/develop')], 'origin', 'develop'), 'origin/develop')
+  assert.equal(primaryRemoteRef([br('origin/master')], 'origin', 'main'), 'origin/master')
+  assert.equal(primaryRemoteRef(remote, 'origin', null), 'origin/main')
+  // Another remote's refs, no remote name and a missing fallback: nothing to pin.
+  assert.equal(primaryRemoteRef([br('upstream/main')], 'origin', 'main'), null)
+  assert.equal(primaryRemoteRef(remote, null, 'main'), null)
+  assert.equal(primaryRemoteRef([br('origin/release')], 'origin', null), null)
+})
+
+test('the pinned remote primary folds to the first row of its dir', () => {
+  const remote = [br('origin/feature'), br('origin/develop')]
+  const tree = buildBranchTree(pinPrimaryFirst(remote, primaryRemoteRef(remote, 'origin', 'develop')))
+  assert.deepEqual(tree[0].children.map((c) => c.path), ['origin/develop', 'origin/feature'])
+})
+
+test('folds a wide level of dirs in input order', () => {
+  // R2: dirs are indexed by absolute path, so a wide level must still group and
+  // keep host order (regression guard for the old per-level sibling rescan).
+  const wide = Array.from({ length: 2000 }, (_, i) => br(`d${i}/x`))
+  const tree = buildBranchTree(wide)
+  assert.equal(tree.length, 2000)
+  assert.deepEqual([tree[0].label, tree[1999].label], ['d0', 'd1999'])
+  assert.deepEqual([tree[0].path, tree[1999].children[0].path], ['d0', 'd1999/x'])
+})
+
+test('folds a wide sibling list under one dir without reordering', () => {
+  const wide = Array.from({ length: 3000 }, (_, i) => br(`feat/b${i}`))
+  const tree = buildBranchTree(wide)
+  assert.equal(tree.length, 1)
+  assert.equal(tree[0].label, 'feat')
+  assert.equal(tree[0].children.length, 3000)
+  assert.deepEqual([tree[0].children[0].label, tree[0].children[2999].label], ['b0', 'b2999'])
+})
+
+test('keeps a wide, deep ref set linked to the right parents', () => {
+  const items = []
+  for (let i = 0; i < 500; i++) items.push(br(`team${i}/feature/one`), br(`team${i}/feature/two`), br(`team${i}/hotfix`))
+  items.push(br('team0/feature')) // a ref named like its dir attaches as `self`
+  const tree = buildBranchTree(items)
+  const seen = []
+  const walk = (nodes, prefix) => {
+    for (const node of nodes) {
+      assert.equal(node.path, `${prefix}${node.label}`)
+      if (node.kind === 'leaf') { seen.push(node.path); continue }
+      if (node.self !== null) { assert.equal(node.self.name, node.path); seen.push(node.self.name) }
+      walk(node.children, `${node.path}/`)
+    }
+  }
+  walk(tree, '')
+  assert.equal(seen.length, items.length)
+  assert.deepEqual([...seen].sort(), items.map((b) => b.name).sort())
 })
