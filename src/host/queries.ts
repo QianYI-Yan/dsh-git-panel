@@ -14,6 +14,19 @@ import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFA
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
 /**
+ * Merge commits: git's default diff is the *combined* one, which lists only
+ * files that differ from every parent and has hunks only where the result
+ * differs from all of them — a per-file `git show <merge> -- <path>` therefore
+ * often serves just the commit header, i.e. no code. Every commit surface of
+ * the panel is a first-parent reader instead (the change set the merge brought
+ * into its first parent), so the file list, the +/- totals and the per-file
+ * diff all describe the same diff. `--numstat` already defaults to first-parent
+ * for merges; this flag pins all three commands to that same view, matching
+ * image-diff's explicit `<commit>^1` side.
+ */
+const FIRST_PARENT_DIFF = '--diff-merges=first-parent'
+
+/**
  * Refs the history graph and the author dropdown both walk: the standard
  * visible branches/remotes/tags plus HEAD. `--all` officially means "refs/
  * along with HEAD", so HEAD must ride along — otherwise a detached-HEAD
@@ -180,7 +193,7 @@ async function queryDiff(
     args = ['git', 'diff', unified, '--cached', '--', q.path]
   } else if (q.base === 'commit') {
     if (!isSafeRev(q.commit)) return { ok: false, error: { code: 'invalid-name', message: `unsafe commit: ${q.commit}` } }
-    args = ['git', 'show', unified, '--end-of-options', q.commit, '--', q.path]
+    args = ['git', 'show', unified, FIRST_PARENT_DIFF, '--end-of-options', q.commit, '--', q.path]
   } else {
     // worktree: unstaged diff; for untracked files use --no-index against /dev/null.
     args = ['git', 'diff', unified, '--', q.path]
@@ -654,8 +667,8 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
   const metaFormat = '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%b'
   const [metaRes, statRes, numstatRes] = await Promise.all([
     runCommand(deps.run, ['git', 'show', '-s', metaFormat, '--end-of-options', ref], root, 'show-meta', deps.signal),
-    runCommand(deps.run, ['git', 'show', '--name-status', '-z', '--format=', '--end-of-options', ref], root, 'show-stat', deps.signal),
-    runCommand(deps.run, ['git', 'show', '--numstat', '--format=', '--end-of-options', ref], root, 'show-numstat', deps.signal),
+    runCommand(deps.run, ['git', 'show', FIRST_PARENT_DIFF, '--name-status', '-z', '--format=', '--end-of-options', ref], root, 'show-stat', deps.signal),
+    runCommand(deps.run, ['git', 'show', FIRST_PARENT_DIFF, '--numstat', '--format=', '--end-of-options', ref], root, 'show-numstat', deps.signal),
   ])
   if (!('run' in metaRes)) return { ok: false, error: { code: 'git-unavailable' } }
   if (metaRes.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
@@ -669,11 +682,10 @@ async function queryShow(deps: SnapshotDeps, root: string, ref: string): Promise
   const stats: GitFileStat[] = 'run' in statRes && statRes.run.exitCode === 0
     ? parseNameStatus(statRes.run.stdout)
     : []
-  // Aggregate line counts via numstat, but bound to the name-status file list:
-  // `git show --numstat` falls back to a first-parent diff for merges (where
-  // --name-status yields a combined, often empty list), so an empty file list
-  // forces 0/0 — keeping the summary consistent with the file tree (plan A).
-  // Binary rows ("-") are skipped by sumNumstat.
+  // Line totals come from the same first-parent diff as the file list (the
+  // flag above pins `--numstat`, which already defaulted to first-parent for
+  // merges), so the summary can never pair one diff's file count with another
+  // diff's +/-. Binary rows ("-") are skipped by sumNumstat.
   const { insertions, deletions } = stats.length > 0 && 'run' in numstatRes && numstatRes.run.exitCode === 0
     ? sumNumstat(numstatRes.run.stdout)
     : { insertions: 0, deletions: 0 }

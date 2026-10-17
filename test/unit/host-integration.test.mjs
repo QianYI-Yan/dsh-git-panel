@@ -681,7 +681,7 @@ test('show counts a binary file as changed but contributes 0 lines', async () =>
   }
 })
 
-test('show on a merge commit yields empty stats and 0/0 lines', async () => {
+test('show on a merge commit describes the first-parent diff', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-merge-'))
   try {
     const { writeFileSync } = await import('node:fs')
@@ -702,9 +702,104 @@ test('show on a merge commit yields empty stats and 0/0 lines', async () => {
     const head = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: 'HEAD' } })
     assert.equal(head.ok, true)
     assert.equal(head.value.commit.subject, 'merge: feature')
-    assert.equal(head.value.stats.length, 0, 'merge file list empty (git show default)')
-    assert.equal(head.value.insertions, 0)
+    // The merge brought f.txt into main. git's default combined diff lists
+    // nothing here, so a merge must read as what it added to its first parent.
+    assert.deepEqual(head.value.stats.map((s) => s.path), ['f.txt'])
+    assert.equal(head.value.stats[0].status, 'added')
+    assert.equal(head.value.insertions, 1)
     assert.equal(head.value.deletions, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('merge commit list, totals and per-file diff describe the same (first-parent) diff', async () => {
+  // The b6d16f1 shape: each hunk of the merge result matches one parent, so
+  // git's default --cc patch is empty while --name-status still lists the file
+  // (it differs from both parents at blob level) and --numstat serves a
+  // first-parent diff. The panel used to pair that 1-file list with the other
+  // diff's totals and open an empty pane showing +0/−0.
+  const dir = mkdtempSync(join(tmpdir(), 'gp-merge-fp-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    const lines = Array.from({ length: 60 }, (_, i) => `line${i + 1}`)
+    const withLine = (index, text) => lines.map((l, i) => (i === index ? text : l)).join('\n') + '\n'
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(dir, 'common.txt'), lines.join('\n') + '\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'root'])
+    await runGit(dir, ['checkout', '-qb', 'feature'])
+    writeFileSync(join(dir, 'common.txt'), withLine(54, 'line55-feature'))
+    writeFileSync(join(dir, 'feature.txt'), 'feature\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'feat: feature side'])
+    await runGit(dir, ['checkout', '-q', '-'])
+    writeFileSync(join(dir, 'common.txt'), withLine(4, 'line5-main'))
+    await runGit(dir, ['add', 'common.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: main side'])
+    await runGit(dir, ['merge', '--no-ff', '-q', '-m', 'merge: feature', 'feature'])
+
+    const d = depsAt(dir)
+    const head = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: 'HEAD' } })
+    assert.equal(head.ok, true)
+    assert.deepEqual(head.value.stats.map((s) => s.path).sort(), ['common.txt', 'feature.txt'],
+      'the merge file list is the change it brought into its first parent')
+    assert.equal(head.value.insertions, 2)
+    assert.equal(head.value.deletions, 1)
+
+    const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'common.txt', base: 'commit', commit: 'HEAD' } })
+    assert.equal(diff.ok, true)
+    assert.match(diff.value.text, /^@@/m)
+    assert.match(diff.value.text, /^-line55$/m)
+    assert.match(diff.value.text, /^\+line55-feature$/m)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('merge commit built from a conflict resolution reads as its first-parent diff', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-merge-cr-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    const write = (name, text) => writeFileSync(join(dir, name), text)
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    write('common.txt', 'base\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'root'])
+    await runGit(dir, ['checkout', '-qb', 'feature'])
+    write('common.txt', 'feature\n')
+    write('other.txt', 'other\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'feat: feature side'])
+    await runGit(dir, ['checkout', '-q', '-'])
+    write('common.txt', 'main\n')
+    await runGit(dir, ['add', 'common.txt'])
+    await runGit(dir, ['commit', '-qm', 'feat: main side'])
+    assert.throws(
+      () => execFileSync('git', ['merge', '--no-ff', '-m', 'merge: feature', 'feature'], { cwd: dir, stdio: 'pipe' }),
+      'the merge must conflict so the result differs from both parents',
+    )
+    write('common.txt', 'resolved\n')
+    await runGit(dir, ['add', 'common.txt'])
+    await runGit(dir, ['commit', '--no-edit', '-q'])
+
+    const d = depsAt(dir)
+    const head = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref: 'HEAD' } })
+    assert.equal(head.ok, true)
+    // First parent (main) → merge: common.txt edited (+1/−1) + other.txt added.
+    assert.deepEqual(head.value.stats.map((s) => s.path).sort(), ['common.txt', 'other.txt'])
+    assert.equal(head.value.insertions, 2)
+    assert.equal(head.value.deletions, 1)
+
+    const diff = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'diff', path: 'common.txt', base: 'commit', commit: 'HEAD' } })
+    assert.equal(diff.ok, true)
+    assert.match(diff.value.text, /^@@/m)
+    assert.match(diff.value.text, /^-main$/m)
+    assert.match(diff.value.text, /^\+resolved$/m)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

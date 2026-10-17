@@ -80,6 +80,7 @@ Host 半 (Cordis + typert, lib/host)
 - **双层信封**：RPC 返回 `{ ok, value }` 是传输层结果，业务结果 `{ ok, value|error }` 在 `value` 内，两层都要判。
 - **选择集随快照修剪**：勾选的路径在新快照中消失必须移除，否则提交序列会中止。
 - **选择键单一权威**：变更列表的选择键（`path:s` index 侧 / `path:w` 工作区侧）只能经 `src/client/selection-keys.ts` 的 `changeKey` / `sideOf` / `pathOfKey` 构造与解析，调用点不得内联拼接或就地正则剥离。
+- **合并提交按 first-parent**：提交详情的文件列表、`+/-` 统计与单文件 diff 必须同用 `FIRST_PARENT_DIFF`（`--diff-merges=first-parent`），与 image-diff 的 `<commit>^1` 一致。git 对 merge 的 `--name-status` 默认走 combined diff（只列与所有父提交都不同的文件，补丁还可能整体为空），`--numstat` 却走 first-parent；混用会把一份 diff 的文件数和另一份的增删行数拼在一起，点开文件只剩提交头、显示 +0 −0。
 - **不完整数据不静默**：快照截断（`truncated` + `truncatedReason`）、未跟踪回落折叠（`untrackedCollapsed`）、统计降级（`stats.partial`）、diff 输出截断（`truncated`）、suggest 输入截断都要带标记并在 UI 用 `NoticeBar` 提示。`newLines` 为 0 表示新侧行数不可信，视图不得渲染尾部展开控件。
 - **大仓库限流**（issue #16）：逐文件 fan-out 有上限（`STATS_FANOUT_LIMIT`、`UNTRACKED_NUMSTAT_LIMIT`），超限降级统计而不是每轮轮询刷出几百个 git 进程；「展开全部」上下文是有界的 `DIFF_EXPAND_CONTEXT`，不要放大到整文件。
 
