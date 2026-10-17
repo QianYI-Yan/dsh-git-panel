@@ -1,8 +1,9 @@
 /**
- * isUntrackedPath: Git's tracking state for one browser path. Porcelain
- * collapses an untracked directory into a single `?? dir/` entry, so a file
- * inside it carries no change of its own — it must be recognised through its
- * untracked ancestor directory, not mislabeled as tracked.
+ * isUntrackedPath: Git's tracking state for one browser path. The snapshot now
+ * runs `--untracked-files=all`, so ordinary untracked files carry their own
+ * entry; the ancestor rule still covers the entries that stay directory-level —
+ * nested repositories/submodules, and the collapsed fallback for an untracked
+ * tree too large to expand — whose files must not be mislabeled as tracked.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -18,7 +19,7 @@ test('isUntrackedPath matches an exact untracked file entry', () => {
   assert.equal(isUntrackedPath(changes, 'b.txt'), false)
 })
 
-test('isUntrackedPath recognises files inside a collapsed untracked directory', () => {
+test('isUntrackedPath recognises files inside a directory-level untracked entry', () => {
   const changes = [change('new-dir', 'untracked', false, true)]
   assert.equal(isUntrackedPath(changes, 'new-dir/a.txt'), true)
   assert.equal(isUntrackedPath(changes, 'new-dir/sub/deep.txt'), true)

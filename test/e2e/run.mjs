@@ -27,9 +27,9 @@ const SNAP = {
     { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'd.txt', status: 'untracked', staged: false, isDirectory: false },
-    // Porcelain collapses an untracked directory into one `?? newdir/` entry —
-    // the files inside carry no change of their own.
-    { path: 'newdir', status: 'untracked', staged: false, isDirectory: true },
+    // `--untracked-files=all` reports the files inside an untracked directory
+    // individually; the row renders the file name plus the grey directory suffix.
+    { path: 'newdir/note.txt', status: 'untracked', staged: false, isDirectory: false },
     { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
     { path: 'icon.svg', status: 'modified', staged: false, isDirectory: false },
   ],
@@ -129,6 +129,28 @@ const out = await page.evaluate(async (snap) => {
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
+  // A capped snapshot: the list only carries the visible slice, so the changes
+  // page must surface the truncation and keep the group headers on the full
+  // stats counts (a group whose rows all fell past the cap still shows up).
+  const visibleSlice = fixture.snapshot.changes.slice(0, 2)
+  fixture.snapshot = {
+    ...fixture.snapshot,
+    changes: visibleSlice,
+    truncated: true,
+    truncatedReason: 'cap',
+    modified: 4,
+    untracked: 1200,
+    stats: { ...fixture.snapshot.stats, fileCount: 1204, modified: 4, untracked: 1200 },
+  }
+  const stageAllBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')][0]
+  stageAllBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.truncatedNotice = (document.querySelector('.gp-notice')?.textContent || '').includes('changes.truncatedCap')
+  result.truncatedHeads = [...document.querySelectorAll('.gp-group-head')].map((n) => n.textContent)
+  // Restore the normal snapshot (another landed action re-delivers it).
+  fixture.snapshot = snap
+  stageAllBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
   result.hasAmend = document.querySelector('.gp-commitbox__amend') !== null
   // Stash: the toolbar carries a stash button; the stash list (mock → one entry)
   // expands to a row, and the drop confirm shows the shared AI hint.
@@ -831,10 +853,9 @@ const out = await page.evaluate(async (snap) => {
   // File properties dialog (`.gp-files__props`): opens from the preview toolbar
   // on a loaded file, derives everything from data already on screen, and
   // closes on Escape. The footer chips state the Git facts — in particular a
-  // file inside a collapsed, untracked `?? dir/` entry must read untracked
-  // (regression: it used to read tracked) and untracked must appear once. The
-  // harness `t` returns the key (params are not interpolated), so assertions
-  // read keys and raw values.
+  // file inside an untracked directory must read untracked (regression: it used
+  // to read tracked) and untracked must appear once. The harness `t` returns the
+  // key (params are not interpolated), so assertions read keys and raw values.
   const pickFile = async (name, ms = 300) => {
     const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes(name))
     if (row) { row.click(); await new Promise((r) => setTimeout(r, ms)) }
@@ -883,8 +904,8 @@ const out = await page.evaluate(async (snap) => {
   result.propsUntrackedBadges = propsBadges()
   await closeProps()
 
-  // newdir is collapsed into one `?? newdir/` porcelain row; note.txt inside
-  // matches no change of its own and must still read untracked, not tracked.
+  // The untracked file inside newdir carries its own change entry now, so the
+  // row parses as untracked from the exact path rather than an ancestor match.
   await pickFile('newdir')
   await pickFile('note.txt')
   await openProps()

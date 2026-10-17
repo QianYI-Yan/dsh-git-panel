@@ -17,9 +17,11 @@ export function statusClass(status: GitChangeStatus | string): string {
 }
 
 /**
- * Whether Git considers `path` untracked. Porcelain collapses an untracked
- * directory into one `?? dir/` entry, so a file inside it matches no change of
- * its own and must be recognised by its untracked ancestor directory.
+ * Whether Git considers `path` untracked. Untracked files normally carry their
+ * own entry (`--untracked-files=all`); the ancestor rule covers the entries that
+ * stay directory-level — nested repositories/submodules, and the collapsed
+ * fallback for an untracked tree too large to expand — whose files match no
+ * change of their own.
  */
 export function isUntrackedPath(changes: readonly GitChange[], path: string): boolean {
   return changes.some((c) => c.status === 'untracked'

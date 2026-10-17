@@ -87,21 +87,28 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     { key: 'unstaged', labelKey: 'changes.groupUnstaged', items: unstaged },
     { key: 'untracked', labelKey: 'changes.groupUntracked', items: untracked },
   ]
-  const groups = allGroups.filter((g) => g.items.length > 0)
+  // A capped list is only a prefix of the change set, but `stats` still counts
+  // everything: keep a group visible (and its header honest) even when every one
+  // of its rows fell past the cap.
+  const groupCount = (key: GroupKey): number => key === 'staged'
+    ? snapshot.stats.staged
+    : key === 'unstaged' ? snapshot.stats.modified : snapshot.stats.untracked
+  const groups = allGroups.filter((g) => g.items.length > 0 || (snapshot.truncated && groupCount(g.key) > 0))
 
   // Flatten the visible (non-collapsed) groups into one row list and precompute
   // each item's top offset, so the list can mount only the viewport window.
   const { items, tops, totalH } = useMemo(() => {
     const items: ListItem[] = []
     for (const g of groups) {
-      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count: g.items.length } })
+      const count = snapshot.truncated ? groupCount(g.key) : g.items.length
+      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count } })
       if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
     }
     const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
     return { items, tops, totalH: tops[items.length]! }
     // staged/unstaged/untracked already memoize on snapshot; closed drives collapse.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staged, unstaged, untracked, closed])
+  }, [staged, unstaged, untracked, closed, snapshot.truncated, snapshot.stats])
 
   // Mounted window [first, last): the items overlapping the viewport, padded by
   // VOVERSCAN rows each side. Before the first layout measurement a fallback
@@ -276,6 +283,17 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     ]),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
+    // The list can be incomplete in two independent ways; both are surfaced so
+    // an entry never disappears from the panel without an explanation.
+    snapshot.untrackedCollapsed === true
+      ? h('div', { key: 'collapsed', className: 'gp-notice' }, t('changes.untrackedCollapsed'))
+      : null,
+    snapshot.truncated
+      ? h('div', { key: 'truncated', className: 'gp-notice' }, t(
+        snapshot.truncatedReason === 'lossy' ? 'changes.truncatedLossy' : 'changes.truncatedCap',
+        { n: snapshot.changes.length },
+      ))
+      : null,
     h('div', { key: 'list', className: 'gp-changes__list', ref: setListEl },
       snapshot.changes.length === 0
         ? h('div', { className: 'gp-empty' }, t('changes.noChanges'))
