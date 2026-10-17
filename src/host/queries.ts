@@ -9,7 +9,7 @@ import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.js'
-import { imageMimeFor, isHistoryHashSearch, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from './types.js'
+import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -89,6 +89,7 @@ async function queryHistory(
   const args = ['git', 'log', '--topo-order', '--decorate=full', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
   const search = q.search?.trim() ?? ''
   const hexJump = isHistoryHashSearch(search)
+  const filtered = isHistoryFiltered(q)
   // Exactly the flags pushed below (one source, so they can never disagree). An
   // effective filter hides commits — and therefore parents — from the page
   // itself, which is what makes the raw-ancestry walk necessary; a ref-only walk
@@ -100,7 +101,6 @@ async function queryHistory(
   const searchFilter = search !== ''
   const authorFilter = author !== ''
   const sinceFilter = since !== ''
-  const filtered = !hexJump && (searchFilter || authorFilter || sinceFilter)
   const countArgs = ['git', 'rev-list', '--count']
   // Untrusted ref/author filters must never reach an option position: reject a
   // dash-prefixed / metacharacter ref (the `--output=` file-write vector) and

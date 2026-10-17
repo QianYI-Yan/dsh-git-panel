@@ -30,8 +30,12 @@ export function BranchIcon({ size }: IconProps): JSX.Element {
   return svg([h('circle', { key: 'a', cx: 4, cy: 3, r: 1.6 }), h('circle', { key: 'b', cx: 4, cy: 13, r: 1.6 }), h('circle', { key: 'c', cx: 12, cy: 5, r: 1.6 }), h('path', { key: 'd', d: 'M4 4.6v6.8' }), h('path', { key: 'e', d: 'M12 6.6c0 3-4 2.4-8 4' })], size)
 }
 
+function tagGlyph(size: number | undefined, hidden = false): JSX.Element {
+  return svg([h('path', { key: 'a', d: TAG_PATH }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size, hidden)
+}
+
 export function TagIcon({ size }: IconProps): JSX.Element {
-  return svg([h('path', { key: 'a', d: TAG_PATH }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size)
+  return tagGlyph(size)
 }
 
 export function ChevronIcon({ size, open }: IconProps & { open?: boolean }): JSX.Element {
@@ -138,7 +142,7 @@ export function StarIcon({ size = 15, filled }: IconProps & { filled?: boolean }
 
 /** Tag outline for the checked-out branch row (the tag glyph, named for the row). */
 export function BranchCurrentIcon({ size }: IconProps): JSX.Element {
-  return svg([h('path', { key: 'a', d: TAG_PATH }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size, true)
+  return tagGlyph(size, true)
 }
 
 /** Filled star for the repository's primary branch row. */

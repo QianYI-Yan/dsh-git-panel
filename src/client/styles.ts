@@ -148,9 +148,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 /* Filter dropdowns are the platform Menu: the wrapper is the Menu's own anchor
  * span (inline-flex, so it still lays out as a toolbar item), and the trigger
- * mirrors the shell's own selector chip — transparent until hover/expanded. */
+ * uses the same module background as the shell's settings selectors. */
 .gp-filter{display:inline-flex;align-items:center;min-width:0;max-width:100%}
-.gp-select-trigger{display:inline-flex;align-items:center;gap:4px;min-height:28px;max-width:180px;padding:0 8px;border:none;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}
+.gp-select-trigger{display:inline-flex;align-items:center;gap:4px;min-height:28px;max-width:180px;padding:0 8px;border:none;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;line-height:20px;white-space:nowrap;cursor:pointer}
 .gp-select-trigger:not(:disabled):hover,.gp-select-trigger[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-select-trigger:disabled{cursor:default;color:var(--dsw-alias-label-quaternary)}
 .gp-select-trigger:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}

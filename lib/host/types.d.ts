@@ -237,11 +237,14 @@ export interface GitActionRequest {
 }
 /**
  * True when a history `search` is a commit-hash prefix jump rather than a
- * message regex: 7–40 hex chars after trimming. Single source for the host walk
- * and for the client's "is a filter effectively active" projection, so the two
- * sides cannot drift.
+ * message regex: 7–40 hex chars after trimming.
  */
 export declare function isHistoryHashSearch(search: string): boolean;
+/** Whether Git's effective content filters hide commits; hash jumps ignore them.
+ * Shared with clients receiving history from a host that omits topology. */
+export declare function isHistoryFiltered(query: Pick<Extract<GitQuery, {
+    kind: 'history';
+}>, 'search' | 'author' | 'since'>): boolean;
 export type GitQuery = {
     readonly kind: 'history';
     readonly limit: number;

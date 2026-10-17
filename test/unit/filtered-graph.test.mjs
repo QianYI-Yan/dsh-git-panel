@@ -130,6 +130,28 @@ test('a diamond ladder is resolved per node, not per path', () => {
   assert.equal(graphWidth(rows), 1)
 })
 
+test('a hidden ancestor queued through redundant parents is folded once', () => {
+  // h queues b, then expands a, which queues b again before its first expansion.
+  // Both routes reach the same root and must reuse one memo-budget allocation.
+  const commits = [commit('top', ['h']), commit('root', [])]
+  for (const style of STYLES) {
+    let parentScans = 0
+    const sharedParents = ['root']
+    sharedParents[Symbol.iterator] = function* () {
+      parentScans++
+      yield 'root'
+    }
+    const topology = topo([['h', ['a', 'b']], ['a', ['b']], ['b', sharedParents]])
+    const rows = layoutFilteredGraph(commits, topology, style)
+    // One fold scans for a shareable resolution, then collects the visible root.
+    // Repeating it charges the memo budget again even though b is already known.
+    assert.ok(parentScans <= 2, `${style}: shared parent list is folded at most once (${parentScans} scans)`)
+    assert.equal(rows[0].boundary, undefined, `${style}: the complete DAG has no boundary`)
+    assert.equal(rows[0].edges.filter((e) => e.kind === 'out' && e.indirect === true).length, 1, `${style}: one dashed link reaches root`)
+    assert.equal(rows[1].edges.filter((e) => e.kind === 'into' && e.indirect === true).length, 1, `${style}: root receives that link`)
+  }
+})
+
 test('a mixed solid + indirect fork keeps each line dashed for its whole span', () => {
   // m: first parent v (visible → solid) and second parent h (hidden → x, dashed).
   const commits = [commit('m', ['v', 'h']), commit('q', []), commit('v', []), commit('x', [])]

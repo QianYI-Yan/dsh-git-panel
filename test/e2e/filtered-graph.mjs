@@ -36,6 +36,7 @@ try {
     const { fixture, connection } = window.createGitPanelMock(snap)
     const call = connection.rpc.call
     const historyQueries = []
+    let topologyAvailable = true
     connection.rpc.call = async (channel, endpoint, payload) => {
       const q = payload?.args?.request?.query
       if (endpoint === 'gitPanel/query' && q.kind === 'history') {
@@ -46,7 +47,7 @@ try {
           : filtered ? visible : full
         return { ok: true, value: { ok: true, value: {
           kind: 'history', commits, total: commits.length,
-          ...(filtered ? { topology: hidden.map(({ hash, parents }) => ({ hash, parents })) } : {}),
+          ...(filtered && topologyAvailable ? { topology: hidden.map(({ hash, parents }) => ({ hash, parents })) } : {}),
         } } }
       }
       return call(channel, endpoint, payload)
@@ -121,7 +122,7 @@ try {
     const setSearch = async (text) => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(search, text)
       search.dispatchEvent(new Event('input', { bubbles: true }))
-      await waitFor(() => historyQueries.at(-1)?.search === text)
+      await waitFor(() => (historyQueries.at(-1)?.search ?? '') === text)
       await flush()
     }
     await setSearch('keep')
@@ -154,9 +155,19 @@ try {
     await refreshSnapshot({ head: '', unborn: false })
     const emptyHead = inspect()
     await refreshSnapshot({ head: hash(3), unborn: false })
+    // Older hosts omit topology even for filtered rows. Keep conservative
+    // projection instead of holding unresolved parents open as ordinary lanes.
+    topologyAvailable = false
+    await setSearch('')
+    await pick(0, 'Tester')
+    await waitFor(() => rows().length === visible.length)
+    const oldHostAuthor = inspect()
+    topologyAvailable = true
+    await pick(0, 'overview.allUsers')
+    await setSearch('keep')
     rows()[0].click()
     await flush()
-    return { unfiltered, author, since, searched, hashJump, beforeSelection, headMarker, headStaysAfterClick, selectionIndependent, followsDetachedHead, excludedHead, excludedHeadAfterClick, unborn, emptyHead }
+    return { unfiltered, author, since, searched, hashJump, beforeSelection, headMarker, headStaysAfterClick, selectionIndependent, followsDetachedHead, excludedHead, excludedHeadAfterClick, unborn, emptyHead, oldHostAuthor }
   })
   for (const key of ['author', 'since', 'searched']) {
     assert.equal(result[key].rows, 5, key + ' keeps the matched rows')
@@ -186,6 +197,11 @@ try {
   assert.equal(result.excludedHeadAfterClick, true, 'clicking filtered results cannot invent a HEAD marker')
   assert.equal(result.unborn.currentNodes, 0, 'an unborn repository has no current commit marker')
   assert.equal(result.emptyHead.currentNodes, 0, 'an empty HEAD never matches every commit')
+  assert.equal(result.oldHostAuthor.rows, 5, 'older host author results remain visible')
+  assert.equal(result.oldHostAuthor.graphs, 5, 'older host author results retain the graph')
+  assert.equal(result.oldHostAuthor.dashed, 0, 'missing older-host ancestry never fabricates indirect links')
+  assert.equal(result.oldHostAuthor.boundary, 3, 'each unresolved older-host parent ends at a short boundary')
+  assert.ok(result.oldHostAuthor.solid > 0, 'older-host direct visible parent links remain solid')
   await page.locator('.gp-history').screenshot({ path: fileURLToPath(new URL('../../docs/local/filtered-graph-dark.png', import.meta.url)) })
   await page.addStyleTag({ content: `
     body{background:#fff;color:#20242c}

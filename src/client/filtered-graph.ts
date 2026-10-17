@@ -86,6 +86,7 @@ export function layoutFilteredGraph(commits: readonly GraphCommit[], topology: r
     }
     // Post-order: every hidden parent is folded before the child that needs it.
     for (const hash of post) {
+      if (resolved.has(hash)) continue
       const parents = parentsOf.get(hash)!
       // Every parent resolved to the same immutable object — a single-parent
       // chain, or parallel branches that merged into one. Share that result

@@ -16,7 +16,7 @@ import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, Branch
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
 import { layoutFilteredGraph } from './filtered-graph.js'
 import { CommitGraph, GRAPH_LANE_W } from './CommitGraph.js'
-import { isHistoryHashSearch } from './types.js'
+import { isHistoryFiltered } from './types.js'
 import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranchName, primaryRemoteRef, type BranchTreeNode } from './branch-tree.js'
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
@@ -241,10 +241,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  // A hash search jumps to a revision; content filters instead project the raw
-  // ancestry onto the visible rows. Missing ancestors remain short boundaries.
+  // The published topology signals projection mode. An older host may omit it;
+  // use the shared query predicate as a conservative fallback for those rows.
   // Pending controls must not reinterpret the last successful history page.
-  const filtered = !isHistoryHashSearch(appliedFilter.search) && (appliedFilter.search.trim() !== '' || appliedFilter.author !== '' || appliedFilter.since !== '')
+  const filtered = topology !== undefined || isHistoryFiltered(appliedFilter)
   const rows: GraphRow[] = useMemo(() => filtered
     ? layoutFilteredGraph(commits, topology ?? [], snapshot.graphStyle)
     : layoutGraph(commits, snapshot.graphStyle), [commits, topology, filtered, snapshot.graphStyle])
@@ -863,7 +863,7 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       walk(node.children, depth + 1, sectionKey, icon, rows)
     }
   }
-  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, nodes: readonly BranchTreeNode[], pinned: readonly GitBranch[] = []): JSX.Element => {
+  const section = (key: string, labelKey: GitKey, count: number, icon: JSX.Element, nodes: readonly BranchTreeNode[], pinned: readonly GitBranch[] = []): JSX.Element => {
     const rows: JSX.Element[] = []
     if (!closed.has(key)) {
       for (const branch of pinned) rows.push(branchRow(branch, branch.name, 0, key, icon))
@@ -872,16 +872,16 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
     return h('div', { key, className: 'gp-branch-group' }, [
       h('div', { key: 'head', className: 'gp-branch-group__head', onClick: () => cb.onToggle(key) }, [
         h(ChevronIcon, { key: 'c', size: 11, open: !closed.has(key) }),
-        `${cb.t(labelKey)} (${items.length})`,
+        `${cb.t(labelKey)} (${count})`,
       ]),
       ...rows,
     ])
   }
   return h('div', {}, [
     h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
-    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 }), trees.local, trees.localPinned),
-    section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 }), trees.remote),
-    section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 }), trees.tags),
+    section('local', 'overview.local', tree.local.length, h(BranchIcon, { size: 13 }), trees.local, trees.localPinned),
+    section('remote', 'overview.remote', tree.remote.length, h(BranchIcon, { size: 13 }), trees.remote),
+    section('tags', 'overview.tags', tree.tags.length, h(TagIcon, { size: 13 }), trees.tags),
   ])
 }
 
