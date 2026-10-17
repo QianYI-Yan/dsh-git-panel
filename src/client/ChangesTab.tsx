@@ -230,10 +230,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     if (discardPickedOpen && discardTargets.paths.length === 0) setDiscardPickedOpen(false)
   }, [discardPickedOpen, discardTargets])
 
-  const toggle = (path: string): void => {
+  // Keyed by selection key (`path:s`/`path:w`), not by bare path: the same path
+  // can be picked on both sides and the two rows must toggle independently.
+  const toggle = (key: string): void => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(path)) next.delete(path); else next.add(path)
+      if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
   }
@@ -497,15 +499,18 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
             // the other.
             const c = it.c
             const rowKey = changeKey(c)
+            // The diff query names the side with its own vocabulary; spell the
+            // mapping once for the row instead of twice inside the props below.
+            const base = c.staged ? 'staged' : 'worktree'
             return h('div', {
               key: rowKey, className: 'gp-changes__vrow', style: { top: tops[idx], height: VROW_H },
             }, renderFileRow(c, {
               selected: selected.has(rowKey),
-              active: diffPath?.path === c.path && diffPath.base === (c.staged ? 'staged' : 'worktree'),
+              active: diffPath?.path === c.path && diffPath.base === base,
               busy,
               armed: armedDiscard === rowKey,
               onToggle: () => toggle(rowKey),
-              onOpen: () => openDiff(c.path, c.staged ? 'staged' : 'worktree'),
+              onOpen: () => openDiff(c.path, base),
               onStage: () => void run(c.staged ? { kind: 'unstage', paths: [c.path] } : { kind: 'stage', paths: [c.path] }),
               onDiscard: () => {
                 if (armedDiscard === rowKey) { void run({ kind: 'discard', paths: [c.path] }); setArmedDiscard(null) }

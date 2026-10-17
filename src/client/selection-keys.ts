@@ -5,8 +5,14 @@
  * path+side and acting on one row does not light up the other.
  *
  * Every construction and every parse goes through this module: an inline
- * `path + (staged ? ':s' : ':w')` or `key.replace(/:[sw]$/, '')` elsewhere
- * would be a second authority for the same format.
+ * `path + (staged ? ':s' : ':w')` or a hand-rolled suffix strip elsewhere would
+ * be a second authority for the same format. The side alphabet itself is spelled
+ * once, in `sideOf` — `pathOfKey` derives from it instead of re-spelling it, so
+ * a new side cannot update one without the other.
+ *
+ * Besides the codec this module holds exactly one policy that consumes keys:
+ * `pickDiscardTargets`, the batch-discard split. It is defined on the same sides,
+ * so it lives next to them rather than re-deriving them at the call site.
  */
 import type { GitChange } from './types.js'
 
@@ -27,7 +33,7 @@ export function sideOf(key: string): ChangeSide | null {
 
 /** Bare path behind a key; only a trailing side suffix is dropped. */
 export function pathOfKey(key: string): string {
-  return key.replace(/:[sw]$/, '')
+  return sideOf(key) === null ? key : key.slice(0, -2)
 }
 
 export interface DiscardTargets {
@@ -50,12 +56,14 @@ export interface DiscardTargets {
 export function pickDiscardTargets(keys: Iterable<string>): DiscardTargets {
   const worktree = new Set<string>()
   const staged = new Set<string>()
+  // Total by construction: each side names its own bucket, so widening
+  // `ChangeSide` fails to compile here instead of letting a new side fall
+  // through to the index bucket and silently drop out of the discard set.
+  const bySide: Record<ChangeSide, Set<string>> = { w: worktree, s: staged }
   for (const key of keys) {
     const side = sideOf(key)
     if (side === null) continue
-    const path = pathOfKey(key)
-    if (side === 'w') worktree.add(path)
-    else staged.add(path)
+    bySide[side].add(pathOfKey(key))
   }
   return {
     paths: [...worktree].sort(),
