@@ -9,7 +9,7 @@ import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
 import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS } from './types.js'
-import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, WorktreeStats } from './types.js'
+import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -204,15 +204,26 @@ export function parsePrimaryRemote(stdout: string): GitRemote | null {
 }
 
 /**
- * Per-file stats fan-out ceiling. The untracked line-count fan-out (one
- * `git diff --no-index` subprocess per untracked file) and the last-change
- * mtime fan-out (one fs.stat per changed file) are both O(changes). On a work
- * tree with thousands of changes — issue #16's pathological case, e.g. an
- * un-ignored build/deps directory — they spawned hundreds of git processes on
- * every poll and stalled the panel. Above this many total changes both are
- * skipped and the stats are marked `partial`; the cheap O(n) counts stay exact.
+ * mtime fan-out ceiling. `maxChangeMtime` spawns one `fs.stat` per changed
+ * file; on a work tree with thousands of changes — issue #16's pathological
+ * case, e.g. an un-ignored build/deps directory — that flooded the host every
+ * poll. Above this many total changes the mtime pass is skipped and the stats
+ * are marked `partial`; the cheap O(n) counts stay exact. The untracked line
+ * pass has its own, lower ceiling (UNTRACKED_NUMSTAT_LIMIT) because it spawns a
+ * git process per file.
  */
 const STATS_FANOUT_LIMIT = 200
+
+/**
+ * Untracked line counts need one `git diff --no-index` subprocess per file,
+ * which is three orders of magnitude more expensive than the mtime fan-out's
+ * `fs.stat` (measured: 32 spawns ≈ 157ms, 150 ≈ 0.6–0.8s; 150 stats ≈ 0.35ms).
+ * With `--untracked-files=all` a brand-new directory turns into many file
+ * entries, so this fan-out gets its own, much lower ceiling: beyond it the
+ * untracked lines are omitted and the stats are marked partial instead of
+ * flooding the host on every poll.
+ */
+const UNTRACKED_NUMSTAT_LIMIT = 32
 
 export type WorkspaceResolution =
   | { readonly ok: true; readonly root: string }
@@ -383,7 +394,7 @@ export async function snapshotForSession(
   const [branchRes, headRes, statusRes, aheadBehindRes, lastCommitRes, worktreeNumRes, stagedNumRes, remoteRes] = await Promise.all([
     runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'branch', deps.signal),
     runCommand(deps.run, ['git', 'rev-parse', '--short', 'HEAD'], root, 'head', deps.signal),
-    runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z'], root, 'status', deps.signal),
+    runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], root, 'status', deps.signal),
     runCommand(deps.run, ['git', 'rev-list', '--count', '--left-right', '@{upstream}...HEAD'], root, 'aheadBehind', deps.signal),
     runCommand(deps.run, ['git', 'log', '-1', '--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI'], root, 'lastCommit', deps.signal),
     runCommand(deps.run, ['git', 'diff', '--numstat'], root, 'numstat-worktree', deps.signal),
@@ -403,10 +414,33 @@ export async function snapshotForSession(
     allChanges = parseStatus(statusRes.run.stdout)
     statusLossy = statusRes.run.stdoutLossy
   }
+  // `--untracked-files=all` lifts untracked entries to file level, matching what
+  // `git add` stages and what the changes list renders. An un-ignored build or
+  // deps tree would flood that list (or clip the status stream), so past the list
+  // cap the untracked side falls back to git's collapsed `?? dir/` entries and
+  // the snapshot says so instead of silently truncating.
+  let untrackedCollapsed = false
+  const untrackedEntries = allChanges.filter((c) => c.status === 'untracked')
+  // Only a whole untracked directory folds into one `?? dir/` entry; a flood of
+  // root-level files cannot collapse, so the count branch skips the extra status
+  // run unless some untracked path could belong to such a directory.
+  const collapseCandidate = untrackedEntries.some((c) => c.path.includes('/'))
+  if (statusLossy || (untrackedEntries.length > config.maxChanges && collapseCandidate)) {
+    const collapsed = await runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], root, 'status-collapsed', deps.signal)
+    if ('run' in collapsed && !collapsed.run.timedOut && collapsed.run.exitCode === 0) {
+      const list = parseStatus(collapsed.run.stdout)
+      untrackedCollapsed = list.some((c) => c.status === 'untracked' && c.isDirectory)
+      allChanges = list
+      statusLossy = collapsed.run.stdoutLossy
+    }
+  }
   // Truncated either because the list exceeded the cap or because the status
   // stream itself was clipped (a lossy read drops the head, so the leading
-  // entries are the ones that go missing).
+  // entries are the ones that go missing). The reason drives the UI wording.
   const truncated = allChanges.length > config.maxChanges || statusLossy
+  const truncatedReason: TruncationReason | undefined = statusLossy
+    ? 'lossy'
+    : allChanges.length > config.maxChanges ? 'cap' : undefined
   const changes = allChanges.length > config.maxChanges ? allChanges.slice(0, config.maxChanges) : allChanges
 
   // Counts and `dirty` reflect the full change set; only the `changes` list is
@@ -444,13 +478,15 @@ export async function snapshotForSession(
   // mtimes best-effort, HEAD time from lastCommit.
   const wt = 'run' in worktreeNumRes && worktreeNumRes.run.exitCode === 0 ? sumNumstat(worktreeNumRes.run.stdout) : { insertions: 0, deletions: 0 }
   const stg = 'run' in stagedNumRes && stagedNumRes.run.exitCode === 0 ? sumNumstat(stagedNumRes.run.stdout) : { insertions: 0, deletions: 0 }
-  // The two per-file fan-outs below are O(changes). On a huge work tree they
-  // flood the host with subprocess/stat calls every poll (issue #16), so above
-  // STATS_FANOUT_LIMIT we skip them and mark the stats partial.
+  // The two per-file passes below are O(changes) but differ by orders of
+  // magnitude in cost, so they get separate ceilings: mtime (`fs.stat`, cheap)
+  // by total changes, untracked line counts (a git process per file) by the
+  // untracked count. See STATS_FANOUT_LIMIT / UNTRACKED_NUMSTAT_LIMIT.
   const statsDetailed = allChanges.length <= STATS_FANOUT_LIMIT
+  const untrackedPaths = allChanges.filter((c) => c.status === 'untracked' && !c.isDirectory).map((c) => c.path)
+  const untrackedCountable = untrackedPaths.length <= UNTRACKED_NUMSTAT_LIMIT
   let untrackedInsertions = 0
-  if (statsDetailed) {
-    const untrackedPaths = allChanges.filter((c) => c.status === 'untracked' && !c.isDirectory).map((c) => c.path)
+  if (untrackedCountable) {
     const safeUntracked = untrackedPaths.filter(isSafePath)
     if (safeUntracked.length > 0) {
       const perFile = await Promise.all(
@@ -470,7 +506,9 @@ export async function snapshotForSession(
     deletions: wt.deletions + stg.deletions,
     lastChangeAt,
     headCommittedAt: lastCommit?.dateIso ?? null,
-    partial: !statsDetailed,
+    // Collapsed untracked directories have no per-file line counts and count as
+    // one entry each, so the stats are an explicit lower bound there too.
+    partial: !statsDetailed || !untrackedCountable || untrackedCollapsed,
   }
 
   const snapshot: GitSnapshot = {
@@ -490,6 +528,8 @@ export async function snapshotForSession(
     changes,
     stats,
     truncated,
+    ...(truncatedReason !== undefined ? { truncatedReason } : {}),
+    ...(untrackedCollapsed ? { untrackedCollapsed: true as const } : {}),
     refreshIntervalMs: config.refreshIntervalMs,
     showInputPill: config.showInputPill,
     defaultDiffView: config.defaultDiffView,

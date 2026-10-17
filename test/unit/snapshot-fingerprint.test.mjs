@@ -126,12 +126,16 @@ test('equal status stdout with lossy or failed delivery fingerprints the changed
   const failed = await fixture({ statusExitCode: 1 })
   assert.deepEqual(lossy.snapshot.changes, regular.snapshot.changes)
   assert.equal(regular.snapshot.truncated, false)
+  assert.equal(regular.snapshot.truncatedReason, undefined)
   assert.equal(lossy.snapshot.truncated, true)
+  assert.equal(lossy.snapshot.truncatedReason, 'lossy')
   assert.equal(failed.snapshot.dirty, false)
   assert.deepEqual(failed.snapshot.changes, [])
   assert.notEqual(lossy.snapshot.stateFingerprint, regular.snapshot.stateFingerprint)
   assert.notEqual(failed.snapshot.stateFingerprint, regular.snapshot.stateFingerprint)
-  assert.deepEqual(lossy.commands, regular.commands)
+  // A clipped expanded stream triggers the collapsed fallback; here that read is
+  // clipped too, so the final state keeps the lossy list and says why.
+  assert.deepEqual(lossy.commands, [...regular.commands, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=normal']])
   assert.deepEqual(failed.commands, regular.commands)
 })
 

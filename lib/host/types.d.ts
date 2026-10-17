@@ -72,6 +72,9 @@ export interface GitRemote {
     /** Known-host classification, for the status-bar icon. */
     readonly hostKind: RemoteHostKind;
 }
+/** Why the change list is incomplete: capped at `maxChanges`, or the status
+ * stream itself was clipped (a lossy read drops the head). */
+export type TruncationReason = 'cap' | 'lossy';
 /** Immutable snapshot of one repository's status at `checkedAt`. */
 export interface GitSnapshot {
     /** Realpath of the repository root (work tree top). */
@@ -97,8 +100,14 @@ export interface GitSnapshot {
     readonly changes: readonly GitChange[];
     /** Working-tree statistics for the changes-page header (single source). */
     readonly stats: WorktreeStats;
-    /** True when the change list was capped at maxChanges. */
+    /** True when the change list is incomplete (capped or clipped). */
     readonly truncated: boolean;
+    /** Which limit produced `truncated`; absent on older hosts. */
+    readonly truncatedReason?: TruncationReason;
+    /** True when untracked files fell back to git's collapsed `?? dir/` entries
+     * because expanding them would overflow `maxChanges` (or the status stream).
+     * Older hosts never set it. */
+    readonly untrackedCollapsed?: boolean;
     /** Polling interval the client should use after this snapshot (0 = off). */
     readonly refreshIntervalMs: number;
     /** Whether the input-bar git marker pill should render (user preference). */
