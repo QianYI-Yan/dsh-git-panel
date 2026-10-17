@@ -13,8 +13,9 @@ import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { realpath, readFile, readdir, rm, stat, lstat, readlink } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
+import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
 
 let repo
@@ -57,15 +58,9 @@ function runGit(cwd, args) {
 function depsAt(dir) {
   return {
     run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
-    fs: {
-      realpath, stat: (p) => stat(p), readFile: (p) => readFile(p),
-      // Same shape as the production wiring: the link target text, else null.
-      symlinkTarget: async (p) => {
-        try { return (await lstat(p)).isSymbolicLink() ? await readlink(p) : null } catch { return null }
-      },
-      readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
-      remove: (p) => rm(p, { force: true }),
-    },
+    // The production wiring itself, never a mirror: identical wiring is what
+    // makes these tests evidence about the host rather than about a copy.
+    fs: createFsDeps(),
     sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }
 }
@@ -1147,6 +1142,397 @@ test('discard removes an untracked file from the work tree (H6)', async () => {
     const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt'] } })
     assert.equal(res.ok, true, 'discard of an untracked file succeeds instead of failing on pathspec')
     assert.equal(existsSync(join(dir, 'u.txt')), false, 'the untracked file is deleted')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard restores a tracked file and removes only the selected nested untracked leaf in one batch', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discmixed-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const { mkdirSync, writeFileSync, existsSync, readFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'tracked.txt'), 'original\n')
+    await runGit(dir, ['add', 'tracked.txt'])
+    await runGit(dir, ['commit', '-qm', 'base'])
+    writeFileSync(join(dir, 'tracked.txt'), 'changed\n')
+    mkdirSync(join(dir, 'newdir', 'sub'), { recursive: true })
+    writeFileSync(join(dir, 'newdir', 'sub', 'selected.txt'), 'remove me\n')
+    writeFileSync(join(dir, 'newdir', 'sub', 'sibling.txt'), 'keep me\n')
+    const deps = depsAt(dir)
+    const snap = await snapshotForSession(deps, DEFAULT_CONFIG, SID)
+    assert.equal(snap.ok, true)
+    assert.equal(snap.value.untrackedCollapsed ?? false, false)
+    assert.equal(snap.value.truncated, false)
+    assert.deepEqual(snap.value.changes.map((c) => [c.path, c.status, c.staged, c.isDirectory]), [
+      ['tracked.txt', 'modified', false, false],
+      ['newdir/sub/selected.txt', 'untracked', false, false],
+      ['newdir/sub/sibling.txt', 'untracked', false, false],
+    ])
+    const paths = snap.value.changes
+      .filter((c) => c.path === 'tracked.txt' || c.path === 'newdir/sub/selected.txt')
+      .map((c) => c.path)
+    assert.equal(paths.length, 2, 'the batch selects both snapshot rows')
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths } })
+    assert.equal(res.ok, true)
+    assert.equal(readFileSync(join(dir, 'tracked.txt'), 'utf8'), 'original\n', 'the tracked half was restored')
+    assert.equal(existsSync(join(dir, 'newdir', 'sub', 'selected.txt')), false, 'the selected leaf was deleted')
+    assert.equal(readFileSync(join(dir, 'newdir', 'sub', 'sibling.txt'), 'utf8'), 'keep me\n', 'the unselected sibling is untouched')
+    assert.equal(res.snapshot.untrackedCollapsed ?? false, false)
+    assert.deepEqual(res.snapshot.changes.map((c) => [c.path, c.status]), [['newdir/sub/sibling.txt', 'untracked']])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+async function assertUntrackedDirectorySnapshot(deps, config, paths, collapsed) {
+  const snap = await snapshotForSession(deps, config, SID)
+  assert.equal(snap.ok, true)
+  assert.deepEqual(snap.value.changes.map((c) => [c.path, c.status, c.isDirectory]), paths.map((path) => [path, 'untracked', true]))
+  assert.equal(snap.value.untrackedCollapsed ?? false, collapsed)
+  assert.equal(snap.value.truncated, false, 'every selected directory fits in the snapshot')
+}
+
+test('discard removes a collapsed untracked directory (recursively) from the work tree', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discdir-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'newdir', 'sub'), { recursive: true })
+    writeFileSync(join(dir, 'newdir', 'a.txt'), 'x\n')
+    writeFileSync(join(dir, 'newdir', 'sub', 'b.txt'), 'y\n')
+    // Two leaf entries exceed the cap; normal status folds them into one row.
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['newdir'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['newdir'] } })
+    assert.equal(res.ok, true, 'discarding an untracked directory succeeds instead of no-oping on EISDIR')
+    assert.equal(existsSync(join(dir, 'newdir')), false, 'the directory and its contents are gone')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard refuses an untracked directory that is itself a repository (issue #46)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-nested-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'nested'))
+    await runGit(join(dir, 'nested'), ['init', '-q'])
+    writeFileSync(join(dir, 'nested', 'x.txt'), 'x\n')
+    await assertUntrackedDirectorySnapshot(depsAt(dir), DEFAULT_CONFIG, ['nested'], false)
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['nested'] } })
+    assert.equal(res.ok, false, 'a nested repository is refused instead of deleted')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'nested', '.git')), true, 'the inner repository is intact')
+    assert.equal(existsSync(join(dir, 'nested', 'x.txt')), true, 'nothing inside it was removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard refuses a submodule-style entry (its .git is a file)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-submod-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'sub'))
+    writeFileSync(join(dir, 'sub', '.git'), 'gitdir: ../.git/modules/sub\n')
+    writeFileSync(join(dir, 'sub', 'y.txt'), 'y\n')
+    writeFileSync(join(dir, 'sub', 'z.txt'), 'z\n')
+    // An unresolved gitdir file is expanded by -uall; collapse its two leaves
+    // so the selected row reaches the .git-file repository guard.
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['sub'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['sub'] } })
+    assert.equal(res.ok, false, 'a submodule-shaped entry is refused too')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'sub', '.git')), true, 'the gitdir file is intact')
+    assert.equal(existsSync(join(dir, 'sub', 'y.txt')), true, 'the entry is untouched')
+    assert.equal(existsSync(join(dir, 'sub', 'z.txt')), true, 'neither leaf was removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard refuses a bare repository directory (no .git, HEAD + objects + refs)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-bare-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
+    const { existsSync } = await import('node:fs')
+    const expanded = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(expanded.ok, true)
+    assert.equal(expanded.value.untrackedCollapsed ?? false, false)
+    assert.ok(expanded.value.changes.length > 1)
+    assert.ok(expanded.value.changes.every((c) => c.path.startsWith('bare.git/') && c.status === 'untracked' && !c.isDirectory), 'bare repository files are expanded by default')
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['bare.git'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
+    assert.equal(res.ok, false, 'a bare repository is refused too')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'bare.git', 'HEAD')), true, 'the bare repository is intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a plain directory that merely contains a repository is still discarded as a whole (#46 boundary)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-outerdir-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'outer', 'inner'), { recursive: true })
+    await runGit(join(dir, 'outer', 'inner'), ['init', '-q'])
+    writeFileSync(join(dir, 'outer', 'inner', 'z.txt'), 'z\n')
+    writeFileSync(join(dir, 'outer', 'ordinary.txt'), 'ordinary\n')
+    // The nested repository row plus the ordinary file exceed the cap and
+    // collapse to outer. Only an entry that is itself a repository is refused.
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['outer'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['outer'] } })
+    assert.equal(res.ok, true)
+    assert.equal(existsSync(join(dir, 'outer')), false, 'the containing directory goes away as a whole')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a failed untracked removal surfaces as an error instead of a silent success', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discfail-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const { writeFileSync, existsSync, readFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 't.txt'), 'v1\n')
+    await runGit(dir, ['add', 't.txt'])
+    await runGit(dir, ['commit', '-qm', 'add t'])
+    writeFileSync(join(dir, 't.txt'), 'v2\n')
+    writeFileSync(join(dir, 'u.txt'), 'junk\n')
+    const deps = depsAt(dir)
+    deps.fs.remove = async () => { throw new Error('EACCES: permission denied') }
+    // The batch carries a tracked path too: it never reaches `git restore`
+    // (the untracked deletions run first and abort), so the message must say
+    // so — "could not discard 1" alone would hide the un-restored tracked half.
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt', 't.txt'] } })
+    assert.equal(res.ok, false, 'the removal failure is reported, not swallowed')
+    assert.equal(res.error.code, 'git-error')
+    assert.match(res.error.message, /could not discard 1 path\(s\): u\.txt: EACCES/, 'names the path that failed')
+    assert.match(res.error.message, /1 tracked path\(s\) not restored$/, 'also names the tracked half that was skipped')
+    assert.equal(existsSync(join(dir, 'u.txt')), true, 'the file is still there — the ui must not claim success')
+    assert.equal(readFileSync(join(dir, 't.txt'), 'utf8'), 'v2\n', 'the tracked file really was not restored')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a directory of three plain files named like bare markers is not mistaken for a repository', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-lookalike-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'plain'))
+    writeFileSync(join(dir, 'plain', 'HEAD'), 'not a repo\n')
+    writeFileSync(join(dir, 'plain', 'objects'), 'a file, not a directory\n')
+    writeFileSync(join(dir, 'plain', 'refs'), 'a file, not a directory\n')
+    // The bare-layout check types the markers: only a HEAD *file* beside
+    // objects/ and refs/ *directories* counts, so this ordinary folder must
+    // be discarded rather than refused as a repository.
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['plain'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['plain'] } })
+    assert.equal(res.ok, true, 'files named like bare markers do not make a repository')
+    assert.equal(existsSync(join(dir, 'plain')), false, 'the ordinary directory is discarded as a whole')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a bare repository whose objects/ is a symlink to a directory is still refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-baresym-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
+    const { mkdirSync, symlinkSync, existsSync } = await import('node:fs')
+    // Shared-object layouts point objects/ at a sibling directory. The marker
+    // typing must follow the symlink: refusing is the safe direction here.
+    rmSync(join(dir, 'bare.git', 'objects'), { recursive: true, force: true })
+    mkdirSync(join(dir, 'shared-objects'))
+    symlinkSync(join(dir, 'shared-objects'), join(dir, 'bare.git', 'objects'))
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['bare.git'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
+    assert.equal(res.ok, false, 'a bare repository with a symlinked objects/ is refused too')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'bare.git', 'HEAD')), true, 'the bare repository is intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a dangling objects symlink (shared store gone) is still refused as a repository', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-baredangle-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
+    const { symlinkSync, existsSync, rmSync: rm } = await import('node:fs')
+    // A shared-object layout whose target is not there right now (unmounted
+    // volume, moved directory). refs/ and HEAD are still real data, so the
+    // entry must count as a repository rather than be deleted as a stale dir.
+    rm(join(dir, 'bare.git', 'objects'), { recursive: true, force: true })
+    symlinkSync(join(dir, 'nowhere-objects'), join(dir, 'bare.git', 'objects'))
+    const config = { ...DEFAULT_CONFIG, maxChanges: 1 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['bare.git'], true)
+    const res = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
+    assert.equal(res.ok, false, 'a bare repository with a dangling objects/ symlink is refused')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'bare.git', 'HEAD')), true, 'its HEAD/refs were not deleted')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a bare repository whose refs/ or HEAD is a dangling symlink is refused too', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-baredangle2-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync, symlinkSync, existsSync, rmSync: rm } = await import('node:fs')
+    // Same rule for the other two markers: an unreadable symlink is a store
+    // that is not where it should be, not an ordinary untracked directory.
+    await runGit(dir, ['init', '--bare', '-q', 'refs-link.git'])
+    rm(join(dir, 'refs-link.git', 'refs'), { recursive: true, force: true })
+    symlinkSync(join(dir, 'nowhere-refs'), join(dir, 'refs-link.git', 'refs'))
+    const config = { ...DEFAULT_CONFIG, maxChanges: 2 }
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['refs-link.git'], true)
+    const viaRefs = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['refs-link.git'] } })
+    assert.equal(viaRefs.ok, false, 'a dangling refs/ symlink stays a repository')
+    assert.equal(viaRefs.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'refs-link.git', 'HEAD')), true, 'its HEAD was not deleted')
+
+    // A plain directory whose HEAD is a dangling symlink, beside real objects/
+    // and refs/ directories, is refused for the same reason.
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(join(dir, 'head-link', 'objects'), { recursive: true })
+    mkdirSync(join(dir, 'head-link', 'refs'), { recursive: true })
+    writeFileSync(join(dir, 'head-link', 'objects', 'x'), 'x\n')
+    writeFileSync(join(dir, 'head-link', 'objects', 'y'), 'y\n')
+    symlinkSync(join(dir, 'nowhere-head'), join(dir, 'head-link', 'HEAD'))
+    await assertUntrackedDirectorySnapshot(depsAt(dir), config, ['head-link', 'refs-link.git'], true)
+    const viaHead = await runAction(depsAt(dir), config, { sessionId: SID, action: { kind: 'discard', paths: ['head-link'] } })
+    assert.equal(viaHead.ok, false, 'a dangling HEAD symlink stays a repository')
+    assert.equal(viaHead.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'head-link')), true, 'the entry was not removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a repository appearing after the batch pre-flight is caught by the per-path re-check', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-race-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'morph'))
+    await runGit(join(dir, 'morph'), ['init', '-q'])
+    writeFileSync(join(dir, 'morph', 'x.txt'), 'x\n')
+    const deps = depsAt(dir)
+    await assertUntrackedDirectorySnapshot(deps, DEFAULT_CONFIG, ['morph'], false)
+    // `morph` really is a nested repository, but the pre-flight's probe of its
+    // `.git` misses (ENOENT) — the shape of a repository appearing after the
+    // batch scan. Only the last-moment re-check in the remove loop sees it.
+    const realStat = deps.fs.stat
+    let probes = 0
+    deps.fs.stat = async (p) => {
+      if (p.endsWith('/morph/.git')) {
+        probes += 1
+        if (probes === 1) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; throw e }
+      }
+      return realStat(p)
+    }
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['morph'] } })
+    assert.equal(res.ok, false, 'the racing repository is refused instead of deleted')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.ok(probes >= 2, 'the entry was probed again immediately before removal')
+    assert.equal(existsSync(join(dir, 'morph', '.git')), true, 'the repository that appeared mid-request is intact')
+    assert.equal(existsSync(join(dir, 'morph', 'x.txt')), true, 'nothing inside it was removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a mid-batch repository refusal says earlier paths were already deleted', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-racepart-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    // `aa` sorts first and is deleted for real; `morph` is the repository whose
+    // pre-flight probe is made to miss, so the refusal lands after `aa` is gone.
+    mkdirSync(join(dir, 'aa'))
+    writeFileSync(join(dir, 'aa', 'a.txt'), 'a\n')
+    writeFileSync(join(dir, 'aa', 'b.txt'), 'b\n')
+    mkdirSync(join(dir, 'morph'))
+    await runGit(join(dir, 'morph'), ['init', '-q'])
+    writeFileSync(join(dir, 'morph', 'x.txt'), 'x\n')
+    const deps = depsAt(dir)
+    // Two ordinary leaves plus the nested repository exceed the cap, while
+    // both collapsed directory rows fit and can be classified by the action.
+    const config = { ...DEFAULT_CONFIG, maxChanges: 2 }
+    await assertUntrackedDirectorySnapshot(deps, config, ['aa', 'morph'], true)
+    const realStat = deps.fs.stat
+    let probes = 0
+    deps.fs.stat = async (p) => {
+      if (p.endsWith('/morph/.git')) {
+        probes += 1
+        if (probes === 1) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; throw e }
+      }
+      return realStat(p)
+    }
+    const res = await runAction(deps, config, { sessionId: SID, action: { kind: 'discard', paths: ['aa', 'morph'] } })
+    assert.equal(res.ok, false)
+    // A generic `nested-repo` here would claim the batch was untouched while
+    // `aa` is already gone; the partial code is what makes the copy honest.
+    assert.equal(res.error.code, 'nested-repo-partial')
+    assert.match(res.error.message, /1 path\(s\) already removed/)
+    assert.ok(probes >= 2, 'the repository was re-checked after the earlier deletion')
+    assert.equal(existsSync(join(dir, 'aa')), false, 'the earlier path really was deleted')
+    assert.equal(existsSync(join(dir, 'morph', '.git')), true, 'the repository is intact')
+    assert.equal(existsSync(join(dir, 'morph', 'x.txt')), true, 'the later entry contents were not removed')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

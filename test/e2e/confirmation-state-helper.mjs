@@ -4,8 +4,8 @@ window.runConfirmationStateScenarios = async (fixture, { waitFor, flushUI, click
   const amend = () => document.querySelector('.gp-commitbox__amend input')
   const suggest = () => document.querySelector('.gp-commitbox button[title="commit.suggest"]')
   const row = () => [...document.querySelectorAll('.gp-file-row')].find((node) => (node.textContent || '').includes('a.txt'))
-  const discard = () => row()?.querySelector('button[title="changes.discard"], button[title="changes.discardConfirm"]')
-  const armedDiscard = () => discard()?.title === 'changes.discardConfirm'
+  const discard = () => row()?.querySelector('button[aria-label="changes.discard"], button[aria-label="changes.discardConfirm"]')
+  const armedDiscard = () => discard()?.getAttribute('aria-label') === 'changes.discardConfirm'
   const notice = () => (document.querySelector('.gp-changes')?.textContent || '').includes('commit.suggestOverwrite')
   const before = { snapshot: fixture.snapshot, message: messageBox().value, amend: amend().checked }
   const setMessage = async (value) => {
@@ -52,7 +52,7 @@ window.runConfirmationStateScenarios = async (fixture, { waitFor, flushUI, click
     await releaseAndParkNext()
     result.businessChanged = {
       rowRetained: row() !== undefined,
-      discardReset: discard()?.title === 'changes.discard',
+      discardReset: discard()?.getAttribute('aria-label') === 'changes.discard',
       draftPreserved: messageBox().value === 'keep draft across business change',
     }
     click(discard(), 'first discard click after business change')
