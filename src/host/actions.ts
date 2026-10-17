@@ -353,28 +353,27 @@ export async function runAction(
   return { ok: true, snapshot: snapshot.value, output: lastOutput.trim() }
 }
 
-/** A bare repository has no `.git`; these three entries always sit side by side. */
-const BARE_REPO_MARKERS = ['HEAD', 'objects', 'refs'] as const
-
 /**
  * Whether a work-tree directory is a repository of its own: a nested repo or a
- * submodule (`.git`, directory or file) or a bare repository (no `.git`, but
- * `HEAD` beside `objects/` and `refs/`). `discard` refuses all of them — a
- * recursive delete would take a whole repository's history with it (issue #46).
+ * submodule (`.git`, directory or file) or a bare repository (no `.git`, but a
+ * `HEAD` file beside the `objects/` and `refs/` directories). `discard` refuses
+ * all of them — a recursive delete would take a whole repository's history with
+ * it (issue #46).
  */
 async function looksLikeRepository(deps: SnapshotDeps, target: string): Promise<boolean> {
   try {
     await deps.fs.stat(join(target, '.git'))
     return true
   } catch { /* not a nested repo / submodule — check the bare layout below */ }
-  for (const marker of BARE_REPO_MARKERS) {
-    try {
-      await deps.fs.stat(join(target, marker))
-    } catch {
-      return false // a bare repository carries all three markers
-    }
+  // One readdir both finds and types the bare markers: a plain folder that
+  // merely holds three similarly named *files* is not a repository and must
+  // not be refused as one.
+  try {
+    const kinds = new Map((await deps.fs.readdir(target)).map((e) => [e.name, e.isDirectory]))
+    return kinds.get('HEAD') === false && kinds.get('objects') === true && kinds.get('refs') === true
+  } catch {
+    return false
   }
-  return true
 }
 
 /**
@@ -402,6 +401,8 @@ async function discardUntracked(
   // repository shows up as one directory entry, and a recursive delete would take
   // the entire inner repository with it. A plain directory that merely *contains*
   // a repo is still discarded as a whole — that boundary is deliberate (#46).
+  // The remove loop below re-checks each directory right before its own removal:
+  // only that instant can still see a repository appear after this scan.
   const directoryEntries = new Set(snap.value.changes.filter((c) => c.isDirectory === true).map((c) => c.path))
   for (const path of untracked) {
     if (!directoryEntries.has(path)) continue
@@ -431,6 +432,13 @@ async function discardUntracked(
     if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
       return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `path escapes repository: ${path}` } } }
     }
+    // Last-moment re-check: the pre-flight above can be raced by a repository
+    // appearing under a directory target after it scanned. Statting again
+    // immediately before the removal narrows that window to the few syscalls
+    // between this call and the `rm` itself.
+    if (await looksLikeRepository(deps, target)) {
+      return { ok: false, result: { ok: false, error: { code: 'nested-repo', message: `repository directory: ${path}` } } }
+    }
     try {
       await deps.fs.remove(target)
     } catch (e) {
@@ -438,9 +446,12 @@ async function discardUntracked(
     }
   }
   if (failures.length > 0) {
+    // Named shortfalls: which paths failed, and that the tracked half of the
+    // request never ran because the untracked deletions are attempted first.
+    const skipped = tracked.length > 0 ? `; ${tracked.length} tracked path(s) not restored` : ''
     return {
       ok: false,
-      result: { ok: false, error: { code: 'git-error', message: `could not discard ${failures.length} path(s): ${failures.join('; ')}` } },
+      result: { ok: false, error: { code: 'git-error', message: `could not discard ${failures.length} path(s): ${failures.join('; ')}${skipped}` } },
     }
   }
   return { ok: true, remainingTracked: tracked }

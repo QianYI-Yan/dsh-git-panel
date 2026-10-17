@@ -1,8 +1,7 @@
 /**
  * Filesystem face of `SnapshotDeps`, built in one place so the host service and
- * the unit-test harness share a single wiring. A mirrored copy is exactly how an
- * untracked directory once slipped through: the harness had the same missing
- * `recursive` as the production code it was supposed to assert against.
+ * the unit-test harness consume the same wiring: a mirrored copy can silently
+ * drift from production, and a drifted harness then asserts the wrong behavior.
  */
 import { lstat, readdir, readFile, readlink, realpath, rm, stat } from 'node:fs/promises'
 import type { SnapshotDeps } from './core.js'

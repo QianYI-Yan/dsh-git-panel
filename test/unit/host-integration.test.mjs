@@ -58,8 +58,8 @@ function runGit(cwd, args) {
 function depsAt(dir) {
   return {
     run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
-    // The production wiring itself, never a mirror: an untracked directory once
-    // slipped through because the mirrored copy shared its missing `recursive`.
+    // The production wiring itself, never a mirror: identical wiring is what
+    // makes these tests evidence about the host rather than about a copy.
     fs: createFsDeps(),
     sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }
@@ -1216,16 +1216,82 @@ test('a failed untracked removal surfaces as an error instead of a silent succes
     await runGit(dir, ['init', '-q'])
     await runGit(dir, ['config', 'user.email', 't@t.co'])
     await runGit(dir, ['config', 'user.name', 'Tester'])
-    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
-    const { writeFileSync, existsSync } = await import('node:fs')
+    const { writeFileSync, existsSync, readFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 't.txt'), 'v1\n')
+    await runGit(dir, ['add', 't.txt'])
+    await runGit(dir, ['commit', '-qm', 'add t'])
+    writeFileSync(join(dir, 't.txt'), 'v2\n')
     writeFileSync(join(dir, 'u.txt'), 'junk\n')
     const deps = depsAt(dir)
     deps.fs.remove = async () => { throw new Error('EACCES: permission denied') }
-    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt'] } })
+    // The batch carries a tracked path too: it never reaches `git restore`
+    // (the untracked deletions run first and abort), so the message must say
+    // so — "could not discard 1" alone would hide the un-restored tracked half.
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt', 't.txt'] } })
     assert.equal(res.ok, false, 'the removal failure is reported, not swallowed')
     assert.equal(res.error.code, 'git-error')
-    assert.match(res.error.message, /could not discard 1 path\(s\): u\.txt: EACCES/)
+    assert.match(res.error.message, /could not discard 1 path\(s\): u\.txt: EACCES/, 'names the path that failed')
+    assert.match(res.error.message, /1 tracked path\(s\) not restored$/, 'also names the tracked half that was skipped')
     assert.equal(existsSync(join(dir, 'u.txt')), true, 'the file is still there — the ui must not claim success')
+    assert.equal(readFileSync(join(dir, 't.txt'), 'utf8'), 'v2\n', 'the tracked file really was not restored')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a directory of three plain files named like bare markers is not mistaken for a repository', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-lookalike-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'plain'))
+    writeFileSync(join(dir, 'plain', 'HEAD'), 'not a repo\n')
+    writeFileSync(join(dir, 'plain', 'objects'), 'a file, not a directory\n')
+    writeFileSync(join(dir, 'plain', 'refs'), 'a file, not a directory\n')
+    // The bare-layout check types the markers: only a HEAD *file* beside
+    // objects/ and refs/ *directories* counts, so this ordinary folder must
+    // be discarded rather than refused as a repository.
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['plain'] } })
+    assert.equal(res.ok, true, 'files named like bare markers do not make a repository')
+    assert.equal(existsSync(join(dir, 'plain')), false, 'the ordinary directory is discarded as a whole')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a repository appearing after the batch pre-flight is caught by the per-path re-check', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-race-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'morph'))
+    await runGit(join(dir, 'morph'), ['init', '-q'])
+    writeFileSync(join(dir, 'morph', 'x.txt'), 'x\n')
+    const deps = depsAt(dir)
+    // `morph` really is a nested repository, but the pre-flight's probe of its
+    // `.git` misses (ENOENT) — the shape of a repository appearing after the
+    // batch scan. Only the last-moment re-check in the remove loop sees it.
+    const realStat = deps.fs.stat
+    let probes = 0
+    deps.fs.stat = async (p) => {
+      if (p.endsWith('/morph/.git')) {
+        probes += 1
+        if (probes === 1) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; throw e }
+      }
+      return realStat(p)
+    }
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['morph'] } })
+    assert.equal(res.ok, false, 'the racing repository is refused instead of deleted')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.ok(probes >= 2, 'the entry was probed again immediately before removal')
+    assert.equal(existsSync(join(dir, 'morph', '.git')), true, 'the repository that appeared mid-request is intact')
+    assert.equal(existsSync(join(dir, 'morph', 'x.txt')), true, 'nothing inside it was removed')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
