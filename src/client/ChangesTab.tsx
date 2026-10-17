@@ -20,7 +20,7 @@ import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell }
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-import { pickDiscardTargets } from './discard-targets.js'
+import { changeKey, pathOfKey, pickDiscardTargets } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -156,7 +156,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   useEffect(() => {
     setSelected((prev) => {
       if (prev.size === 0) return prev
-      const alive = new Set(snapshot.changes.map((c) => c.path + (c.staged ? ':s' : ':w')))
+      const alive = new Set(snapshot.changes.map((c) => changeKey(c)))
       const next = new Set<string>()
       let changed = false
       for (const k of prev) { if (alive.has(k)) next.add(k); else changed = true }
@@ -259,7 +259,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     const text = message.trim()
     if (text === '' && !amend) { setError(t('error.emptyMessage')); return }
     // Selection keys carry a :s/:w side suffix; commit works on bare paths.
-    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => k.replace(/:[sw]$/, '')))] : undefined
+    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => pathOfKey(k)))] : undefined
     const ok = await run({ kind: 'commit', message: text, ...(paths ? { paths } : {}), ...(amend ? { amend: true } : {}) })
     if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false); setCommitOpen(false) }
   }
@@ -314,7 +314,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     }
     setArmedSuggest(false)
     // Selection keys carry a :s/:w side suffix; the suggestion scopes to bare paths.
-    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => k.replace(/:[sw]$/, '')))] : undefined
+    const paths = selected.size > 0 ? [...new Set([...selected].map((k) => pathOfKey(k)))] : undefined
     setSuggesting(true)
     setError(null)
     setNotice(null)
@@ -496,7 +496,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
             // active / armed by path+side so acting on one row doesn't light up
             // the other.
             const c = it.c
-            const rowKey = c.path + (c.staged ? ':s' : ':w')
+            const rowKey = changeKey(c)
             return h('div', {
               key: rowKey, className: 'gp-changes__vrow', style: { top: tops[idx], height: VROW_H },
             }, renderFileRow(c, {
@@ -700,7 +700,7 @@ interface RowActions {
 function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
   const name = c.path.split('/').pop() ?? c.path
   const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
-  return h('div', { key: c.path + (c.staged ? ':s' : ':w'), className: `gp-file-row${a.active ? ' gp-file-row--active' : ''}`, onClick: a.onOpen }, [
+  return h('div', { key: changeKey(c), className: `gp-file-row${a.active ? ' gp-file-row--active' : ''}`, onClick: a.onOpen }, [
     h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: a.selected, onClick: (e: Event) => e.stopPropagation(), onChange: a.onToggle }),
     h('span', { key: 'st', className: `gp-status-badge ${statusClass(c.status)}` }, statusChar[c.status] ?? '?'),
     h('span', { key: 'nm', className: 'gp-tree-name', title: c.path }, [name, dir ? h('span', { key: 'd', style: { color: 'var(--dsw-alias-label-tertiary)', marginLeft: 6, fontSize: 11 } }, dir) : null]),

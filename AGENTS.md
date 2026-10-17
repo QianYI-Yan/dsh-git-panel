@@ -55,7 +55,7 @@ Host 半 (Cordis + typert, lib/host)
 - 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
 - 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
 - 页面：`Panel.tsx`（子 tab 路由、字号、版本条）、`OverviewTab.tsx` + `overview-hooks.ts` / `overview-statusbar.tsx` / `overview-modals.tsx`、`ChangesTab.tsx` + `changes-hooks.ts` / `ChangesToolbar.tsx` / `ChangeStats.tsx`、`DiffView.tsx` + `image-diff-hook.ts` / `ImageCompare.tsx`、`FilesTab.tsx`、`GitPill.tsx`、`PillConfig.tsx`。
-- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`discard-targets.ts`、`branch-options.ts`、`push-policy.ts`。
+- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`。
 - 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`（悬浮提示）、`notice.tsx`（可关闭提示条）、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 
@@ -79,6 +79,7 @@ Host 半 (Cordis + typert, lib/host)
 - **写操作回灌**：动工作区的操作经 `onAction` 由 controller 接受新快照驱动刷新；标签操作不动工作区，以本地 `opBump` 刷新。分支切换成功后广播工作区世代（失效文件浏览缓存）并静默执行一次检查同步。
 - **双层信封**：RPC 返回 `{ ok, value }` 是传输层结果，业务结果 `{ ok, value|error }` 在 `value` 内，两层都要判。
 - **选择集随快照修剪**：勾选的路径在新快照中消失必须移除，否则提交序列会中止。
+- **选择键单一权威**：变更列表的选择键（`path:s` index 侧 / `path:w` 工作区侧）只能经 `src/client/selection-keys.ts` 的 `changeKey` / `sideOf` / `pathOfKey` 构造与解析，调用点不得内联拼接或就地正则剥离。
 - **不完整数据不静默**：快照截断（`truncated` + `truncatedReason`）、未跟踪回落折叠（`untrackedCollapsed`）、统计降级（`stats.partial`）、diff 输出截断（`truncated`）、suggest 输入截断都要带标记并在 UI 用 `NoticeBar` 提示。`newLines` 为 0 表示新侧行数不可信，视图不得渲染尾部展开控件。
 - **大仓库限流**（issue #16）：逐文件 fan-out 有上限（`STATS_FANOUT_LIMIT`、`UNTRACKED_NUMSTAT_LIMIT`），超限降级统计而不是每轮轮询刷出几百个 git 进程；「展开全部」上下文是有界的 `DIFF_EXPAND_CONTEXT`，不要放大到整文件。
 
