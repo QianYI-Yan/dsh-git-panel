@@ -19,6 +19,7 @@ import { ZoomableImage } from './ImageZoom.js'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
+import { canCopyContent } from './copy-content.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -225,7 +226,9 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   }
 
   const copyContent = async (): Promise<void> => {
-    if (file.kind !== 'text') return
+    // Re-checked at click time: only a loaded text document under the copy
+    // envelope may reach the clipboard, never binary/image/oversized bodies.
+    if (file.kind !== 'text' || !canCopyContent(file)) return
     const seq = fileSeq.current
     const ok = await writeClipboard(file.content)
     if (seq !== fileSeq.current) return
@@ -271,7 +274,9 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
         key: 'copy', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
         'aria-live': 'polite', onClick: () => { void copyPath() },
       }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
-      file.kind === 'text'
+      // Hidden (not disabled) for binary/image/too-large/error previews and
+      // for documents at/above the copy envelope — no dead control to click.
+      canCopyContent(file)
         ? h('button', {
           key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
           'aria-live': 'polite', onClick: () => { void copyContent() },
