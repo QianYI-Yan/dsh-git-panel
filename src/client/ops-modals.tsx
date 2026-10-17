@@ -33,6 +33,7 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'index-busy': return t('error.indexBusy')
     case 'not-found': return t('error.notFound')
     case 'branch-in-use': return t('error.branchInUse')
+    case 'nested-repo': return t('error.nestedRepo')
     // The cause varies (branch in use, missing ref, conflict), so the raw git
     // message rides along — the localized text alone would not say why.
     case 'stash-switch-failed': return t('error.stashSwitchFailed', { reason: message ?? '' })

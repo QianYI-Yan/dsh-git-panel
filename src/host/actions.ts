@@ -373,6 +373,21 @@ async function discardUntracked(
   const untracked = paths.filter((p) => untrackedSet.has(p))
   if (untracked.length === 0) return null
   const tracked = paths.filter((p) => !untrackedSet.has(p))
+  // Refuse the whole request (before removing anything) when an untracked
+  // directory entry is itself a repository: a nested repo or a submodule shows
+  // up as one directory entry, and a recursive delete would take the entire
+  // inner repository with it. A plain directory that merely *contains* a repo
+  // is still discarded as a whole — that boundary is deliberate (issue #46).
+  const directoryEntries = new Set(snap.value.changes.filter((c) => c.isDirectory === true).map((c) => c.path))
+  for (const path of untracked) {
+    if (!directoryEntries.has(path)) continue
+    try {
+      await deps.fs.stat(join(root, path, '.git'))
+    } catch {
+      continue // no .git entry — an ordinary directory
+    }
+    return { ok: false, result: { ok: false, error: { code: 'nested-repo', message: `nested repository: ${path}` } } }
+  }
   let rootReal: string
   try {
     rootReal = await deps.fs.realpath(root)

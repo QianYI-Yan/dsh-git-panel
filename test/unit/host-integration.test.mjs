@@ -1127,6 +1127,71 @@ test('discard removes an untracked directory (recursively) from the work tree', 
   }
 })
 
+test('discard refuses an untracked directory that is itself a repository (issue #46)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-nested-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'nested'))
+    await runGit(join(dir, 'nested'), ['init', '-q'])
+    writeFileSync(join(dir, 'nested', 'x.txt'), 'x\n')
+    const snap = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(snap.ok, true)
+    assert.deepEqual(snap.value.changes.map((c) => [c.path, c.isDirectory]), [['nested', true]])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['nested'] } })
+    assert.equal(res.ok, false, 'a nested repository is refused instead of deleted')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'nested', '.git')), true, 'the inner repository is intact')
+    assert.equal(existsSync(join(dir, 'nested', 'x.txt')), true, 'nothing inside it was removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard refuses a submodule-style entry (its .git is a file)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-submod-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'sub'))
+    writeFileSync(join(dir, 'sub', '.git'), 'gitdir: ../.git/modules/sub\n')
+    writeFileSync(join(dir, 'sub', 'y.txt'), 'y\n')
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['sub'] } })
+    assert.equal(res.ok, false, 'a submodule-shaped entry is refused too')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'sub', 'y.txt')), true, 'the entry is untouched')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a plain directory that merely contains a repository is still discarded as a whole (#46 boundary)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-outerdir-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'outer', 'inner'), { recursive: true })
+    await runGit(join(dir, 'outer', 'inner'), ['init', '-q'])
+    writeFileSync(join(dir, 'outer', 'inner', 'z.txt'), 'z\n')
+    // Deliberate boundary (issue #46): only an entry that *is* a repository is
+    // refused. Discarding the containing directory takes its subtree with it.
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['outer'] } })
+    assert.equal(res.ok, true)
+    assert.equal(existsSync(join(dir, 'outer')), false, 'the containing directory goes away as a whole')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a failed untracked removal surfaces as an error instead of a silent success', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-discfail-'))
   try {
