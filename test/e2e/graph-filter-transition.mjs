@@ -39,10 +39,15 @@ try {
     const full = [A, C, hiddenJ, hiddenH, B, root]
     const first = [A, B, root]
     const second = [C, hiddenH]
+    // The toolbar's fetch entry is what retries a failed filter below, and it
+    // refuses to run with no remote configured (`runCheckSync` guards on
+    // `remote === null`), so the fixture needs one even though this runner only
+    // asserts the graph transitions.
     const snapshot = {
       root: 'graph-transition-fixture', branch: 'main', head: A.shortHash,
       dirty: false, unborn: false, staged: 0, modified: 0, untracked: 0,
-      ahead: 0, behind: 0, hasUpstream: false, changes: [], remote: null,
+      ahead: 0, behind: 0, hasUpstream: false, changes: [],
+      remote: { name: 'origin', webUrl: 'https://github.com/example/transition', hostKind: 'github' },
       refreshIntervalMs: 0, checkedAt: Date.now(), graphStyle: 'parallel',
       stats: { fileCount: 0, staged: 0, modified: 0, untracked: 0, insertions: 0, deletions: 0, lastChangeAt: null, headCommittedAt: null },
     }
