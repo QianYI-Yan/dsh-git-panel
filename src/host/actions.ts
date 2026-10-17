@@ -353,6 +353,30 @@ export async function runAction(
   return { ok: true, snapshot: snapshot.value, output: lastOutput.trim() }
 }
 
+/** A bare repository has no `.git`; these three entries always sit side by side. */
+const BARE_REPO_MARKERS = ['HEAD', 'objects', 'refs'] as const
+
+/**
+ * Whether a work-tree directory is a repository of its own: a nested repo or a
+ * submodule (`.git`, directory or file) or a bare repository (no `.git`, but
+ * `HEAD` beside `objects/` and `refs/`). `discard` refuses all of them — a
+ * recursive delete would take a whole repository's history with it (issue #46).
+ */
+async function looksLikeRepository(deps: SnapshotDeps, target: string): Promise<boolean> {
+  try {
+    await deps.fs.stat(join(target, '.git'))
+    return true
+  } catch { /* not a nested repo / submodule — check the bare layout below */ }
+  for (const marker of BARE_REPO_MARKERS) {
+    try {
+      await deps.fs.stat(join(target, marker))
+    } catch {
+      return false // a bare repository carries all three markers
+    }
+  }
+  return true
+}
+
 /**
  * Split a discard request into untracked paths (deleted from the work tree
  * directly, since `git restore` can't touch them) and tracked paths (left for
@@ -374,19 +398,15 @@ async function discardUntracked(
   if (untracked.length === 0) return null
   const tracked = paths.filter((p) => !untrackedSet.has(p))
   // Refuse the whole request (before removing anything) when an untracked
-  // directory entry is itself a repository: a nested repo or a submodule shows
-  // up as one directory entry, and a recursive delete would take the entire
-  // inner repository with it. A plain directory that merely *contains* a repo
-  // is still discarded as a whole — that boundary is deliberate (issue #46).
+  // directory entry is itself a repository: a nested repo, a submodule or a bare
+  // repository shows up as one directory entry, and a recursive delete would take
+  // the entire inner repository with it. A plain directory that merely *contains*
+  // a repo is still discarded as a whole — that boundary is deliberate (#46).
   const directoryEntries = new Set(snap.value.changes.filter((c) => c.isDirectory === true).map((c) => c.path))
   for (const path of untracked) {
     if (!directoryEntries.has(path)) continue
-    try {
-      await deps.fs.stat(join(root, path, '.git'))
-    } catch {
-      continue // no .git entry — an ordinary directory
-    }
-    return { ok: false, result: { ok: false, error: { code: 'nested-repo', message: `nested repository: ${path}` } } }
+    if (!(await looksLikeRepository(deps, join(root, path)))) continue
+    return { ok: false, result: { ok: false, error: { code: 'nested-repo', message: `repository directory: ${path}` } } }
   }
   let rootReal: string
   try {

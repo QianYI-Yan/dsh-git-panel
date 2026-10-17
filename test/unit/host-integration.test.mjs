@@ -1171,6 +1171,24 @@ test('discard refuses a submodule-style entry (its .git is a file)', async () =>
   }
 })
 
+test('discard refuses a bare repository directory (no .git, HEAD + objects + refs)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-bare-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
+    const { existsSync } = await import('node:fs')
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
+    assert.equal(res.ok, false, 'a bare repository is refused too')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'bare.git', 'HEAD')), true, 'the bare repository is intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a plain directory that merely contains a repository is still discarded as a whole (#46 boundary)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-outerdir-'))
   try {
