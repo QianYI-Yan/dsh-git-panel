@@ -364,6 +364,8 @@ export function assertPanelResults(out, realInput, errors) {
   }, 'the confirm runs the tracking checkout, stashing first when chosen')
   assert.equal(out.switchModalClosed, true, 'a landed switch closes the dialog')
   assert.equal(out.switchReloadedBranches, true, 'a landed switch reloads the branch list')
+  assert.equal(out.switchSyncStateFresh, true, 'the switch itself refreshes the sync state (no manual refresh needed)')
+  assert.equal(out.switchAutoCheckSync, true, "a landed switch checks the new branch's remote state on its own")
   assert.equal(out.switchRefusalShown, true, 'a refused switch shows the refusal inside the dialog')
   assert.equal(out.switchRefusalStaysOpen, true, 'a refused switch keeps the dialog open for another choice')
   assert.equal(out.switchRelistsFiles, true, 'a branch switch makes the Files tab re-list the root')

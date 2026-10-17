@@ -347,6 +347,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // `onAction` (the fresh snapshot feeds the controller → query signal advances →
   // history, branch list, changes and Files caches all reload). `stash` is the
   // user's explicit choice in the confirm dialog for a dirty work tree.
+  // The new branch tracks a different upstream, and the ahead/behind counts are
+  // only as fresh as the last fetch: check the remote state right away so the
+  // status bar cannot keep claiming "up to date" from stale remote-tracking refs
+  // (silent — the switch itself must not surface a network failure).
   const runBranchSwitch = async (stash: boolean): Promise<void> => {
     if (switchTarget === null || switchBusy) return
     setOpError(null)
@@ -358,23 +362,29 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ...(switchTarget.createFrom === undefined ? {} : { createFrom: switchTarget.createFrom }),
         ...(stash ? { stashMessage: t('switch.stashMessage', { branch: switchTarget.name }) } : {}),
       })
-      if (res.ok) setSwitchTarget(null)
-      else setOpError(res.error ?? t('error.generic'))
+      if (res.ok) {
+        setSwitchTarget(null)
+        void runCheckSync(true)
+      } else setOpError(res.error ?? t('error.generic'))
     } finally { setSwitchBusy(false) }
   }
 
   // Sync check = `git fetch` routed through onAction so the fresh snapshot
   // (updated ahead/behind) feeds straight back into the panel; the branch/tag
   // list reloads too. Pull = `git pull --ff-only`, also through onAction.
-  const runCheckSync = async (): Promise<void> => {
-    if (syncBusy) return
-    setSyncError(null)
+  // `silent` (the automatic check after a branch switch) leaves the status bar's
+  // error slot alone: a background check that fails must not put an alert in
+  // front of the user, and the last known state stays valid.
+  const runCheckSync = async (silent = false): Promise<void> => {
+    if (syncBusy || snapshot.remote === null) return
+    if (!silent) setSyncError(null)
     setSyncBusy(true)
     try {
       const res = await onAction({ kind: 'fetch' })
-      if (!res.ok) setSyncError(res.error ?? t('error.generic'))
+      if (res.ok) setSyncError(null)
+      else if (!silent) setSyncError(res.error ?? t('error.generic'))
     } catch (e) {
-      setSyncError(e instanceof Error ? e.message : t('error.generic'))
+      if (!silent) setSyncError(e instanceof Error ? e.message : t('error.generic'))
     } finally { setSyncBusy(false) }
   }
   const runPullFf = async (): Promise<void> => {

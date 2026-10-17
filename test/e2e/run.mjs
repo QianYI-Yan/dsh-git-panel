@@ -713,13 +713,29 @@ const out = await page.evaluate(async (snap) => {
   stashRadio?.querySelector('input')?.click()
   await wait(60)
   result.switchStashRelabel = confirmText().includes('switch.confirmStash')
+  // The switch refreshes the panel from the snapshot the action returned, and
+  // then checks the new branch's remote state on its own: a switch moves to a
+  // different upstream, and the ahead/behind counts are only as fresh as the
+  // last fetch. The parked fetch keeps the two apart — the status bar must
+  // already show the returned snapshot's sync state while the automatic check
+  // is still in flight.
+  fixture.holdFetch = true
+  fixture.snapshot = { ...snap, ahead: 0, behind: 5, hasUpstream: true }
+  const switchActionsBefore = fixture.actions.length
   const confirmBtn = [...document.querySelectorAll('.gp-modal__footer .gp-btn')].find((b) => (b.textContent || '').includes('switch.confirmStash'))
   confirmBtn?.click()
-  await wait(150)
-  const switchAction = fixture.actions[fixture.actions.length - 1]
-  result.switchAction = switchAction
+  await wait(200)
+  const switchActions = fixture.actions.slice(switchActionsBefore)
+  result.switchAction = switchActions.find((a) => a.kind === 'branch-checkout')
+  result.switchAutoCheckSync = switchActions.some((a) => a.kind === 'fetch')
   result.switchModalClosed = document.querySelector('.gp-modal__path') === null
   result.switchReloadedBranches = fixture.branchQueries > branchQueriesBefore
+  result.switchSyncStateFresh = (document.querySelector('.gp-col--left .gp-statusbar__state')?.textContent || '').includes('status.behind')
+  const releaseSwitchFetch = fixture.releaseFetch
+  fixture.releaseFetch = null
+  fixture.holdFetch = false
+  releaseSwitchFetch?.()
+  await wait(150)
   fixture.snapshot = snap
   await clickCheck()
   // Closing the confirm without confirming runs nothing.
