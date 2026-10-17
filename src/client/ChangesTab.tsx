@@ -589,7 +589,10 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
         ...a.tipProps(c.staged ? a.t('changes.unstageTip') : a.t('changes.stageTip')),
         onClick: (e: Event) => { e.stopPropagation(); a.hideTip(); a.onStage() },
       }, c.staged ? '\u2212' : '+'),
-      h('button', {
+      // Discard is a working-tree operation (`git restore --`), so it lives on
+      // the working-tree side only: an index-side row has nothing to discard
+      // (and a staged delete makes the command fail outright).
+      c.staged ? null : h('button', {
         key: 'dis', type: 'button', className: 'gp-icon-btn',
         'aria-label': a.armed ? a.t('changes.discardConfirm') : a.t('changes.discard'),
         style: a.armed ? { color: 'var(--dsw-alias-state-error-primary)' } : {},

@@ -117,6 +117,12 @@ async function batchScenario() {
       .find((b) => b.classList.contains('gp-btn--danger')) ?? null
 
     result.rows = rows().map((r) => `${r.querySelector('.gp-tree-name')?.textContent}:${r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent}`)
+    // Per-row action inventory: discard is a working-tree operation, so the
+    // index-side rows must offer unstage only.
+    result.rowActions = rows().map((r) => ({
+      row: `${r.querySelector('.gp-tree-name')?.textContent}:${r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent}`,
+      labels: [...r.querySelectorAll('.gp-file-row__actions .gp-icon-btn')].map((b) => b.getAttribute('aria-label')),
+    }))
     const toolbar = [...document.querySelector('.gp-toolbar').children]
     result.toolbar = toolbar.map((b) => b.textContent)
     // The new entry sits between "unstage all" and "stash changes".
@@ -278,6 +284,14 @@ try {
   // Fixture sanity: the staged group lists dup.txt + s1.txt, the unstaged group
   // dup.txt + w1.txt (one row per side), and neither group is collapsed.
   assert.deepEqual(batch.out.rows, ['dup.txt:\u2212', 's1.txt:\u2212', 'dup.txt:+', 'w1.txt:+'], 'one row per changed side, staged group first')
+  // The index side has no working-tree changes to discard: offering the button
+  // there used to no-op (`M `/`A `/`R `) or fail outright (`D `).
+  assert.deepEqual(batch.out.rowActions, [
+    { row: 'dup.txt:\u2212', labels: ['取消暂存'] },
+    { row: 's1.txt:\u2212', labels: ['取消暂存'] },
+    { row: 'dup.txt:+', labels: ['暂存', '放弃更改'] },
+    { row: 'w1.txt:+', labels: ['暂存', '放弃更改'] },
+  ], 'index-side rows offer unstage only; working-tree rows keep both actions')
   assert.equal(batch.out.entryAfterUnstageAll, true, 'the discard entry follows "unstage all": ' + JSON.stringify(batch.out.toolbar))
   assert.equal(batch.out.entryBeforeStash, true, 'the discard entry precedes "stash changes": ' + JSON.stringify(batch.out.toolbar))
   assert.equal(batch.out.entryLabel, '放弃选中的更改', 'toolbar label is the zh entry copy')
