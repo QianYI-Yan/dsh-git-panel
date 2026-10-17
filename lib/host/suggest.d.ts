@@ -19,5 +19,18 @@ export declare function parseStyleHistory(stdout: string, ownEmail: string | und
  * neutral fallback.
  */
 export declare function resolveSuggestLanguage(setting: SuggestLanguage, samples: readonly string[]): ResolvedLanguage;
+/** A diff line longer than this is replaced by a one-line marker before the
+ * model-input budget is applied. Build output is minified into single lines (a
+ * bundled `lib/client.js` line can be hundreds of KB), so shipping it verbatim
+ * spends the whole `suggestMaxBytes` budget on one line and cuts off the hunks
+ * that actually describe the change. Line count and the diff prefix are kept,
+ * so `@@` headers still describe the same regions. */
+export declare const LONG_LINE_MAX_CHARS = 400;
+/** Fold over-long lines into `<prefix>… [long line: N chars omitted]`.
+ * `N` counts UTF-16 code units (what `String.length` reports), not bytes. */
+export declare function compactLongLines(text: string, maxChars?: number): {
+    text: string;
+    folded: number;
+};
 /** Generate a commit message for the session's uncommitted changes. */
 export declare function runSuggest(deps: SnapshotDeps, config: GitPanelConfig, request: GitSuggestRequest): Promise<GitSuggestResult>;

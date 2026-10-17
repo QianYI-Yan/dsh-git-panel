@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { runSuggest, snapshotForSession, createGitRunner, DEFAULT_CONFIG, normalizeConfig, resolveSuggestLanguage, parseStyleHistory, isCjkText } from '../../lib/host/index.js'
+import { runSuggest, snapshotForSession, createGitRunner, DEFAULT_CONFIG, normalizeConfig, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from '../../lib/host/index.js'
 import { SUGGEST_LIMITS, SUGGEST_LANGUAGES } from '../../lib/host/types.js'
 
 let repo
@@ -670,17 +670,17 @@ test('timeout: a stream that never finishes maps to llm-error', async () => {
   }
 })
 
-test('suggest defaults: 128 KiB diff budget, 4096 output tokens, 15 s timeout', () => {
+test('suggest defaults: 200 KiB diff budget, 4096 output tokens, 15 s timeout', () => {
   // The output default mirrors dsh-base session-title-llm (maxOutputTokens
   // 4096): reasoning a model cannot switch off counts against it.
-  assert.equal(DEFAULT_CONFIG.suggestMaxBytes, 128 * 1024)
+  assert.equal(DEFAULT_CONFIG.suggestMaxBytes, 200 * 1024)
   assert.equal(DEFAULT_CONFIG.suggestMaxOutputTokens, 4096)
   assert.equal(DEFAULT_CONFIG.suggestTimeoutMs, 15000)
 })
 
 test('normalizeConfig clamps suggest limits to their ranges', () => {
   const base = normalizeConfig({})
-  assert.equal(base.suggestMaxBytes, 128 * 1024)
+  assert.equal(base.suggestMaxBytes, 200 * 1024)
   assert.equal(base.suggestMaxOutputTokens, 4096)
   assert.equal(base.suggestTimeoutMs, 15000)
   // Legal but out-of-range values clamp to the boundary (a typed 999999
@@ -693,7 +693,7 @@ test('normalizeConfig clamps suggest limits to their ranges', () => {
   assert.equal(normalizeConfig({ suggestTimeoutMs: 9999999 }).suggestTimeoutMs, 120000)
   // Fractional floors; non-numeric falls back to the default.
   assert.equal(normalizeConfig({ suggestMaxOutputTokens: 2048.9 }).suggestMaxOutputTokens, 2048)
-  assert.equal(normalizeConfig({ suggestMaxBytes: 'bogus' }).suggestMaxBytes, 128 * 1024)
+  assert.equal(normalizeConfig({ suggestMaxBytes: 'bogus' }).suggestMaxBytes, 200 * 1024)
   assert.equal(normalizeConfig({ suggestTimeoutMs: null }).suggestTimeoutMs, 15000)
   // In-range values pass through untouched.
   const kept = normalizeConfig({ suggestMaxBytes: 64 * 1024, suggestMaxOutputTokens: 1024, suggestTimeoutMs: 30000 })
@@ -740,4 +740,70 @@ test('suggest limit display units divide exactly', () => {
   assert.equal(SUGGEST_LIMITS.maxBytes.max % 1024, 0)
   assert.equal(SUGGEST_LIMITS.timeoutMs.min % 1000, 0)
   assert.equal(SUGGEST_LIMITS.timeoutMs.max % 1000, 0)
+})
+
+test('compactLongLines folds minified lines but keeps the diff skeleton', () => {
+  const input = [
+    'diff --git a/lib/client.js b/lib/client.js',
+    '@@ -1 +1 @@',
+    '+const x=1',
+    '+' + 'y'.repeat(5000),
+    '-short',
+    ' context',
+  ].join('\n') + '\n'
+  const out = compactLongLines(input)
+  const lines = out.text.split('\n')
+  assert.equal(out.folded, 1)
+  assert.equal(lines.length, input.split('\n').length, 'line count is preserved')
+  assert.equal(lines[2], '+const x=1')
+  assert.equal(lines[3], '+\u2026 [long line: 5001 chars omitted]')
+  assert.equal(lines[4], '-short')
+  assert.equal(compactLongLines('a\nb').folded, 0)
+  assert.equal(compactLongLines('x'.repeat(LONG_LINE_MAX_CHARS)).folded, 0, 'a line at the cap is left alone')
+  const cjk = compactLongLines('+' + '中'.repeat(LONG_LINE_MAX_CHARS))
+  assert.equal(cjk.folded, 1, 'wide characters count by character, not byte')
+  assert.match(cjk.text, /^\+\u2026 \[long line: 401 chars omitted\]$/)
+  // Structural lines stay byte-exact: folding them would erase the hunk
+  // coordinates / file identity the model needs to place the change.
+  const hunk = '@@ -1,3 +1,3 @@ ' + 'f'.repeat(500)
+  const header = `diff --git a/${'p'.repeat(500)} b/${'p'.repeat(500)}`
+  const structural = compactLongLines(`${hunk}\n${header}\n+${'x'.repeat(500)}`)
+  assert.equal(structural.folded, 1, 'only the content line folds')
+  assert.equal(structural.text.split('\n')[0], hunk)
+  assert.equal(structural.text.split('\n')[1], header)
+})
+
+test('long minified lines are folded before the budget instead of truncated out', async () => {
+  const longRepo = mkdtempSync(join(tmpdir(), 'gp-suggest-long-'))
+  try {
+    await runGit(longRepo, ['init', '-q'])
+    await runGit(longRepo, ['config', 'user.email', 't@t.co'])
+    await runGit(longRepo, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(longRepo, 'lib.js'), 'export const x = 1\n')
+    await runGit(longRepo, ['add', 'lib.js'])
+    await runGit(longRepo, ['commit', '-qm', 'feat: add lib.js'])
+    // The build rewrites the bundle as one enormous line.
+    writeFileSync(join(longRepo, 'lib.js'), 'export const x=1;' + 'y'.repeat(5000) + '\n')
+    // An untracked file with a long line is folded the same way.
+    writeFileSync(join(longRepo, 'bundle.min.js'), 'z'.repeat(4000) + '\n')
+    const llm = stubLlm(OK_CHUNKS)
+    const deps = depsFor(longRepo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    // A real budget (1 KiB) keeps the ordering under test: if truncation ran
+    // before folding, the 9 KB of minified lines would leave only a header and
+    // `truncated` would be set. The folded prompt fits with room for the
+    // untracked chunk, so every marker below must survive.
+    const res = await runSuggest(deps, { ...DEFAULT_CONFIG, suggestMaxBytes: 1024 }, { sessionId: SID })
+    assert.equal(res.ok, true)
+    if (!res.ok) return
+    assert.equal(res.value.truncated, undefined, 'folding is not a budget truncation')
+    const frame = JSON.parse(llm.calls[0].messages[0].content[0].text)
+    assert.doesNotMatch(frame.diff, /\[diff truncated\]/, 'the folded diff fits the budget')
+    assert.match(frame.diff, /\+\u2026 \[long line: \d+ chars omitted\]/)
+    assert.match(frame.diff, /\+\u2026 \[long line: \d+ chars omitted\][\s\S]*\+\u2026 \[long line: \d+ chars omitted\]/)
+    assert.doesNotMatch(frame.diff, /y{1000}/)
+    assert.doesNotMatch(frame.diff, /z{1000}/)
+    assert.ok(frame.diff.length < 5000, 'the prompt diff stays small')
+  } finally {
+    rmSync(longRepo, { recursive: true, force: true })
+  }
 })

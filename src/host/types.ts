@@ -565,7 +565,7 @@ export interface GitQueryRequest {
  * and guarded by test).
  */
 export const SUGGEST_LIMITS = {
-  maxBytes: { min: 16 * 1024, max: 512 * 1024, default: 128 * 1024 },
+  maxBytes: { min: 16 * 1024, max: 512 * 1024, default: 200 * 1024 },
   maxOutputTokens: { min: 256, max: 16384, default: 4096 },
   timeoutMs: { min: 5000, max: 120000, default: 15000 },
 } as const
