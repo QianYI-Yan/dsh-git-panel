@@ -20,6 +20,7 @@ import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell }
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { pickDiscardTargets } from './discard-targets.js'
+import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { useHoverTip } from './tip.js'
 
 interface ChangesTabProps {
@@ -162,14 +163,6 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Batch discard targets: the selected working-tree paths, plus the staged-only
   // picks the confirm dialog reports as unaffected instead of dropping silently.
   const discardTargets = useMemo(() => pickDiscardTargets(selected), [selected])
-
-  // Untracked targets are deleted from disk and were never in the object store,
-  // unlike the tracked ones (`git restore --`, file survives): worth a line of
-  // its own in a dialog that deliberately names no files.
-  const discardTargetsUntracked = useMemo(() => {
-    const paths = new Set<string>(discardTargets.paths)
-    return snapshot.changes.filter((c) => c.status === 'untracked' && paths.has(c.path)).length
-  }, [discardTargets, snapshot])
 
   // A snapshot that removes every checked row empties the target set; close the
   // dialog rather than letting a stale "open" flag pop it back on the next pick.
@@ -468,34 +461,19 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onClose: () => setStashDrop(null),
       t,
     }) : null,
-    discardPickedOpen && discardTargets.paths.length > 0 ? renderConfirmModal({
-      title: t('changes.discardPickedTitle'),
-      // Only the count — the dialog is a guard rail, not a file list.
-      body: t('changes.discardPickedBody', { count: discardTargets.paths.length }),
-      // Index-side picks are not discarded; untracked targets are deleted from
-      // disk for good. Name both counts rather than dropping them silently (an
-      // unexplained shortfall is the bug report waiting to happen).
-      ...(discardTargets.stagedOnly.length > 0 || discardTargetsUntracked > 0
-        ? {
-          extra: h('div', { key: 'notes' }, [
-            discardTargets.stagedOnly.length > 0
-              ? h('div', { key: 'staged', className: 'gp-modal__confirmtext' }, t('changes.discardPickedStaged', { count: discardTargets.stagedOnly.length }))
-              : null,
-            discardTargetsUntracked > 0
-              ? h('div', { key: 'untracked', className: 'gp-modal__confirmtext' }, t('changes.discardPickedUntracked', { count: discardTargetsUntracked }))
-              : null,
-          ]),
-        }
-        : {}),
-      confirmLabel: t('changes.discard'),
-      danger: true,
-      error,
-      confirmBusy: busy,
-      busyLabel: t('changes.discarding'),
-      onConfirm: () => void discardPicked(),
-      onClose: () => setDiscardPickedOpen(false),
-      t,
-    }) : null,
+    discardPickedOpen && discardTargets.paths.length > 0
+      ? h(DiscardPickedModal, {
+        key: 'discard-picked',
+        paths: discardTargets.paths,
+        stagedOnly: discardTargets.stagedOnly,
+        snapshot,
+        busy,
+        error,
+        onConfirm: () => void discardPicked(),
+        onClose: () => setDiscardPickedOpen(false),
+        t,
+      })
+      : null,
   ]
 
   // Compact: a single column drilling from the change list into the diff.

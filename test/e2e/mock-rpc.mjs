@@ -13,6 +13,8 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     fileQueries: [],
     // Branch-switch probes: every `run` action lands here, and `branchQueries`
     // counts the branch-list reloads a landed checkout must trigger.
+    // `runFailure` forces a wire error for one action: `{kind?, code, message}`
+    // where `kind` names the action it applies to (default `branch-checkout`).
     runFailure: null, branchQueries: 0,
     secondaryQueryFailure: null, secondaryFailures: [], repeatedDiffRevision: null,
     deferBinaryDiff: false, releaseBinaryDiff: null,
@@ -124,12 +126,14 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
               return { ok: true, value: { ok: false, error } }
             }
           }
-          // A forced failure drives the refusal path (dirty work tree) without
-          // needing the mock to model git's real work-tree checks.
-          if (fixture.runFailure !== null && act.kind === 'branch-checkout') {
+          // A forced failure drives a refusal path (dirty work tree, nested
+          // repo, …) without the mock having to model the real git/fs checks;
+          // it fires once for the action named by `kind` (default checkout).
+          if (fixture.runFailure !== null && act.kind === (fixture.runFailure.kind ?? 'branch-checkout')) {
             const failure = fixture.runFailure
             fixture.runFailure = null
-            return { ok: true, value: { ok: false, error: failure } }
+            const { kind: _kind, ...error } = failure
+            return { ok: true, value: { ok: false, error } }
           }
           // A landed checkout moves HEAD: the panel must show the branch it read
           // back from the returned snapshot.

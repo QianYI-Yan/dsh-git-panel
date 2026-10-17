@@ -12,6 +12,9 @@
  *     tooltip (a `div.gp-tip.gp-tip--sb` portaled to body, ~140ms delay),
  *     including the armed "click again" wording, while `aria-label` keeps the
  *     short name and no native `title` is left behind.
+ * (e) A host refusal (`nested-repo`, e.g. discarding a directory that is
+ *     itself a repository) surfaces the localized zh copy inside the still-open
+ *     confirm dialog instead of closing it as if the discard had landed.
  *
  * Unlike the older runners this harness binds the *real* zh dictionary, so the
  * assertions pin the user-visible copy (and the body's {count} interpolation)
@@ -223,6 +226,35 @@ async function untrackedDirScenario() {
   return { out, errors }
 }
 
+/** (e): a `nested-repo` refusal keeps the dialog open with the localized copy. */
+async function nestedRepoErrorScenario() {
+  const { page, errors } = await openPanel(SNAP)
+  const out = await page.evaluate(async (glyphs) => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const rowOf = (name, glyph) => [...document.querySelectorAll('.gp-file-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === name
+      && (r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent ?? '') === glyph) ?? null
+    const picked = () => document.querySelector('.gp-changes__discard-picked')
+    // The host refuses a directory that is itself a repository; the mock
+    // replays that wire error for the discard action without modeling git.
+    window.__gpFixture.runFailure = { kind: 'discard', code: 'nested-repo', message: 'repository directory: newdir' }
+    rowOf('newdir', glyphs.stage)?.querySelector('input.gp-check')?.click()
+    await wait(60)
+    picked().click()
+    await wait(150)
+    const actionsBefore = window.__gpFixture.actions.length
+    ;[...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn--danger')][0]?.click()
+    await wait(250)
+    result.actions = window.__gpFixture.actions.slice(actionsBefore)
+    const modal = document.querySelector('.gp-modal--sm')
+    result.modalOpen = modal !== null
+    result.feedback = modal?.querySelector('.gp-feedback')?.textContent ?? null
+    return result
+  }, { stage: STAGE_GLYPH })
+  await page.close()
+  return { out, errors }
+}
+
 /** (c)+(d): real pointer hover on the row buttons, tip text and delay. */
 async function tipsScenario() {
   const { page, errors } = await openPanel(SNAP)
@@ -363,6 +395,14 @@ try {
     '其中 1 个是未跟踪的文件或目录，将从磁盘删除（不在 Git 历史中，无法恢复）。',
   ], 'untracked targets are called out as disk deletions')
   assert.deepEqual(untrackedDir.out.actions, [{ kind: 'discard', paths: ['newdir'] }], 'the untracked directory reaches the discard request')
+
+  // A refused discard must not read as success: the action lands, the dialog
+  // stays open, and the host's code is mapped to the localized zh copy.
+  const refused = await nestedRepoErrorScenario()
+  assert.equal(refused.errors.length, 0, 'no console errors: ' + JSON.stringify(refused.errors))
+  assert.deepEqual(refused.out.actions, [{ kind: 'discard', paths: ['newdir'] }], 'the refused discard still sends its request')
+  assert.equal(refused.out.modalOpen, true, 'the confirm dialog stays open after a refusal')
+  assert.equal(refused.out.feedback, '该条目本身是一个 Git 仓库（嵌套仓库或子模块），放弃会连带删除整个内部仓库；此操作请在终端中完成', 'the nested-repo refusal shows the localized copy in the dialog')
 
   const tips = await tipsScenario()
   assert.equal(tips.errors.length, 0, 'no console errors: ' + JSON.stringify(tips.errors))
