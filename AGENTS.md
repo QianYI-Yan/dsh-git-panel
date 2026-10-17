@@ -135,6 +135,7 @@ npm run typecheck     # 类型检查
 - client 改动：`node build.mjs` 成功后，用隔离浏览器 / 隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权。
 - 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。`test:e2e` 经 `test/e2e/all.mjs` 跑完全部 runner 再汇总失败——不要改回 `&&` 串联：首个红 runner 会吞掉后面所有 runner（曾因此让 9 个 runner 长期不执行）。
 - 一键门禁 `npm run check`：类型检查 + 全部测试 + `git diff --exit-code -- lib/`（构建产物已提交且新鲜）。提交前必须通过。
+- `test:unit` **刻意不传 `--test-force-exit`**：它在文件并行下会把仍在跑的文件整个拆掉，丢掉正在执行的用例及其后同文件的全部用例，而 `fail 0`、`skipped 0`——门禁绿着少跑测试。实测（容器内 node 22，默认并发）带该 flag 17 次里 8 次少跑（489→483/482/481），去掉后 17 次全部正常，耗时同为 ~18s。它本就冗余：2026-09-25 评审实测删掉后 52/52 正常退出无挂起。别再加回来。
 - CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵；`npm ci` → `npx playwright-core install --with-deps chromium` → typecheck → 单测 → e2e → `git diff --exit-code -- lib/`，与本地 `npm run check` 等价。e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。
 - `package-lock.json` 入库且必须与 `package.json` 同步：CI 的 `npm ci` 一旦发现两者不一致就直接拒绝运行（lock 曾停在 0.3.0 跨越七次发版，因为发版只改 manifest）。发版用 `npm version <v> --no-git-tag-version`——它同时更新 manifest 与 lock 的两处 version；漂移由 `test/unit/lock-sync.test.mjs` 守住。
 

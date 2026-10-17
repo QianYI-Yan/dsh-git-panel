@@ -21,6 +21,10 @@ jobs:
     # baseline the fixture tests sit on. Bump this line deliberately.
     # playwright-core 1.63 already lists ubuntu26.04, so the move is one line.
     runs-on: ubuntu-24.04
+    # The unit runner deliberately omits `--test-force-exit` (it silently drops
+    # in-flight tests), so a leaked handle would hang rather than fail; cap the
+    # job instead of waiting out the 360-minute default.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
