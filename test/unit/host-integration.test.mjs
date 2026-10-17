@@ -1248,7 +1248,7 @@ test('a huge untracked directory falls back to collapsed entries instead of floo
   }
 })
 
-test('truncatedReason distinguishes the list cap from a clipped status stream (issue #41)', async () => {
+test('truncatedReason reports the list cap when the change set overflows maxChanges (issue #41)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-reason-'))
   try {
     await runGit(dir, ['init', '-q'])

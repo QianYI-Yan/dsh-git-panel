@@ -420,8 +420,12 @@ export async function snapshotForSession(
   // cap the untracked side falls back to git's collapsed `?? dir/` entries and
   // the snapshot says so instead of silently truncating.
   let untrackedCollapsed = false
-  const expandedUntracked = allChanges.filter((c) => c.status === 'untracked').length
-  if (statusLossy || expandedUntracked > config.maxChanges) {
+  const untrackedEntries = allChanges.filter((c) => c.status === 'untracked')
+  // Only a whole untracked directory folds into one `?? dir/` entry; a flood of
+  // root-level files cannot collapse, so the count branch skips the extra status
+  // run unless some untracked path could belong to such a directory.
+  const collapseCandidate = untrackedEntries.some((c) => c.path.includes('/'))
+  if (statusLossy || (untrackedEntries.length > config.maxChanges && collapseCandidate)) {
     const collapsed = await runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], root, 'status-collapsed', deps.signal)
     if ('run' in collapsed && !collapsed.run.timedOut && collapsed.run.exitCode === 0) {
       const list = parseStatus(collapsed.run.stdout)
@@ -502,7 +506,9 @@ export async function snapshotForSession(
     deletions: wt.deletions + stg.deletions,
     lastChangeAt,
     headCommittedAt: lastCommit?.dateIso ?? null,
-    partial: !statsDetailed || !untrackedCountable,
+    // Collapsed untracked directories have no per-file line counts and count as
+    // one entry each, so the stats are an explicit lower bound there too.
+    partial: !statsDetailed || !untrackedCountable || untrackedCollapsed,
   }
 
   const snapshot: GitSnapshot = {

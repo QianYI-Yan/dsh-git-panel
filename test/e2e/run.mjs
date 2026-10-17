@@ -30,10 +30,13 @@ const SNAP = {
     // `--untracked-files=all` reports the files inside an untracked directory
     // individually; the row renders the file name plus the grey directory suffix.
     { path: 'newdir/note.txt', status: 'untracked', staged: false, isDirectory: false },
+    // A nested repository stays directory-level, so its files must still be
+    // recognised through the untracked ancestor.
+    { path: 'vendored', status: 'untracked', staged: false, isDirectory: true },
     { path: 'img.png', status: 'modified', staged: false, isDirectory: false },
     { path: 'icon.svg', status: 'modified', staged: false, isDirectory: false },
   ],
-  stats: { fileCount: 6, staged: 0, modified: 4, untracked: 2, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
+  stats: { fileCount: 7, staged: 0, modified: 4, untracked: 3, insertions: 3, deletions: 0, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
@@ -66,7 +69,7 @@ const out = await page.evaluate(async (snap) => {
       inject: (name, provider) => provider(),
       register: (reg, component) => { registered[reg.name] = { reg, component }; return () => {} },
     },
-    locale: { register: () => () => {}, bind: () => (key, params) => (key.startsWith('time.') || key === 'stats.lastChange') && params ? key + JSON.stringify(params) : key },
+    locale: { register: () => () => {}, bind: () => (key, params) => (key.startsWith('time.') || key === 'stats.lastChange' || key === 'changes.truncatedCap') && params ? key + JSON.stringify(params) : key },
   }
   entry.apply(ctx)
   result.slots = Object.keys(registered)
@@ -145,8 +148,20 @@ const out = await page.evaluate(async (snap) => {
   const stageAllBtn = [...document.querySelectorAll('.gp-toolbar .gp-btn')][0]
   stageAllBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
-  result.truncatedNotice = (document.querySelector('.gp-notice')?.textContent || '').includes('changes.truncatedCap')
+  result.truncatedReloadAction = fixture.actions[fixture.actions.length - 1]?.kind
+  result.truncatedNotice = document.querySelector('.gp-notice')?.textContent || ''
   result.truncatedHeads = [...document.querySelectorAll('.gp-group-head')].map((n) => n.textContent)
+  // A lossy read plus a collapsed untracked side: both notices show, with the
+  // neutral incomplete wording for the stream-clipped reason.
+  fixture.snapshot = {
+    ...fixture.snapshot,
+    truncated: true,
+    truncatedReason: 'lossy',
+    untrackedCollapsed: true,
+  }
+  stageAllBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.incompleteNotices = [...document.querySelectorAll('.gp-notice')].map((n) => n.textContent || '')
   // Restore the normal snapshot (another landed action re-delivers it).
   fixture.snapshot = snap
   stageAllBtn?.click()
@@ -910,6 +925,14 @@ const out = await page.evaluate(async (snap) => {
   await pickFile('note.txt')
   await openProps()
   result.propsUntrackedDirBadges = propsBadges()
+  await closeProps()
+
+  // `vendored` is a directory-level entry (nested repository), so its file has
+  // no change of its own and must read untracked through the ancestor rule.
+  await pickFile('vendored')
+  await pickFile('note.txt')
+  await openProps()
+  result.propsUntrackedNestedBadges = propsBadges()
   await closeProps()
 
   // An ignored file: the chip states the ignored fact and nothing else.

@@ -9,7 +9,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn as nodeSpawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { realpath, readFile, readdir, rm, stat } from 'node:fs/promises'
@@ -284,6 +284,32 @@ test('paths filter restricts both the file list and the diff', async () => {
   assert.match(frame.diff, /brand new/)
   assert.doesNotMatch(frame.diff, /changed line/)
   assert.equal(res.ok && res.value.message.length > 0, true)
+})
+
+test('a selected file inside an untracked directory reaches the model (issue #41)', async () => {
+  // The changes page now lists untracked files individually, so it selects
+  // `newdir/a.txt`; suggest's own status must use the same file-level form or
+  // the exact-path filter finds nothing and reports a bogus empty-diff.
+  const dir = mkdtempSync(join(tmpdir(), 'gp-suggest-undir-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    writeFileSync(join(dir, 'root.txt'), 'root\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'init'])
+    mkdirSync(join(dir, 'newdir'))
+    writeFileSync(join(dir, 'newdir', 'a.txt'), 'brand new in dir\n')
+    const llm = stubLlm(OK_CHUNKS)
+    const deps = depsFor(dir, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
+    const res = await runSuggest(deps, DEFAULT_CONFIG, { sessionId: SID, paths: ['newdir/a.txt'] })
+    assert.equal(res.ok, true, 'selecting a file inside an untracked directory is not an empty diff')
+    const frame = JSON.parse(llm.calls[0].messages[0].content[0].text)
+    assert.deepEqual(frame.files, [{ path: 'newdir/a.txt', status: 'untracked' }])
+    assert.match(frame.diff, /brand new in dir/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('unsafe path in the request is rejected', async () => {

@@ -45,7 +45,7 @@ const VOVERSCAN = 8
 const VIEWPORT_FALLBACK = 600
 
 type ListItem =
-  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number } }
+  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean } }
   | { readonly kind: 'row'; readonly c: GitChange }
 
 export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, compact, t }: ChangesTabProps): JSX.Element {
@@ -89,19 +89,22 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   ]
   // A capped list is only a prefix of the change set, but `stats` still counts
   // everything: keep a group visible (and its header honest) even when every one
-  // of its rows fell past the cap.
-  const groupCount = (key: GroupKey): number => key === 'staged'
-    ? snapshot.stats.staged
-    : key === 'unstaged' ? snapshot.stats.modified : snapshot.stats.untracked
-  const groups = allGroups.filter((g) => g.items.length > 0 || (snapshot.truncated && groupCount(g.key) > 0))
+  // of its rows fell past the cap. The record is exhaustive over GroupKey so a
+  // future group cannot silently inherit another group's count.
+  const counts: Record<GroupKey, number> = {
+    staged: snapshot.stats.staged,
+    unstaged: snapshot.stats.modified,
+    untracked: snapshot.stats.untracked,
+  }
+  const groups = allGroups.filter((g) => g.items.length > 0 || (snapshot.truncated && counts[g.key] > 0))
 
   // Flatten the visible (non-collapsed) groups into one row list and precompute
   // each item's top offset, so the list can mount only the viewport window.
   const { items, tops, totalH } = useMemo(() => {
     const items: ListItem[] = []
     for (const g of groups) {
-      const count = snapshot.truncated ? groupCount(g.key) : g.items.length
-      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count } })
+      const count = snapshot.truncated ? counts[g.key] : g.items.length
+      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count, collapsible: g.items.length > 0 } })
       if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
     }
     const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
@@ -284,13 +287,16 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
     notice !== null ? h('div', { key: 'notice', className: 'gp-notice' }, notice) : null,
     // The list can be incomplete in two independent ways; both are surfaced so
-    // an entry never disappears from the panel without an explanation.
+    // an entry never disappears from the panel without an explanation. They
+    // appear after a poll, so `role="status"` announces them once.
     snapshot.untrackedCollapsed === true
-      ? h('div', { key: 'collapsed', className: 'gp-notice' }, t('changes.untrackedCollapsed'))
+      ? h('div', { key: 'collapsed', className: 'gp-notice', role: 'status' }, t('changes.untrackedCollapsed'))
       : null,
     snapshot.truncated
-      ? h('div', { key: 'truncated', className: 'gp-notice' }, t(
-        snapshot.truncatedReason === 'lossy' ? 'changes.truncatedLossy' : 'changes.truncatedCap',
+      ? h('div', { key: 'truncated', className: 'gp-notice', role: 'status' }, t(
+        snapshot.truncatedReason === 'lossy'
+          ? 'changes.truncatedLossy'
+          : snapshot.truncatedReason === 'cap' ? 'changes.truncatedCap' : 'changes.truncatedUnknown',
         { n: snapshot.changes.length },
       ))
       : null,
@@ -302,10 +308,18 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
             const idx = first + k
             if (it.kind === 'head') {
               const g = it.g
+              // A group kept only for its full count (every row fell past the cap)
+              // has nothing to toggle: render a static head instead of a chevron
+              // that silently does nothing.
               return h('div', {
                 key: `h:${g.key}`, className: 'gp-changes__vrow', style: { top: tops[idx], height: VHEAD_H },
-              }, h('div', { className: 'gp-group-head', onClick: () => toggleGroup(g.key) }, [
-                h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) }),
+              }, h('div', {
+                className: `gp-group-head${g.collapsible ? '' : ' gp-group-head--static'}`,
+                ...(g.collapsible ? { onClick: () => toggleGroup(g.key) } : {}),
+              }, [
+                g.collapsible
+                  ? h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) })
+                  : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
                 `${t(g.labelKey)} (${g.count})`,
               ]))
             }
