@@ -64,15 +64,16 @@ const browser = await chromium.launch()
  * snapshot defaults to the changes sub-tab, so the toolbar is on screen once the
  * discard entry appears.
  */
-async function openPanel(snap) {
-  const page = await browser.newPage()
+async function openPanel(snap, opts = {}) {
+  const page = opts.page ?? await browser.newPage()
   const errors = []
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
   await page.goto(harness)
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-  await page.evaluate(async (snapshot) => {
+  await page.evaluate(async ({ snapshot, width }) => {
+    if (width !== null) document.getElementById('panel').style.width = `${width}px`
     const { fixture, connection } = window.createGitPanelMock(snapshot)
     window.__gpFixture = fixture
     const registered = {}
@@ -99,7 +100,7 @@ async function openPanel(snap) {
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(document.getElementById('panel')).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
     await new Promise((r) => setTimeout(r, 500))
-  }, snap)
+  }, { snapshot: snap, width: opts.width ?? null })
   await page.waitForSelector('.gp-changes__discard-picked', { timeout: 5000 })
   return { page, errors }
 }
@@ -281,6 +282,44 @@ async function tipsScenario() {
     const el = document.querySelector('div.gp-tip.gp-tip--sb')
     return el === null ? null : { text: el.textContent, onBody: el.parentElement === document.body }
   })
+  // Where the bubble sits against the button it explains: the wide layout keeps
+  // the left anchor, compact panels centre it.
+  const tipGeometry = () => page.evaluate(() => {
+    const el = document.querySelector('div.gp-tip.gp-tip--sb')
+    const btn = document.querySelector('button[aria-label="再次点击以确认放弃"]')
+    if (el === null || btn === null) return null
+    const t = el.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    return {
+      centered: el.classList.contains('gp-tip--center'),
+      leftDelta: Math.round(t.left - b.left),
+      centerDelta: Math.round((t.left + t.width / 2) - (b.left + b.width / 2)),
+      width: Math.round(t.width),
+      height: Math.round(t.height),
+      top: Math.round(t.top),
+      insideViewport: t.left >= -0.5 && t.right <= window.innerWidth + 0.5,
+      insideVertically: t.top >= -0.5 && t.bottom <= window.innerHeight + 0.5,
+    }
+  })
+  /** Geometry against one row's action (hover hint, rather than the armed one). */
+  const tipGeometryOf = (fileName, btnSelector) => page.evaluate(({ name, sel }) => {
+    const el = document.querySelector('div.gp-tip.gp-tip--sb')
+    const row = [...document.querySelectorAll('.gp-file-row')]
+      .find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === name)
+    const btn = row?.querySelector(sel)
+    if (el === null || btn == null) return null
+    const t = el.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    return {
+      centered: el.classList.contains('gp-tip--center'),
+      centerDelta: Math.round((t.left + t.width / 2) - (b.left + b.width / 2)),
+      width: Math.round(t.width),
+      height: Math.round(t.height),
+      top: Math.round(t.top),
+      insideViewport: t.left >= -0.5 && t.right <= window.innerWidth + 0.5,
+      insideVertically: t.top >= -0.5 && t.bottom <= window.innerHeight + 0.5,
+    }
+  }, { name: fileName, sel: btnSelector })
   const clearLog = () => page.evaluate(() => { window.__tipLog.length = 0 })
   const readLog = () => page.evaluate(() => window.__tipLog.slice())
   const hoverButton = async (locator) => {
@@ -318,14 +357,47 @@ async function tipsScenario() {
   await page.waitForTimeout(150)
   result.armedAria = await discard.getAttribute('aria-label')
   result.armedGlyph = await discard.textContent()
-  result.tipHiddenOnClick = (await tip()) === null
+  result.armedTipOnClick = await tip()
   result.firstClickRunsNothing = await page.evaluate((n) => window.__gpFixture.actions.length === n, actionsBefore)
-  await page.mouse.move(2, 2)
+  // The armed hint stays pinned until a press outside (a move no longer hides
+  // it), so dismiss it with a click before measuring a fresh hover delay.
+  await page.mouse.click(2, 2)
   await page.waitForTimeout(150)
   await row('w1.txt').hover()
   await hoverButton(discard)
   result.armedTip = await tip()
   result.armedLog = await readLog()
+  result.wideTipGeometry = await tipGeometry()
+
+  // (c2) The arming press is self-explanatory: pressing the button with the
+  // pointer parked away from it (so no hover can be responsible) raises the
+  // confirm wording at once, an outside press dismisses it, and the next press
+  // on the button runs the discard.
+  // dup.txt has two rows; `.last()` is the working-tree one (staged group
+  // first), and only that side carries a discard button at all.
+  const discard2 = page.locator('.gp-file-row').filter({ hasText: 'dup.txt' }).last()
+    .locator('button[aria-label="放弃更改"], button[aria-label="再次点击以确认放弃"]')
+  // The pinned armed hint outlives the pointer now; a press outside dismisses
+  // it (a plain mouse move no longer does).
+  await page.mouse.click(2, 2)
+  await page.waitForTimeout(200)
+  result.noTipBeforePress = (await tip()) === null
+  // A plain element.click() — no pointer move, so no hover/focus hint.
+  await discard2.evaluate((el) => el.click())
+  await page.waitForTimeout(200)
+  result.armedTipOnPress = await tip()
+  result.armedTipAriaOnPress = await discard2.getAttribute('aria-label')
+  result.armedTipOnPressRunsNothing = await page.evaluate((n) => window.__gpFixture.actions.length === n, actionsBefore)
+  const dismissBefore = await page.evaluate(() => window.__gpFixture.actions.length)
+  await page.mouse.click(2, 2)
+  await page.waitForTimeout(200)
+  result.armedTipDismissedOutside = (await tip()) === null
+  result.outsidePressRunsNothing = await page.evaluate((n) => window.__gpFixture.actions.length === n, dismissBefore)
+  await discard2.evaluate((el) => el.click())
+  await page.waitForTimeout(250)
+  result.secondPressRan = await page.evaluate((n) => window.__gpFixture.actions.slice(n).some((a) => a.kind === 'discard' && a.paths?.includes('dup.txt')), dismissBefore)
+  result.secondPressClearedTip = (await tip()) === null
+  result.secondPressDisarmed = (await discard2.getAttribute('aria-label')) === '放弃更改'
 
   // The staged row's first button is the inverse action, with its own copy.
   await row('s1.txt').hover()
@@ -335,8 +407,65 @@ async function tipsScenario() {
   result.unstageAria = await minus.getAttribute('aria-label')
   result.unstageGlyph = await minus.textContent()
 
+  // (c3) The compact (phone) panel centres the bubble on the row icon: the
+  // action sits at the panel's right edge, where a left-anchored bubble reads
+  // as belonging to the row above it.
+  await page.mouse.move(2, 2)
+  await page.waitForTimeout(150)
+  await page.evaluate(() => { document.getElementById('panel').style.width = '360px' })
+  await page.waitForTimeout(300)
+  result.compactLayout = await page.evaluate(() => document.querySelector('.gp-panel')?.getAttribute('data-layout'))
+  const compactDiscard = page.locator('.gp-file-row').filter({ hasText: 'newdir' })
+    .locator('button[aria-label="放弃更改"]')
+  await compactDiscard.evaluate((el) => el.click())
+  await page.waitForTimeout(250)
+  result.compactTipText = (await tip())?.text
+  result.compactTipGeometry = await tipGeometry()
+
+  // (c4) A real phone viewport, not just a narrow panel: the fixed bubble must
+  // keep a readable width and stay inside both viewport edges. It used to size
+  // itself from `left` to the right edge — a ~36px column — and, when it could
+  // not fit at all, oscillate until React threw.
+  await page.mouse.click(2, 2)
+  await page.waitForTimeout(150)
+  const phoneRow = page.locator('.gp-file-row').filter({ hasText: 'w1.txt' }).first()
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.evaluate((w) => { document.getElementById('panel').style.width = `${w}px` }, width)
+    await page.waitForTimeout(350)
+    await phoneRow.hover()
+    await phoneRow.locator('button[aria-label="放弃更改"]').hover()
+    await page.waitForTimeout(400)
+    result[`phoneTip${width}`] = await tipGeometryOf('w1.txt', 'button[aria-label="放弃更改"]')
+    result[`phoneLayout${width}`] = await page.evaluate(() => document.querySelector('.gp-panel')?.getAttribute('data-layout'))
+  }
+
   await page.close()
   return { out: result, errors }
+}
+
+/**
+ * (f) Touch media: the compact 30px control height must outrank the global
+ * `@media (hover:none)` rule that lifts `.gp-btn` to 36px. Desktop Chromium
+ * reports `hover:hover`, so this needs a touch page.
+ */
+async function touchScenario() {
+  const page = await browser.newPage({ hasTouch: true, viewport: { width: 390, height: 844 } })
+  const { errors } = await openPanel(SNAP, { page, width: 390 })
+  const out = await page.evaluate(() => {
+    const height = (sel) => {
+      const el = document.querySelector(sel)
+      return el === null ? 0 : Math.round(el.getBoundingClientRect().height)
+    }
+    return {
+      hoverNone: matchMedia('(hover: none)').matches,
+      layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
+      barCommit: height('.gp-commitbar__commit'),
+      barOpen: height('.gp-commitbar__open'),
+    }
+  })
+  await page.close()
+  return { out, errors }
 }
 
 /** The measured hover→tooltip delay, only meaningful when both entries exist. */
@@ -432,13 +561,50 @@ try {
   assert.equal(tips.out.discardTitle, null, 'no native title is left behind')
   assert.equal(tips.out.armedAria, '再次点击以确认放弃', 'the armed button announces the confirm step')
   assert.equal(tips.out.armedGlyph, DISCARD_GLYPH, 'arming keeps the glyph (only the wording/color changes)')
-  assert.equal(tips.out.tipHiddenOnClick, true, 'clicking drops the hint instead of leaving it floating')
+  assert.equal(tips.out.armedTipOnClick?.text, '再点一次即放弃此文件的改动，不可恢复', 'arming raises the confirm wording on the spot')
+  assert.equal(tips.out.noTipBeforePress, true, 'no hint is up before the arming press (nothing hovered)')
+  assert.equal(tips.out.armedTipOnPress?.text, '再点一次即放弃此文件的改动，不可恢复', 'the press alone raises the confirm hint (no hover needed)')
+  assert.equal(tips.out.armedTipOnPress?.onBody, true, 'the press-raised hint is portaled to body')
+  assert.equal(tips.out.wideTipGeometry?.centered, false, 'the wide layout keeps the left-anchored bubble')
+  assert.equal(tips.out.wideTipGeometry?.leftDelta, 0, 'the wide bubble starts at the control left edge')
+  assert.equal(tips.out.compactLayout, 'compact', 'a 360px panel is the compact layout')
+  assert.equal(tips.out.compactTipText, '再点一次即放弃此文件的改动，不可恢复', 'compact raises the same confirm wording')
+  assert.equal(tips.out.compactTipGeometry?.centered, true, 'the compact bubble centres itself on the control')
+  assert.ok(Math.abs(tips.out.compactTipGeometry?.centerDelta ?? 99) <= 1, `the compact bubble is horizontally centred (off by ${tips.out.compactTipGeometry?.centerDelta}px)`)
+  assert.equal(tips.out.compactTipGeometry?.insideViewport, true, 'the centred bubble stays inside the viewport')
+  assert.equal(tips.out.armedTipAriaOnPress, '再次点击以确认放弃', 'the pressed button announces the confirm step')
+  assert.equal(tips.out.armedTipOnPressRunsNothing, true, 'the arming press still runs nothing')
+  assert.equal(tips.out.armedTipDismissedOutside, true, 'a press outside the hint dismisses it')
+  assert.equal(tips.out.outsidePressRunsNothing, true, 'the dismissing press runs nothing')
+  assert.equal(tips.out.secondPressRan, true, 'the second press on the button runs the discard')
+  assert.equal(tips.out.secondPressClearedTip, true, 'executing drops the hint')
+  assert.equal(tips.out.secondPressDisarmed, true, 'executing clears the armed state')
   assert.equal(tips.out.firstClickRunsNothing, true, 'the first click only arms; nothing runs')
   assert.equal(tips.out.armedTip?.text, '再点一次即放弃此文件的改动，不可恢复', 'armed hover hint copy')
   assert.ok(tipDelay(tips.out.armedLog) >= 100 && tipDelay(tips.out.armedLog) <= 400, `the armed hint keeps the fast delay (measured ${tipDelay(tips.out.armedLog)}ms)`)
   assert.equal(tips.out.unstageGlyph, UNSTAGE_GLYPH, 'the staged row shows the unstage glyph')
   assert.equal(tips.out.unstageTip?.text, '取消暂存此文件，改动仍留在工作区', 'unstage hover hint copy')
   assert.equal(tips.out.unstageAria, '取消暂存', 'the unstage aria-label keeps the short name')
+
+  // Phone viewports, not just a narrow panel: the bubble keeps its natural
+  // width instead of shrinking to the strip left of the control, and stays
+  // inside both edges. 320px also exercises the width cap / fold-back.
+  for (const width of [390, 320]) {
+    const geo = tips.out[`phoneTip${width}`]
+    assert.equal(tips.out[`phoneLayout${width}`], 'compact', `a ${width}px viewport is the compact layout`)
+    assert.ok(geo !== null, `the ${width}px hint is on screen`)
+    assert.ok((geo?.width ?? 0) >= 200, `the ${width}px hint keeps a readable width (got ${geo?.width}px)`)
+    assert.equal(geo?.insideViewport, true, `the ${width}px hint stays inside the horizontal edges`)
+    assert.equal(geo?.insideVertically, true, `the ${width}px hint stays inside the vertical edges`)
+  }
+  // Touch media: the compact 30px height must outrank the global
+  // `@media (hover:none)` rule that lifts `.gp-btn` to 36px.
+  const touch = await touchScenario()
+  assert.equal(touch.errors.length, 0, 'no console errors: ' + JSON.stringify(touch.errors))
+  assert.equal(touch.out.hoverNone, true, 'the touch page really reports (hover: none)')
+  assert.equal(touch.out.layout, 'compact', 'the touch page mounts compact')
+  assert.equal(touch.out.barCommit, 30, 'compact 30px outranks the touch 36px rule (commit)')
+  assert.equal(touch.out.barOpen, 30, 'compact 30px outranks the touch 36px rule (bar)')
 
   console.log('e2e changes-discard.mjs: PASS', JSON.stringify({
     discard: batch.out.actions, stagedOnly: stagedOnly.out.actions,

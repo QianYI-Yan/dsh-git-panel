@@ -17,7 +17,7 @@ export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashL
 export { parseRemote, classifyHost } from './remote.js';
 export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js';
 export { runQuery } from './queries.js';
-export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText } from './suggest.js';
+export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from './suggest.js';
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js';
 export declare class GitPanelService extends TypertRemoteService {
     static inject: string[];

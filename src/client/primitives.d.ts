@@ -97,6 +97,16 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     readonly size?: number
     readonly className?: string
   }) => JSX.Element
+  /** Folder glyphs with a closed/open pair: the open one marks an expanded
+   * directory in the official file lists. */
+  export const IconFolderCloseRegular: (props: {
+    readonly size?: number
+    readonly className?: string
+  }) => JSX.Element
+  export const IconFolderOpenRegular: (props: {
+    readonly size?: number
+    readonly className?: string
+  }) => JSX.Element
 
   /** One equal-width tab: its label plus the caller-owned tab/panel DOM ids. */
   export interface SegmentedTab {
@@ -114,6 +124,27 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     value: string
     onChange: (value: string) => void
     label: string
+    className?: string | undefined
+  }): JSX.Element
+
+  /** One option of a {@link SegmentedControl}. */
+  export interface SegmentedControlOption {
+    value: string
+    label: string
+    disabled?: boolean
+    title?: string
+  }
+  /** Two-or-more equal-width segments with a sliding indicator, for switching a
+   * card between a few modes (the official two-choice control). The owner
+   * renders one `role=tabpanel` per option with id `<id>-<value>-panel` and
+   * `aria-labelledby` pointing at `<id>-<value>`. */
+  export function SegmentedControl(props: {
+    id: string
+    value: string
+    options: readonly SegmentedControlOption[]
+    onChange: (next: string) => void
+    label: string
+    disabled?: boolean
     className?: string | undefined
   }): JSX.Element
 }

@@ -157,43 +157,205 @@ const out = await page.evaluate(async (snap) => {
 
   const panelRoot = document.querySelector('.gp-panel')
   result.fontDefault = getComputedStyle(panelRoot).fontSize
+  // The stepper marks the step in force (aria-pressed), so the default "A" is
+  // not a dead, unmarked middle cell.
+  const fontBtn = (cls) => document.querySelector('.gp-font__' + cls)
+  const pressedState = () => ['decrease', 'reset', 'increase'].map((k) => fontBtn(k)?.getAttribute('aria-pressed')).join(',')
+  result.fontPressedDefault = pressedState() === 'false,true,false'
   document.querySelector('.gp-font__increase')?.click()
   await new Promise((r) => setTimeout(r, 60))
   result.fontIncreased = getComputedStyle(panelRoot).fontSize
   result.fontStored = localStorage.getItem('gp.panel.fontDelta')
+  result.fontPressedIncreased = pressedState() === 'false,false,true'
   document.querySelector('.gp-font__reset')?.click()
   await new Promise((r) => setTimeout(r, 60))
   result.fontReset = getComputedStyle(panelRoot).fontSize
+  result.fontPressedReset = pressedState() === 'false,true,false'
+  // The active cell is a neutral (module-platform) fill with the primary label
+  // in bold; the harness only carries the variables we set, so pin them.
+  panelRoot.style.setProperty('--dsw-alias-bg-module-platform', '#e6e6e6')
+  panelRoot.style.setProperty('--dsw-alias-label-primary', '#0f1115')
+  await new Promise((r) => setTimeout(r, 60))
+  const activeFontStyle = getComputedStyle(fontBtn('reset'))
+  result.fontPressedStyle = activeFontStyle.backgroundColor === 'rgb(230, 230, 230)'
+    && activeFontStyle.color === 'rgb(15, 17, 21)' && activeFontStyle.fontWeight === '600'
+  panelRoot.style.removeProperty('--dsw-alias-bg-module-platform')
+  panelRoot.style.removeProperty('--dsw-alias-label-primary')
   // Responsive tab bar: a wide panel is the three-column 'wide' layout with the
   // trailing controls inline; narrowing to a phone width switches to the
-  // 'compact' layout, which keeps the font stepper + version bar (wrapped onto a
-  // second row, not hidden) and keeps the tab labels; only a very narrow panel
-  // drops the labels to icon-only.
+  // 'compact' layout, which drops the tab labels to icon-only, keeps the font
+  // stepper on the SAME row as the switcher, and does not mount the version
+  // cluster (version tag / update check / repo star) at all.
   const panelHost = document.getElementById('panel')
   const fontCluster = panelRoot.querySelector('.gp-font')
   const firstLabel = panelRoot.querySelector('.gp-tab__label')
+  const verbar = () => panelRoot.querySelector('.gp-verbar')
+  const labelVisible = (el) => {
+    const r = el.getBoundingClientRect()
+    return r.width > 1 && r.height > 1
+  }
+  const rowCenter = (el) => {
+    const r = el.getBoundingClientRect()
+    return r.top + r.height / 2
+  }
+  const sameRow = () => Math.abs(rowCenter(panelRoot.querySelector('.gp-tabbar__tabs')) - rowCenter(fontCluster)) <= 2
   result.wideLayout = panelRoot.getAttribute('data-layout')
   result.wideShowsControls = getComputedStyle(fontCluster).display !== 'none'
-  result.wideShowsLabel = getComputedStyle(firstLabel).display !== 'none'
+  result.wideShowsLabel = labelVisible(firstLabel)
+  result.wideShowsVersion = verbar() !== null
+  // The update-check pill centres its refresh glyph on the label's line: the
+  // 12px svg used to sit at the top of the 15px icon slot, 1.5px above the text.
+  const verBtn = panelRoot.querySelector('.gp-verbar__btn')
+  const verSvg = verBtn?.querySelector('svg')
+  const verLabelNode = [...(verBtn?.childNodes ?? [])].find((n) => n.nodeType === 3 && (n.textContent || '').trim() !== '')
+  const verLabelCenter = (() => {
+    if (!verLabelNode) return null
+    const range = document.createRange()
+    range.selectNodeContents(verLabelNode)
+    const r = range.getBoundingClientRect()
+    return r.top + r.height / 2
+  })()
+  result.versionIconAligned = verBtn !== null && verSvg !== null && verLabelCenter !== null
+    && Math.abs(rowCenter(verSvg) - verLabelCenter) <= 0.5
+    && Math.abs(rowCenter(verSvg) - rowCenter(verBtn)) <= 0.5
   panelHost.style.width = '400px'
   await new Promise((r) => setTimeout(r, 120))
   result.narrowLayout = panelRoot.getAttribute('data-layout')
   result.narrowShowsControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display !== 'none'
-  result.narrowKeepsLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
+  result.narrowHidesLabel = !labelVisible(panelRoot.querySelector('.gp-tab__label'))
+  // Icon-only must not mean nameless: the label is clipped (1×1, absolute), not
+  // display:none, and the tab still carries it as its accessible text.
+  const narrowLabel = panelRoot.querySelector('.gp-tab__label')
+  const firstNarrowTab = panelRoot.querySelector('.gp-tabbar__tabs [role="tab"]')
+  result.narrowLabelKept = narrowLabel !== null && getComputedStyle(narrowLabel).display !== 'none'
+    && (firstNarrowTab?.textContent ?? '').includes(narrowLabel.textContent ?? '\u0000')
+  result.narrowKeepsIcon = getComputedStyle(panelRoot.querySelector('.gp-tab__icon')).display !== 'none'
+  result.narrowHidesVersion = verbar() === null
+  result.narrowSameRow = sameRow()
+  result.narrowTabBarRows = Math.round(panelRoot.querySelector('.gp-tabbar').getBoundingClientRect().height)
   panelHost.style.width = '260px'
   await new Promise((r) => setTimeout(r, 80))
-  result.tinyHidesLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display === 'none'
+  result.tinyHidesLabel = !labelVisible(panelRoot.querySelector('.gp-tab__label'))
   result.tinyKeepsIcon = getComputedStyle(panelRoot.querySelector('.gp-tab__icon')).display !== 'none'
   result.tinyShowsControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display !== 'none'
+  result.tinySameRow = sameRow()
   panelHost.style.width = '1000px'
   await new Promise((r) => setTimeout(r, 120))
   result.restoresLayout = panelRoot.getAttribute('data-layout')
-  result.restoresLabel = getComputedStyle(panelRoot.querySelector('.gp-tab__label')).display !== 'none'
+  result.restoresLabel = labelVisible(panelRoot.querySelector('.gp-tab__label'))
+  result.restoresVersion = verbar() !== null
   const changesTab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.changes'))
   if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
+  // Compact commit box: folded into a one-row bar until tapped, so the change
+  // list keeps the height. Tapping opens the full editor with the caret in it;
+  // the fold button puts it back. The action row must never wrap its labels.
+  panelHost.style.width = '400px'
+  await new Promise((r) => setTimeout(r, 120))
+  const commitBar = document.querySelector('.gp-commitbar')
+  result.compactCommitFolded = commitBar !== null && document.querySelector('.gp-commitbox') === null
+  result.compactCommitBarHeight = Math.round(commitBar?.getBoundingClientRect().height ?? 0)
+  result.compactCommitBarPlaceholder = commitBar?.querySelector('.gp-commitbar__ph')?.textContent ?? null
+  commitBar?.querySelector('.gp-commitbar__open')?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.compactCommitOpens = document.querySelector('.gp-commitbox') !== null && document.querySelector('.gp-commitbar') === null
+  result.compactCommitAutofocus = document.activeElement === document.querySelector('.gp-commitbox__msg')
+  const compactCommitBtn = document.querySelector('.gp-commitbox__actions .gp-btn--primary')
+  const compactSuggestBtn = document.querySelector('.gp-commitbox__actions .gp-btn:not(.gp-btn--primary)')
+  const amendLabel = document.querySelector('.gp-commitbox__amend')
+  result.commitActionsNowrap = [compactCommitBtn, compactSuggestBtn].every((b) => b !== null && getComputedStyle(b).whiteSpace === 'nowrap')
+  result.commitActionsInsideRow = [compactCommitBtn, compactSuggestBtn].every((b) => b !== null
+    && b.getBoundingClientRect().right <= panelRoot.getBoundingClientRect().right + 1)
+  result.amendLabelSingleLine = amendLabel !== null
+    && getComputedStyle(amendLabel).whiteSpace === 'nowrap'
+    && amendLabel.getBoundingClientRect().height <= 28
+  // The fold control must read as a button, not a bare glyph. The harness has
+  // no theme, so resolve the two vars it needs on the panel just for this read.
+  const foldBtn = document.querySelector('.gp-commitbox__fold')
+  panelRoot.style.setProperty('--dsw-alias-border-l2', '#888888')
+  panelRoot.style.setProperty('--dsw-alias-bg-layer-2', '#f2f3f5')
+  // The button transitions its background, so let the colour settle first.
+  await new Promise((r) => setTimeout(r, 200))
+  const foldStyle = foldBtn === null ? null : getComputedStyle(foldBtn)
+  result.foldStyled = foldBtn !== null
+    && parseFloat(foldStyle.borderTopWidth) >= 1
+    && foldStyle.borderTopStyle === 'solid'
+    && foldStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
+  panelRoot.style.removeProperty('--dsw-alias-border-l2')
+  panelRoot.style.removeProperty('--dsw-alias-bg-layer-2')
+  // The fold control shares one height and one row centre with AI suggest / Commit.
+  const rowBtns = [compactCommitBtn, compactSuggestBtn, foldBtn].filter((b) => b !== null)
+  const rowCentres = rowBtns.map((b) => { const r = b.getBoundingClientRect(); return Math.round(r.top + r.height / 2) })
+  result.commitRowAligned = rowBtns.length === 3
+    && new Set(rowBtns.map((b) => Math.round(b.getBoundingClientRect().height))).size === 1
+    && new Set(rowCentres).size === 1
+  result.commitRowBtnHeight = rowBtns.length > 0 ? Math.round(rowBtns[0].getBoundingClientRect().height) : 0
+  // A press inside the editor keeps it open; a press on blank space folds it.
+  document.querySelector('.gp-commitbox__msg')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 80))
+  result.innerPressKeepsOpen = document.querySelector('.gp-commitbox') !== null
+  document.querySelector('.gp-stats')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 120))
+  result.outsidePressCollapses = document.querySelector('.gp-commitbar') !== null && document.querySelector('.gp-commitbox') === null
+  document.querySelector('.gp-commitbar__open')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  // Notices (and their close button) never fold the editor: pressing either must
+  // leave the editor open, only the explicit close dismisses the banner.
+  fixture.suggestTruncated = true
+  document.querySelector('.gp-commitbox__actions .gp-btn:not(.gp-btn--primary)')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  fixture.releaseSuggest?.()
+  await new Promise((r) => setTimeout(r, 160))
+  const commitNotice = document.querySelector('.gp-notice')
+  result.noticeShownInEditor = commitNotice !== null
+  commitNotice?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 80))
+  result.noticePressKeepsEditor = document.querySelector('.gp-commitbox') !== null
+  document.querySelector('.gp-notice__close')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 80))
+  result.noticeCloseKeepsEditor = document.querySelector('.gp-commitbox') !== null
+  document.querySelector('.gp-notice__close')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.noticeClosedFromEditor = document.querySelector('.gp-notice') === null
+  fixture.suggestTruncated = false
+  document.querySelector('.gp-commitbox__fold')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  result.compactCommitRefolds = document.querySelector('.gp-commitbar') !== null && document.querySelector('.gp-commitbox') === null
+  // A draft is summarised in the bar's first line and can be committed from it.
+  document.querySelector('.gp-commitbar__open')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  const msgEl = document.querySelector('.gp-commitbox__msg')
+  if (msgEl) {
+    // React's patched value setter would swallow a direct assignment; go
+    // through the prototype setter so the controlled input updates.
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(msgEl, 'feat: draft line\nbody line')
+    msgEl.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  document.querySelector('.gp-commitbox__fold')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  result.compactCommitDraftShown = document.querySelector('.gp-commitbar__draft')?.textContent === 'feat: draft line'
+  result.compactCommitDraftSubmittable = document.querySelector('.gp-commitbar__commit')?.disabled === false
+  // Clear the draft again so later assertions start from an empty box.
+  document.querySelector('.gp-commitbar__open')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  const msgClear = document.querySelector('.gp-commitbox__msg')
+  if (msgClear) {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(msgClear, '')
+    msgClear.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  document.querySelector('.gp-commitbox__fold')?.click()
+  await new Promise((r) => setTimeout(r, 100))
+  // Compact stats bar: one count line; the change/commit timestamps are not
+  // rendered at all (and there is no disclosure control any more).
+  const statsEl = document.querySelector('.gp-stats')
+  result.compactStatsOneLine = statsEl !== null && statsEl.getBoundingClientRect().height <= 40
+  result.compactStatsNoTimes = document.querySelector('.gp-stats .gp-stats__times') === null
+  result.compactStatsNoToggle = document.querySelector('.gp-stats__toggle') === null
+  panelHost.style.width = '1000px'
+  await new Promise((r) => setTimeout(r, 120))
+  result.wideStatsShowsTimes = document.querySelector('.gp-stats .gp-stats__times') !== null
   // A capped snapshot: the list only carries the visible slice, so the changes
   // page must surface the truncation and keep the group headers on the full
   // stats counts (a group whose rows all fell past the cap still shows up).
@@ -212,6 +374,12 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 200))
   result.truncatedReloadAction = fixture.actions[fixture.actions.length - 1]?.kind
   result.truncatedNotice = document.querySelector('.gp-notice')?.textContent || ''
+  // Notice banners are dismissible: the close button hides it until the text changes.
+  const noticeClose = document.querySelector('.gp-notice .gp-notice__close')
+  result.noticeHasClose = noticeClose !== null && noticeClose.getAttribute('aria-label') === 'common.close'
+  noticeClose?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.noticeDismissed = document.querySelector('.gp-notice') === null
   result.truncatedHeads = [...document.querySelectorAll('.gp-group-head')].map((n) => n.textContent)
   // A lossy read plus a collapsed untracked side: both notices show, with the
   // neutral incomplete wording for the stream-clipped reason.
@@ -707,9 +875,11 @@ const out = await page.evaluate(async (snap) => {
   const cacheRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('cache'))
   const ignoredRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('ignored.log'))
   result.ignoredRowsDimmed = cacheRow?.classList.contains('gp-tree-row--ignored') && ignoredRow?.classList.contains('gp-tree-row--ignored') && getComputedStyle(cacheRow).opacity < 1
-  result.folderIcon = cacheRow?.querySelector('[data-file-type]')?.getAttribute('data-file-type')
+  result.folderIcon = cacheRow?.querySelector('svg[data-folder]')?.getAttribute('data-folder')
   const dirRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('src'))
   if (dirRow) { dirRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.folderIconOpen = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')]
+    .find((r) => (r.textContent || '').includes('src'))?.querySelector('svg[data-folder]')?.getAttribute('data-folder')
   result.filesTreeRowsAfterExpand = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
@@ -940,12 +1110,43 @@ const out = await page.evaluate(async (snap) => {
   document.querySelector('.gp-files__copy-path')?.click()
   await new Promise((r) => setTimeout(r, 50))
   result.copyDeniedFeedback = document.querySelector('.gp-files__copy-path')?.textContent === 'files.pathCopyFailed'
+  // The two copy actions form one joined button group: adjacent borders
+  // collapse onto a single 1px line and only the outer corners stay rounded.
+  const copyGroup = document.querySelector('.gp-files__copy-group')
+  const copyBtns = [...(copyGroup?.querySelectorAll('.gp-files__copy-path') ?? [])]
+  const copyRects = copyBtns.map((b) => b.getBoundingClientRect())
+  const copyRadii = copyBtns.map((b) => {
+    const cs = getComputedStyle(b)
+    return [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].join(' ')
+  })
+  result.copyGroupJoined = copyGroup !== null && copyBtns.length === 2
+    // The -1px margin must actually overlap: allowing a 1px tolerance would
+    // also accept two plain adjacent buttons (left === right, difference 1).
+    && Math.abs(copyRects[1].left - (copyRects[0].right - 1)) <= 0.25
+  result.copyGroupRadii = copyRadii.join('|') === '6px 0px 0px 6px|0px 6px 6px 0px'
   // Markdown defaults to the rendered view; switch to source, then back.
   result.markdownRenderedDefault = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown' && document.querySelector('.gp-files__code') === null
-  const sourceBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.source')
+  // The wide toolbar uses the same official SegmentedControl as compact.
+  const modeTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
+  const wideModeTabs = [...document.querySelectorAll('.gp-files__bar [role="tab"]')]
+  result.wideModeSegShown = document.querySelector('.gp-files__bar [role="tablist"]') !== null && wideModeTabs.length === 2
+  result.wideModePanelsResolve = wideModeTabs.every((tab) => {
+    const panel = document.getElementById(tab.getAttribute('aria-controls') || '')
+    return panel !== null && panel.getAttribute('role') === 'tabpanel' && panel.getAttribute('aria-labelledby') === tab.id
+  })
+  const wideFullBtn = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')
+  result.wideHasFullscreen = wideFullBtn !== null
+  wideFullBtn?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.wideFullscreenShown = document.querySelector('.gp-modal-backdrop .gp-modal') !== null
+    && document.querySelector('.gp-modal [data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await new Promise((r) => setTimeout(r, 200))
+  result.wideFullscreenClosed = document.querySelector('.gp-modal-backdrop') === null
+  const sourceBtn = modeTab('files.source')
   if (sourceBtn) { sourceBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownSourceShown = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
-  const renderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
+  const renderBtn = modeTab('files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
   // HTML defaults to source (no auto-run); switching to render mounts a
@@ -953,7 +1154,7 @@ const out = await page.evaluate(async (snap) => {
   const htmlRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('page.html'))
   if (htmlRow) { htmlRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.htmlSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('.gp-files__html') === null
-  const htmlRenderBtn = [...document.querySelectorAll('.gp-files__mode-btn')].find((b) => b.textContent === 'files.render')
+  const htmlRenderBtn = modeTab('files.render')
   if (htmlRenderBtn) { htmlRenderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   const htmlFrame = document.querySelector('.gp-files__html')
   result.htmlRenderShown = htmlFrame !== null && document.querySelector('.gp-files__code') === null
@@ -1038,7 +1239,7 @@ const out = await page.evaluate(async (snap) => {
   const propsValue = (labelKey) => propsRow(labelKey)?.querySelector('.gp-props__value') ?? null
   const propsBadges = () => [...document.querySelectorAll('.gp-props__badge')].map((b) => b.textContent)
   const openProps = async () => {
-    document.querySelector('.gp-files__props')?.click()
+    document.querySelector('.gp-files__props[aria-label="files.propsTitle"]')?.click()
     await new Promise((r) => setTimeout(r, 120))
   }
   const closeProps = async () => {
@@ -1047,7 +1248,7 @@ const out = await page.evaluate(async (snap) => {
   }
 
   // a.txt is selected and loaded from the Find phase above.
-  result.propsBtnShown = document.querySelector('.gp-files__props') !== null
+  result.propsBtnShown = document.querySelector('.gp-files__props[aria-label="files.propsTitle"]') !== null
   await openProps()
   result.propsOpened = document.querySelector('.gp-props__statusbar') !== null
   result.propsTitle = document.querySelector('.gp-modal--sm .gp-modal__path')?.textContent

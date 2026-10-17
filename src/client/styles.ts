@@ -11,7 +11,7 @@ const CSS = `
   --gp-select-bar:inset 3px 0 0 var(--dsw-alias-state-business-primary)}
 .gp-panel[data-font-delta="1"]{zoom:1.08;font-size:14px}
 .gp-panel[data-font-delta="-1"]{zoom:.92;font-size:12px}
-.gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;flex-wrap:nowrap;min-width:0;container-type:inline-size}
+.gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;flex-wrap:nowrap;min-width:0}
 /* The shell floats the input composer over the view's bottom (composer-overlay
  * mode). Reserve that height as bottom padding so the panel's own bottom rows
  * (commit box / commit comment) stay above it instead of being covered. */
@@ -37,22 +37,20 @@ const CSS = `
  * pill and sliding indicator). We only place the tab list in our flex bar and
  * supply the icon/label spans inside each tab's label. */
 .gp-tabbar__tabs{flex:0 1 auto;min-width:0}
-.gp-tab__icon{display:inline-flex;width:15px;height:15px;flex:none}
+.gp-tab__icon{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex:none}
 .gp-tab__label{white-space:nowrap}
 /* Trailing cluster (font stepper + version bar). display:contents makes it
  * transparent to the tab-bar flex in the wide layout — font sits after the
  * tabs, version bar floats right via its own margin-left:auto — identical to a
- * flat layout. The compact layout re-materializes it as a wrapped second row. */
+ * flat layout. The compact layout re-materializes it as a single trailing item. */
 .gp-tabbar__trailing{display:contents}
-/* Responsive tab bar (the bar is an inline-size container): a very narrow panel
- * drops the tab labels to icon-only so they never wrap into a garbled multi-line
- * state. Hiding the trailing controls is handled by the compact layout (which
- * moves them to a second row) rather than removing them. */
-@container (max-width:300px){.gp-tab__label{display:none}}
 .gp-font{margin-left:4px;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
 .gp-font button{border:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:22px;width:24px;height:24px;padding:0;cursor:pointer}
 .gp-font button:first-child{border-left:0}
 .gp-font button:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+/* The current step is stored as aria-pressed, so the selected cell needs no
+ * parallel class: it keeps the filled background even while hovered. */
+.gp-font button[aria-pressed="true"]{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font-weight:600}
 .gp-font button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
 .gp-files-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
@@ -61,12 +59,30 @@ const CSS = `
 .gp-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-changes__toolbar{flex-wrap:nowrap;gap:4px;overflow-x:auto}
 .gp-changes__toolbar .gp-icon-btn{flex:none}
+/* Compact history toolbar: one control height across the branch pill, the
+ * search input, the select triggers and the icon buttons (the touch media query
+ * used to leave only .gp-btn at 36px, so the branch pill towered over its row).
+ * The author / since / refresh group starts collapsed behind a chevron. */
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-btn,
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-search,
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-select-trigger{height:30px}
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-select-trigger{min-height:30px}
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-icon-btn{width:30px;height:30px}
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-btn{flex:none;max-width:55%;min-width:0;gap:5px}
+.gp-btn__label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Square 30px chevron button: the scoped selector keeps the 30px box and zero
+ * padding ahead of the later, equally specific gp-btn base rule. */
+.gp-toolbar .gp-toolbar__more-toggle{flex:none;width:30px;box-sizing:border-box;padding:0;justify-content:center}
+.gp-toolbar__chev{display:inline-flex;transition:transform .12s ease}
+.gp-toolbar__chev--up{transform:rotate(180deg)}
+.gp-toolbar__more{flex:1 1 100%;display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-toolbar__more .gp-filter{flex:1 1 0;min-width:0;max-width:calc(50% - 23px)}
 .gp-changes__toolbar .gp-icon-btn:disabled{opacity:.4;cursor:default}
 .gp-changes__toolbar .gp-icon-btn:hover:disabled{background:transparent}
 .gp-changes__toolbar .gp-icon-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-changes__toolbar .gp-icon-btn>span{display:inline-flex}
 .gp-changes__refresh--busy svg{animation:gp-spin 1s linear infinite}
-.gp-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.gp-btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}
 .gp-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-btn:disabled{opacity:.5;cursor:default}
 .gp-btn--primary{border-color:transparent;background:var(--dsw-alias-state-business-primary);color:#fff}
@@ -182,12 +198,13 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-tree-row--active{background:var(--dsw-alias-bg-layer-2)}
 .gp-tree-row--muted{color:var(--dsw-alias-label-tertiary);cursor:default}
 .gp-tree-row--muted:hover{background:transparent}
-.gp-tree-chev{flex:none;width:11px;display:inline-flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary)}
-.gp-tree-ic{flex:none;display:inline-flex;align-items:center;color:var(--dsw-alias-label-tertiary)}
+.gp-tree-ic{flex:none;display:inline-flex;align-items:center;color:var(--dsw-alias-label-secondary)}
 .gp-tree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .gp-tree-row--dir .gp-tree-name{font-weight:600}
 .gp-files__entry{width:100%;border:0;background:transparent;color:inherit;text-align:left;font:inherit}
-.gp-files__entry--dir .gp-tree-name{font-weight:600}
+/* Official file lists render directory names at the same weight as files; the
+ * open/closed folder glyph carries the expansion state. */
+.gp-files__tree .gp-files__entry--dir .gp-tree-name{font-weight:500}
 .gp-files__entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__entry.gp-tree-row--active,.gp-files__entry.gp-tree-row--active:hover{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
 .gp-files__entry.gp-tree-row--active .gp-tree-name{font-weight:600}
@@ -215,6 +232,14 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__path{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font:inherit}
 .gp-files__copy-path{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
+/* The path/content copy actions read as one joined button group: the shared
+ * border collapses (1px overlap) and only the outer corners stay rounded. */
+.gp-files__copy-group{flex:none;display:flex;align-items:center}
+.gp-files__copy-group .gp-files__copy-path{border-radius:0;margin-left:-1px}
+.gp-files__copy-group .gp-files__copy-path:first-child{border-radius:6px 0 0 6px;margin-left:0}
+.gp-files__copy-group .gp-files__copy-path:last-child{border-radius:0 6px 6px 0}
+.gp-files__copy-group .gp-files__copy-path:only-child{border-radius:6px}
+.gp-files__copy-group .gp-files__copy-path:hover,.gp-files__copy-group .gp-files__copy-path:focus-visible{position:relative;z-index:1}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
 /* Icon-only properties entry at the toolbar's far right. The path's flex-grow
@@ -224,10 +249,18 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__props:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-files__props:disabled{opacity:0.5;cursor:default}
 .gp-files__props:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
-.gp-files__mode{display:flex;gap:4px}
-.gp-files__mode-btn{border:0;border-radius:6px;padding:4px 10px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
-.gp-files__mode-btn--active{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font-weight:600}
-.gp-files__mode-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__mode-seg{flex:none}
+/* Compact preview toolbar: the relative path and the two copy buttons are gone
+ * (they forced three wrapped rows on a phone). Back + the official source/render
+ * control + fullscreen + properties share one row; longer locales wrap instead
+ * of squeezing the mode labels. */
+.gp-files__bar--compact{padding:6px 8px}
+.gp-files__bar--compact .gp-files__mode-seg{flex:1 1 auto;min-width:max-content}
+.gp-files__bar--compact .gp-files__bar-end{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px}
+/* Trailing icon buttons match the 30px back button / mode control instead of
+ * their 24px inline size (4px padding + 14px glyph). */
+.gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__props{height:30px;box-sizing:border-box;padding:0 6px}
+.gp-files__bar--compact .gp-files__mode-seg button{padding:0 10px;font-size:12px}
 .gp-files__markdown{overflow:auto;overscroll-behavior:contain;padding:16px 24px;color:var(--dsw-alias-label-primary)}
 .gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
@@ -290,6 +323,12 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
 /* "simplified" marker on a huge change set: muted + help cursor + dotted hint. */
 .gp-stats__partial{color:var(--dsw-alias-label-tertiary);cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
+/* Compact stats bar: the counts on one clipped, never-wrapping line. The
+ * timestamps are not rendered at all at this width (ChangeStats) — the bar must
+ * not cost a second row above the change list on a phone. */
+.gp-stats--compact{padding:6px 8px 6px 12px;gap:4px 8px;align-items:center}
+.gp-stats--compact .gp-stats__main{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:14px;overflow:hidden;white-space:nowrap}
+.gp-stats--compact .gp-stats__main>.gp-stats__item{flex:none}
 
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}
@@ -300,9 +339,27 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-commitbox__spin{position:absolute;top:8px;right:8px;width:13px;height:13px;box-sizing:border-box;border-radius:50%;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:gp-spin .7s linear infinite;pointer-events:none}
 .gp-commitbox__msg[readonly]{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);cursor:progress}
 .gp-commitbox__msg:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-commitbox__row{display:flex;align-items:center;gap:10px}
-.gp-commitbox__amend{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.gp-commitbox__actions{margin-left:auto;display:flex;gap:6px}
+.gp-commitbox__row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.gp-commitbox__amend{display:inline-flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;color:var(--dsw-alias-label-secondary);cursor:pointer}
+/* Compact commit bar: stands in for the whole editor until tapped, so the
+ * change list keeps the panel's scarce height on a phone. */
+.gp-commitbar{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:4px 8px;display:flex;align-items:center;gap:6px}
+.gp-commitbar__open{flex:1 1 auto;min-width:0;display:flex;align-items:center;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:text}
+.gp-commitbar__open:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-commitbar__ph,.gp-commitbar__draft{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-commitbar__ph{color:var(--dsw-alias-label-tertiary)}
+.gp-panel[data-layout="compact"] .gp-commitbar .gp-btn{height:30px}
+/* Compact commit row: AI suggest / Commit / fold all share the 30px height, so
+ * the fold button lines up with its neighbours and the row loses vertical padding. */
+.gp-panel[data-layout="compact"] .gp-commitbox .gp-btn{height:30px}
+/* Compact fold control: a real button (tinted fill, border, press feedback) so
+ * collapsing the editor reads as an action next to AI suggest / Commit. */
+.gp-panel[data-layout="compact"] .gp-commitbox__fold{width:30px;height:30px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);transition:background .12s ease,color .12s ease,transform .08s ease}
+.gp-panel[data-layout="compact"] .gp-commitbox__fold:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-panel[data-layout="compact"] .gp-commitbox__fold:active:not(:disabled){transform:scale(.94)}
+.gp-panel[data-layout="compact"] .gp-commitbox__fold:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+.gp-commitbox__fold:disabled{opacity:.5;cursor:default}
+.gp-commitbox__actions{margin-left:auto;display:flex;flex-wrap:nowrap;gap:6px}
 
 /* diff view */
 .gp-diff{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -313,15 +370,18 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-diff__toolbar--compact{flex-wrap:wrap;row-gap:6px}
 .gp-diff__toolbar-row{display:flex;align-items:center;gap:8px;min-width:0}
 .gp-diff__toolbar-row:first-child{flex:1 1 100%}
-.gp-diff__toolbar-row--controls{flex:1 1 100%}
+.gp-diff__toolbar-row--controls{flex:1 1 100%;flex-wrap:wrap}
 .gp-diff__toolbar-row--controls .gp-diff__expand{flex:none}
-.gp-diff__toolbar-row--controls .gp-seg{flex:1}
-.gp-diff__toolbar-row--controls .gp-seg__btn{flex:1;min-width:0}
+/* Seg labels never break: the track keeps at least its content width and may
+ * wrap below the expand toggle on an ultra-narrow panel instead of squeezing
+ * "变更前 / 变更后" into two lines. Buttons stay equal-width while they fit. */
+.gp-diff__toolbar-row--controls .gp-seg{flex:1 1 auto;min-width:max-content}
+.gp-diff__toolbar-row--controls .gp-seg .gp-seg__btn{flex:1 1 0;min-width:max-content}
 .gp-diff__path{font-size:12px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
 .gp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
-.gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
+.gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;white-space:nowrap;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-seg__btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-seg__btn--active{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}
@@ -376,6 +436,11 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-svgdiff__body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
 .gp-notice{padding:6px 10px;font-size:12px;color:var(--dsw-alias-label-secondary);background:color-mix(in srgb,var(--dsw-alias-label-secondary) 10%,transparent);display:flex;align-items:center;gap:8px}
+/* Dismissible banner: the text takes the free width, the close button pins right. */
+.gp-notice__text{flex:1 1 auto;min-width:0}
+.gp-notice__close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin:-2px -4px -2px 0;padding:0;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.gp-notice__close:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-notice__close:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 
 /* commit file-diff modal (overview → click a file): a centered dialog over a
  * dimmed backdrop, closed by Esc / backdrop click / the close button. */
@@ -395,8 +460,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * changes-pane toolbar. The seg stretches evenly and the bordered close
  * button pins to the row's far right. */
 .gp-modal__bar-row{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 100%}
-.gp-modal__bar-row--controls .gp-seg{flex:1}
-.gp-modal__bar-row--controls .gp-seg__btn{flex:1;min-width:0}
+.gp-modal__bar-row--controls{flex-wrap:wrap}
+.gp-modal__bar-row--controls .gp-seg{flex:1 1 auto;min-width:max-content}
+.gp-modal__bar-row--controls .gp-seg .gp-seg__btn{flex:1 1 0;min-width:max-content}
 .gp-modal__bar-row--controls .gp-modal__close{margin-left:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-modal__scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}
 
@@ -493,6 +559,10 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-detail__tags{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .gp-detail__tagname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
 .gp-detail__actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+/* Compact commit-detail ops: the touch rule lifts every .gp-btn to 36px, which
+ * makes revert / reset / create-tag tall for such low-frequency actions. Keep
+ * them at the compact control height (30px) instead. */
+.gp-panel[data-layout="compact"] .gp-detail__actions .gp-btn{height:30px}
 .gp-ref-chip--del{display:inline-flex;align-items:center;gap:4px;max-width:100%}
 .gp-ref-chip__x{display:inline-flex;align-items:center;padding:0;margin-left:2px;border:none;background:none;color:inherit;cursor:pointer;opacity:.7}
 .gp-ref-chip__x:hover{opacity:1;color:var(--dsw-alias-state-error-primary)}
@@ -572,11 +642,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-tab-dot--dirty{background:var(--dsw-alias-state-warn-primary,#e0982e)}
 
 /* pill wrapper + rounded hover tooltip panel (openviking-manager style):
- * soft radius, layered shadow, subtle border, portaled above the pill. */
-.gp-tip{position:fixed;z-index:60;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;pointer-events:none}
+ * soft radius, layered shadow, subtle border, portaled above the pill.
+ * width:max-content is load-bearing: a fixed box with only left set would
+ * shrink to the room on its right (a phone row icon left a 36px column). */
+.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;pointer-events:none}
 .gp-tip__path{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);word-break:break-all}
 .gp-tip__note{margin-top:4px;color:var(--dsw-alias-label-tertiary)}
 .gp-tip--sb{color:var(--dsw-alias-label-secondary);line-height:1.45}
+/* Compact panels put the control's centre in the left offset and shift by half
+ * the bubble's own width, so it reads as centred on the row icon it explains. */
+.gp-tip--center{transform:translateX(-50%)}
 
 /* ===================================================================
  * Compact (mobile / narrow-split) layout
@@ -589,12 +664,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * own classes / viewport media queries instead.
  * =================================================================== */
 
-/* Tab bar: wrap the trailing cluster onto a second full-width row so the
- * font stepper + version bar stay reachable instead of being hidden. */
-.gp-panel[data-layout="compact"] .gp-tabbar{flex-wrap:wrap;row-gap:4px}
-.gp-panel[data-layout="compact"] .gp-tabbar__trailing{display:flex;flex-basis:100%;align-items:center;gap:8px;margin-top:2px}
-.gp-panel[data-layout="compact"] .gp-tabbar .gp-font,
-.gp-panel[data-layout="compact"] .gp-tabbar .gp-verbar{display:inline-flex}
+/* Tab bar: one row. The switcher drops its labels to icon-only and takes the
+ * remaining width (the three icon cells stay equal and touch-sized), while the
+ * font stepper rides the same row at the trailing edge. The version bar is not
+ * mounted at all in compact (Panel.tsx), so the bar keeps a single row.
+ * The label stays in the DOM — clipped, not display:none — so the tab keeps its
+ * accessible name for screen readers. */
+.gp-panel[data-layout="compact"] .gp-tabbar__tabs{flex:1 1 auto}
+.gp-panel[data-layout="compact"] .gp-tabbar__tabs--single{flex:0 0 auto}
+.gp-panel[data-layout="compact"] .gp-tabbar__trailing{display:flex;flex:none;align-items:center;margin-left:auto}
+.gp-panel[data-layout="compact"] .gp-tab__label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 
 /* Shared drill-in back bar (overview detail / files preview). The Changes
  * diff and Files bar reuse just the .gp-subhead__back button inline. */
@@ -603,6 +682,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-subhead__back:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-subhead__back:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-subhead__title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-tertiary)}
+/* Compact drill-in back buttons (返回列表 / 返回文件树 / 返回变更列表) match the
+ * 30px control height of the history toolbar's branch-filter pill. */
+.gp-panel[data-layout="compact"] .gp-subhead__back{height:30px}
 
 /* Overview: single column, each pane fills width + height. */
 .gp-overview--compact{flex-direction:column}

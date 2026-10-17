@@ -20,6 +20,7 @@
  */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
+import { useDialogFocus } from './dialog-focus.js'
 import { createPortal } from 'react-dom'
 import type { GitKey } from './locales.js'
 import { CloseIcon } from './icons.js'
@@ -338,42 +339,7 @@ interface ZoomLightboxProps {
 function ZoomLightbox({ src, alt, t, onClose }: ZoomLightboxProps): JSX.Element {
   const backdropRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
-  const restoreRef = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    closeRef.current?.focus()
-    const focusables = (): HTMLElement[] => {
-      const root = backdropRef.current
-      if (root === null) return []
-      return [...root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-        .filter((el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0)
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        onClose()
-        return
-      }
-      if (event.key !== 'Tab') return
-      // Cycle focus through the dialog (close control + zoom bar) instead of
-      // pinning it, so the zoom controls stay keyboard-reachable.
-      const items = focusables()
-      if (items.length === 0) return
-      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
-      const idx = active === null ? -1 : items.indexOf(active)
-      event.preventDefault()
-      const delta = event.shiftKey ? -1 : 1
-      const next = idx === -1
-        ? (delta === -1 ? items.length - 1 : 0)
-        : (idx + delta + items.length) % items.length
-      items[next]?.focus()
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown, true)
-      restoreRef.current?.focus()
-    }
-  }, [onClose])
+  useDialogFocus(backdropRef, onClose, closeRef)
 
   return createPortal(
     h('div', { className: 'gp-zl-backdrop', ref: backdropRef, role: 'dialog', 'aria-modal': 'true', 'aria-label': t('files.zoomFullscreen') }, [

@@ -5,18 +5,20 @@
  * uses the platform's lazy syntax highlighter; images render inline, other
  * binaries show a placeholder. Left column width is drag-resizable.
  */
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { createPortal } from 'react-dom'
 import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, ChevronIcon, InfoIcon } from './icons.js'
+import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon } from './icons.js'
 import { useResizableColumn } from './resizable.js'
-import { FileTypeIcon, languageForPath, MarkdownText, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, languageForPath, MarkdownText, SegmentedControl, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
 import { ZoomableImage } from './ImageZoom.js'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
+import { useDialogFocus } from './dialog-focus.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { canCopyContent } from './copy-content.js'
@@ -115,9 +117,14 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [showProps, setShowProps] = useState(false)
+  // Compact-only fullscreen viewer (rendered with the current source/render mode).
+  const [fullscreen, setFullscreen] = useState(false)
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
+  // Instance-scoped ids for the official source/render SegmentedControl: its
+  // tabs name `<id>-<value>-panel`, so compact keeps one panel per mode.
+  const modeId = useId()
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
   const fileSeq = useRef(0)
 
@@ -260,36 +267,94 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
 
   const treeBlock = h('div', { key: 'left', className: 'gp-files__tree', style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` } }, treeRows)
 
+  const richPreview = file.kind === 'text' && isRichPath(file.path)
+  // One definition per toolbar control; the compact and wide bars compose the
+  // same nodes so a new mode / action cannot land on only one layout.
+  const modeSeg = richPreview
+    ? h(SegmentedControl, {
+      key: 'mode',
+      className: 'gp-files__mode-seg',
+      id: modeId,
+      label: t('files.previewMode'),
+      value: renderMarkdown ? 'render' : 'source',
+      options: [
+        { value: 'source', label: t('files.source') },
+        { value: 'render', label: t('files.render') },
+      ],
+      onChange: (next: string) => setRenderMarkdown(next === 'render'),
+    })
+    : null
+  const fullscreenButton = file.kind === 'text'
+    ? h('button', {
+      key: 'full', type: 'button', className: 'gp-files__props',
+      title: t('files.fullscreen'), 'aria-label': t('files.fullscreen'),
+      onClick: () => setFullscreen(true),
+    }, h(FullscreenIcon, { size: 14 }))
+    : null
+  const propsButton = h('button', {
+    key: 'props', type: 'button', className: 'gp-files__props',
+    title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
+    disabled: propsInput === null, onClick: () => setShowProps(true),
+  }, h(InfoIcon, { size: 14 }))
+  // Compact toolbar: back + the official source/render switcher + fullscreen +
+  // properties. The relative path and the copy buttons leave the phone row —
+  // they are what made it wrap onto three lines.
+  const compactBar = compact
+    ? h('div', { key: 'bar', className: 'gp-files__bar gp-files__bar--compact' }, [
+      h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('tree') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]),
+      modeSeg,
+      // Trailing icons keep their own right-aligned group: without the mode
+      // switcher (plain files) they would otherwise sit next to the back button.
+      h('div', { key: 'end', className: 'gp-files__bar-end' }, [fullscreenButton, propsButton]),
+    ])
+    : null
+
+  const wideBar = compact
+    ? null
+    : h('div', { key: 'bar', className: 'gp-files__bar' }, [
+      h('code', { key: 'path', className: 'gp-files__path', title: selected ?? '' }, selected ?? ''),
+      modeSeg,
+      // The two copy actions form one joined button group (collapsed shared
+      // border); a lone visible button keeps the full pill radius.
+      h('div', { key: 'copy', className: 'gp-files__copy-group' }, [
+        h('button', {
+          key: 'copy-path', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+          'aria-live': 'polite', onClick: () => { void copyPath() },
+        }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
+        // Hidden (not disabled) for binary/image/too-large/error previews and
+        // for documents at/above the copy envelope — no dead control to click.
+        canCopyContent(file)
+          ? h('button', {
+            key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+            'aria-live': 'polite', onClick: () => { void copyContent() },
+          }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
+          : null,
+      ]),
+      fullscreenButton,
+      propsButton,
+    ])
+
+  // One role=tabpanel per mode in both layouts (the switcher's aria-controls
+  // must always resolve); only the active one mounts the preview body.
+  const previewContent = richPreview
+    ? [
+      h('div', {
+        key: 'src', id: `${modeId}-source-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-source`,
+        style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
+      }, renderMarkdown ? null : renderContent(file, false, markdownLabels, t)),
+      h('div', {
+        key: 'rnd', id: `${modeId}-render-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-render`,
+        style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
+      }, renderMarkdown ? renderContent(file, true, markdownLabels, t) : null),
+    ]
+    : renderContent(file, renderMarkdown, markdownLabels, t)
+
   const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
-    selected !== null ? h('div', { key: 'bar', className: 'gp-files__bar' }, [
-      compact ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('tree') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]) : null,
-      h('code', { key: 'path', className: 'gp-files__path', title: selected }, selected),
-      file.kind === 'text' && isRichPath(file.path)
-        ? h('div', { key: 'mode', className: 'gp-files__mode', role: 'group', 'aria-label': t('files.previewMode') }, [
-          h('button', { key: 'source', type: 'button', className: `gp-files__mode-btn${!renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': !renderMarkdown, onClick: () => setRenderMarkdown(false) }, t('files.source')),
-          h('button', { key: 'render', type: 'button', className: `gp-files__mode-btn${renderMarkdown ? ' gp-files__mode-btn--active' : ''}`, 'aria-pressed': renderMarkdown, onClick: () => setRenderMarkdown(true) }, t('files.render')),
-        ])
-        : null,
-      h('button', {
-        key: 'copy', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-        'aria-live': 'polite', onClick: () => { void copyPath() },
-      }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
-      // Hidden (not disabled) for binary/image/too-large/error previews and
-      // for documents at/above the copy envelope — no dead control to click.
-      canCopyContent(file)
-        ? h('button', {
-          key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-          'aria-live': 'polite', onClick: () => { void copyContent() },
-        }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
-        : null,
-      // Icon-only properties entry, pinned to the toolbar's far right edge.
-      h('button', {
-        key: 'props', type: 'button', className: 'gp-files__props',
-        title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
-        disabled: propsInput === null, onClick: () => setShowProps(true),
-      }, h(InfoIcon, { size: 14 })),
-    ]) : null,
-    h('div', { key: 'content', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t)),
+    selected !== null ? (compact ? compactBar : wideBar) : null,
+    h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
+    fullscreen && selected !== null && file.kind === 'text'
+      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, markdownLabels, onClose: () => setFullscreen(false), t })
+      : null,
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
       : null,
@@ -330,6 +395,40 @@ function renderContent(
   return renderPreview(file, t)
 }
 
+/**
+ * Fullscreen reader: the current preview re-rendered in the shell's
+ * near-fullscreen modal, with the mode chosen in the panel toolbar. Escape,
+ * the backdrop and the close button dismiss it; focus moves into the dialog
+ * and returns to the toolbar control (shared dialog lifecycle).
+ */
+function FileFullscreen(props: {
+  file: FileState
+  renderMarkdown: boolean
+  markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
+  onClose: () => void
+  t: (key: GitKey, params?: Record<string, string | number>) => string
+}): JSX.Element | null {
+  const { file, renderMarkdown, markdownLabels, onClose, t } = props
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
+  useDialogFocus(dialogRef, onClose, closeRef)
+  if (typeof document === 'undefined' || file.kind !== 'text') return null
+  return createPortal(h('div', {
+    className: 'gp-modal-backdrop',
+    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
+  }, h('div', { ref: dialogRef, className: 'gp-modal', role: 'dialog', 'aria-modal': true, 'aria-label': t('files.fullscreen') }, [
+    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
+      h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
+      h('button', {
+        key: 'close', ref: closeRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
+        title: t('common.close'), 'aria-label': t('common.close'), onClick: onClose,
+      }, h(CloseIcon, { size: 15 })),
+    ]),
+    h('div', { key: 'scroll', className: 'gp-modal__scroll' },
+      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t))),
+  ])), document.body, 'file-fullscreen')
+}
+
 interface TreeCbs {
   dirs: ReadonlyMap<string, Loaded>
   open: ReadonlySet<string>
@@ -344,10 +443,10 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
   const loaded = cb.dirs.get(dirPath)
   if (loaded === undefined || loaded.status === 'loading') {
     if (depth === 0) return [h('div', { key: 'l', className: 'gp-empty' }, cb.t('common.loading'))]
-    return [h('div', { key: `l${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 10 + depth * 14 } }, cb.t('common.loading'))]
+    return [h('div', { key: `l${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('common.loading'))]
   }
   if (loaded.status === 'error') {
-    return [h('div', { key: `e${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 10 + depth * 14 } }, cb.t('files.loadFailed'))]
+    return [h('div', { key: `e${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.loadFailed'))]
   }
   const rows: JSX.Element[] = []
   for (const entry of loaded.entries) {
@@ -356,12 +455,15 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
       const isOpen = cb.open.has(path)
       rows.push(h('button', {
         key: path, type: 'button', className: `gp-tree-row gp-files__entry gp-files__entry--dir${entry.ignored ? ' gp-tree-row--ignored' : ''}`,
-        style: { paddingLeft: 10 + depth * 14 }, 'aria-expanded': isOpen,
+        style: { paddingLeft: 8 + depth * 16 }, 'aria-expanded': isOpen,
         'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
         onClick: () => cb.toggleDir(path),
       }, [
-        h('span', { key: 'c', className: 'gp-tree-chev' }, h(ChevronIcon, { size: 11, open: isOpen })),
-        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileTypeIcon, { kind: 'folder', size: 18 })),
+        // The official file lists mark expansion with the folder glyph itself
+        // instead of a separate chevron.
+        h('span', { key: 'i', className: 'gp-tree-ic' }, isOpen
+          ? h(IconFolderOpenRegular, { size: 16 })
+          : h(IconFolderCloseRegular, { size: 16 })),
         h('span', { key: 'n', className: 'gp-tree-name' }, entry.name),
       ]))
       if (isOpen) rows.push(...renderTree(path, depth + 1, cb))
@@ -369,18 +471,17 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
       const active = cb.selected === path
       rows.push(h('button', {
         key: path, type: 'button', className: `gp-tree-row gp-files__entry${active ? ' gp-tree-row--active' : ''}${entry.ignored ? ' gp-tree-row--ignored' : ''}`,
-        style: { paddingLeft: 10 + depth * 14 }, 'aria-current': active ? 'true' : undefined,
+        style: { paddingLeft: 8 + depth * 16 }, 'aria-current': active ? 'true' : undefined,
         'aria-label': entry.ignored ? `${entry.name} (${cb.t('files.ignored')})` : entry.name,
         onClick: () => cb.selectFile(path),
       }, [
-        h('span', { key: 'c', className: 'gp-tree-chev' }),
-        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileTypeIcon, { path, size: 18 })),
+        h('span', { key: 'i', className: 'gp-tree-ic' }, h(FileTypeIcon, { path, size: 16 })),
         h('span', { key: 'n', className: 'gp-tree-name' }, entry.name),
       ]))
     }
   }
   if (loaded.truncated) {
-    rows.push(h('div', { key: `t${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 10 + depth * 14 } }, cb.t('files.truncated')))
+    rows.push(h('div', { key: `t${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.truncated')))
   }
   return rows
 }

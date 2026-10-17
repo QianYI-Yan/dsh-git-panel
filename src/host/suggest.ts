@@ -198,6 +198,34 @@ function truncateUtf8(text: string, maxBytes: number): string {
   return text.slice(0, lo)
 }
 
+/** A diff line longer than this is replaced by a one-line marker before the
+ * model-input budget is applied. Build output is minified into single lines (a
+ * bundled `lib/client.js` line can be hundreds of KB), so shipping it verbatim
+ * spends the whole `suggestMaxBytes` budget on one line and cuts off the hunks
+ * that actually describe the change. Line count and the diff prefix are kept,
+ * so `@@` headers still describe the same regions. */
+export const LONG_LINE_MAX_CHARS = 400
+
+/** Unified-diff structural lines that must never be folded: they carry the file
+ * identity and the hunk coordinates, which the placeholder would erase. */
+const STRUCTURAL_LINE = /^(?:@@|diff --git |index |--- (?:a\/|\/dev\/null)|\+\+\+ (?:b\/|\/dev\/null)|new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |Binary files |GIT binary patch|literal |delta |\\ )/
+
+/** Fold over-long lines into `<prefix>… [long line: N chars omitted]`.
+ * `N` counts UTF-16 code units (what `String.length` reports), not bytes. */
+export function compactLongLines(text: string, maxChars: number = LONG_LINE_MAX_CHARS): { text: string; folded: number } {
+  if (maxChars <= 0) return { text, folded: 0 }
+  let folded = 0
+  const lines = text.split('\n').map((line) => {
+    if (line.length <= maxChars || STRUCTURAL_LINE.test(line)) return line
+    folded += 1
+    // Keep the unified-diff prefix (`+` / `-` / space / `\`) so the marker still
+    // reads as the added, removed or context line it replaced.
+    const prefix = line[0] === '+' || line[0] === '-' || line[0] === ' ' || line[0] === '\\' ? line[0] : ''
+    return `${prefix}\u2026 [long line: ${line.length} chars omitted]`
+  })
+  return { text: lines.join('\n'), folded }
+}
+
 /**
  * Frame the change summary as JSON so user text cannot break structural
  * delimiters. `commitStyleSamples` carries several recent subjects (not one):
@@ -308,7 +336,7 @@ async function appendUntracked(
     if (remaining <= 0) { truncated = true; break }
     const res = await runCommand(deps.run, ['git', 'diff', '--no-index', '--', '/dev/null', c.path], root, 'suggest-untracked', deps.signal)
     if ('failure' in res || res.run.cancelled || res.run.timedOut) continue
-    const chunk = res.run.stdout
+    const chunk = compactLongLines(res.run.stdout).text
     if (chunk === '') continue
     // A lossy runner read (stdout cap hit with spill degraded) kept only the
     // stream's tail — this file's diff lost its header and opening hunks: keep
@@ -399,7 +427,9 @@ export async function runSuggest(
     return { ok: false, error: { code: 'empty-diff', message: 'no uncommitted changes to summarize' } }
   }
 
-  let diff = collected.diff
+  // Fold minified single-line blobs first: they would otherwise eat the whole
+  // byte budget and cut off the hunks that explain the change.
+  let diff = compactLongLines(collected.diff).text
   // A runner stdout-cap truncation (profile `maxBytes` below the diff size)
   // is just as lossy as the model-input cap — flag it, not silently drop it.
   let truncated = collected.lossy

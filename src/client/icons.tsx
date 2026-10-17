@@ -46,6 +46,16 @@ export function CloseIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 4l8 8M12 4l-8 8' })], size)
 }
 
+/** Expand-to-fullscreen glyph: four corner brackets. */
+export function FullscreenIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M2 6V2h4' }),
+    h('path', { key: 'b', d: 'M10 2h4v4' }),
+    h('path', { key: 'c', d: 'M14 10v4h-4' }),
+    h('path', { key: 'd', d: 'M6 14H2v-4' }),
+  ], size)
+}
+
 /** Left-pointing arrow for the compact drill-in back button. */
 export function ArrowLeftIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M10 3L5 8l5 5' }), h('path', { key: 'b', d: 'M5 8h8' })], size)

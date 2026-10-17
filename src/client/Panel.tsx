@@ -18,6 +18,7 @@ import { useHoverTip } from './tip.js'
 import type { GitAction, GitVersionInfo } from './types.js'
 import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
+import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
 
 const FONT_DELTA_KEY = 'gp.panel.fontDelta'
@@ -100,6 +101,8 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // Files tab keeps a per-session directory cache that would otherwise serve
   // the previous branch's tree for up to a minute; this tells it to drop it.
   const [worktreeGen, setWorktreeGen] = useState(0)
+  // The git-not-installed banner can be dismissed for this mount.
+  const [gitNoticeClosed, setGitNoticeClosed] = useState(false)
 
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
@@ -194,7 +197,12 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
 
   // git-not-installed inside a repo: stack a notice above the browser.
   const body = gitMissingInRepo
-    ? h('div', { className: 'gp-files-wrap' }, [h('div', { key: 'notice', className: 'gp-notice' }, t('files.gitNotInstalled')), ...panes])
+    ? h('div', { className: 'gp-files-wrap' }, [
+      gitNoticeClosed
+        ? null
+        : h(NoticeBar, { key: 'notice', text: t('files.gitNotInstalled'), closeLabel: t('common.close'), onClose: () => setGitNoticeClosed(true) }),
+      ...panes,
+    ])
     : h('div', { style: { display: 'contents' } }, panes)
 
   // `data-conversation-composer-overlay` opts the view into the shell's
@@ -205,7 +213,9 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     h('div', { key: 'tabs', className: 'gp-tabbar' }, [
       h(SegmentedTabs, {
         key: 'switcher',
-        className: 'gp-tabbar__tabs',
+        // A lone tab (non-git directory → Files only) has nothing to switch
+        // between, so it must not stretch across the compact bar.
+        className: `gp-tabbar__tabs${tabs.length === 1 ? ' gp-tabbar__tabs--single' : ''}`,
         label: t('panel.tabs'),
         items: tabItems,
         value: selectedTab,
@@ -217,14 +227,17 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       }),
       // Trailing cluster (font stepper + version bar). `display:contents` in the
       // wide layout keeps it transparent to the tab-bar flex (identical to the
-      // flat layout); in compact it becomes a wrapped second row.
+      // flat layout); in compact the stepper rides the switcher's single row.
       h('div', { key: 'trailing', className: 'gp-tabbar__trailing' }, [
-        h('div', { key: 'font', className: 'gp-font' }, [
-          h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
-          h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
-          h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
+        h('div', { key: 'font', className: 'gp-font', role: 'group', 'aria-label': t('panel.fontSize') }, [
+          h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', 'aria-pressed': fontDelta === -1, onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
+          h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', 'aria-pressed': fontDelta === 0, onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
+          h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', 'aria-pressed': fontDelta === 1, onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
         ]),
-        h(VersionBar, { key: 'ver', remote, t }),
+        // Version tag / update check / repo star are desktop chrome: on a phone
+        // they would cost a second tab-bar row (and one version RPC), so compact
+        // does not mount them at all.
+        compact ? null : h(VersionBar, { key: 'ver', remote, t }),
       ]),
     ]),
     h('div', { key: 'body', className: 'gp-body' }, body),

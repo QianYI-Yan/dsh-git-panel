@@ -17,7 +17,14 @@
     // The isolated harness substitutes a minimal React render to test the UI toggle.
     '@deepseek-ai/dsh-client-ui-primitives': {
       FileTypeIcon: function (props) {
-        return window.React.createElement('svg', { 'data-file-type': props.kind || props.path, 'aria-hidden': 'true' });
+        // Give the stub a real box: a sizeless <svg> defaults to 300x150 and
+        // would blow up any row it sits in (the review screenshots caught it).
+        return window.React.createElement('svg', {
+          'data-file-type': props.kind || props.path, 'aria-hidden': 'true',
+          className: props.className,
+          width: props.size || 16, height: props.size || 16, viewBox: '0 0 16 16',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round',
+        }, window.React.createElement('path', { d: 'M4 2h5l3 3v9H4z' }));
       },
       languageForPath: function (path) { return /\.tsx?$/i.test(path) ? 'typescript' : undefined; },
       useCodeHighlighter: function (language) {
@@ -80,6 +87,22 @@
           width: props.size || 14, height: props.size || 14,
         });
       },
+      // Official closed/open folder glyphs: data-folder lets the e2e assert the
+      // expanded state without depending on the icon package.
+      IconFolderCloseRegular: function (props) {
+        return window.React.createElement('svg', {
+          'data-folder': 'closed', 'aria-hidden': 'true', className: props.className,
+          width: props.size || 16, height: props.size || 16, viewBox: '0 0 16 16',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinejoin: 'round',
+        }, window.React.createElement('path', { d: 'M2 4.6h4l1.4 1.9H14v5.9H2z' }));
+      },
+      IconFolderOpenRegular: function (props) {
+        return window.React.createElement('svg', {
+          'data-folder': 'open', 'aria-hidden': 'true', className: props.className,
+          width: props.size || 16, height: props.size || 16, viewBox: '0 0 16 16',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinejoin: 'round',
+        }, window.React.createElement('path', { d: 'M2 4.6h4l1.4 1.9H14l-1.1 5.9H2z' }));
+      },
       // Official dsh SegmentedTabs: a controlled tab list with a sliding
       // indicator. The stub keeps the observable contract the plugin and the
       // e2e rely on — role="tablist" + aria-label, one aria-hidden indicator
@@ -128,6 +151,45 @@
               onClick: function () { props.onChange(item.value); },
               onKeyDown: function (event) { walk(event, i); },
             }, item.label);
+          }));
+      },
+      // Official dsh SegmentedControl: equal-width mode segments with a sliding
+      // indicator. Keeps the observable contract the plugin relies on —
+      // role=tablist + aria-label, one role=tab per option whose id is
+      // `<id>-<value>` and whose aria-controls names `<id>-<value>-panel`.
+      SegmentedControl: function (props) {
+        var R = window.React;
+        var options = props.options || [];
+        var walkSeg = function (event, from) {
+          var next;
+          switch (event.key) {
+            case 'ArrowLeft': case 'ArrowUp': next = (from + options.length - 1) % options.length; break;
+            case 'ArrowRight': case 'ArrowDown': next = (from + 1) % options.length; break;
+            case 'Home': next = 0; break;
+            case 'End': next = options.length - 1; break;
+            default: return;
+          }
+          event.preventDefault();
+          var target = options[next];
+          if (target && target.value !== props.value) props.onChange(target.value);
+        };
+        return R.createElement('div', {
+          role: 'tablist', 'aria-label': props.label, className: props.className,
+          style: { gridTemplateColumns: 'repeat(' + options.length + ', minmax(0, 1fr))' },
+        },
+          R.createElement('span', { key: 'indicator', 'aria-hidden': 'true', className: 'dsh-segmented-indicator' }),
+          options.map(function (option, i) {
+            var active = props.value === option.value;
+            return R.createElement('button', {
+              key: option.value, id: props.id + '-' + option.value, type: 'button', role: 'tab',
+              className: 'dsh-segmented-tab',
+              'aria-selected': active, 'aria-controls': props.id + '-' + option.value + '-panel',
+              tabIndex: active ? 0 : -1,
+              disabled: props.disabled === true || option.disabled === true,
+              title: option.title,
+              onClick: function () { if (!active) props.onChange(option.value); },
+              onKeyDown: function (event) { walkSeg(event, i); },
+            }, option.label);
           }));
       },
       // Mirrors the platform's writeClipboard: the async Clipboard API when the

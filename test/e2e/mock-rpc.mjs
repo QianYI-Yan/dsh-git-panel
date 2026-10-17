@@ -152,7 +152,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           // Park until the test has observed the commit box's in-flight lock.
           await new Promise((r) => { fixture.releaseSuggest = r })
           fixture.releaseSuggest = null
-          return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: false } } }
+          return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: fixture.suggestTruncated === true } } }
         }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
