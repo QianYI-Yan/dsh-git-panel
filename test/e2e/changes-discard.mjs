@@ -226,10 +226,10 @@ async function untrackedDirScenario() {
   return { out, errors }
 }
 
-/** (e): a `nested-repo` refusal keeps the dialog open with the localized copy. */
-async function nestedRepoErrorScenario() {
+/** (e): a repository refusal keeps the dialog open with the localized copy. */
+async function nestedRepoErrorScenario(code) {
   const { page, errors } = await openPanel(SNAP)
-  const out = await page.evaluate(async (glyphs) => {
+  const out = await page.evaluate(async (args) => {
     const result = {}
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     const rowOf = (name, glyph) => [...document.querySelectorAll('.gp-file-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === name
@@ -237,11 +237,15 @@ async function nestedRepoErrorScenario() {
     const picked = () => document.querySelector('.gp-changes__discard-picked')
     // The host refuses a directory that is itself a repository; the mock
     // replays that wire error for the discard action without modeling git.
-    window.__gpFixture.runFailure = { kind: 'discard', code: 'nested-repo', message: 'repository directory: newdir' }
-    rowOf('newdir', glyphs.stage)?.querySelector('input.gp-check')?.click()
+    window.__gpFixture.runFailure = { kind: 'discard', code: args.code, message: 'repository directory: newdir' }
+    const row = rowOf('newdir', args.stage)
+    result.rowFound = row !== null
+    row?.querySelector('input.gp-check')?.click()
     await wait(60)
+    result.enabled = picked().disabled === false
     picked().click()
     await wait(150)
+    result.modalShown = document.querySelector('.gp-modal--sm') !== null
     const actionsBefore = window.__gpFixture.actions.length
     ;[...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn--danger')][0]?.click()
     await wait(250)
@@ -250,7 +254,7 @@ async function nestedRepoErrorScenario() {
     result.modalOpen = modal !== null
     result.feedback = modal?.querySelector('.gp-feedback')?.textContent ?? null
     return result
-  }, { stage: STAGE_GLYPH })
+  }, { stage: STAGE_GLYPH, code })
   await page.close()
   return { out, errors }
 }
@@ -397,12 +401,21 @@ try {
   assert.deepEqual(untrackedDir.out.actions, [{ kind: 'discard', paths: ['newdir'] }], 'the untracked directory reaches the discard request')
 
   // A refused discard must not read as success: the action lands, the dialog
-  // stays open, and the host's code is mapped to the localized zh copy.
-  const refused = await nestedRepoErrorScenario()
+  // stays open, and the host's code is mapped to the localized zh copy. Both
+  // refusal codes are pinned — the partial one exists precisely because the
+  // generic copy would claim nothing was deleted after an earlier path was.
+  const refused = await nestedRepoErrorScenario('nested-repo')
   assert.equal(refused.errors.length, 0, 'no console errors: ' + JSON.stringify(refused.errors))
+  assert.equal(refused.out.rowFound, true, 'the untracked directory row is present')
+  assert.equal(refused.out.enabled, true, 'picking it enables the toolbar entry')
+  assert.equal(refused.out.modalShown, true, 'the confirm dialog opens')
   assert.deepEqual(refused.out.actions, [{ kind: 'discard', paths: ['newdir'] }], 'the refused discard still sends its request')
   assert.equal(refused.out.modalOpen, true, 'the confirm dialog stays open after a refusal')
   assert.equal(refused.out.feedback, '该条目本身是一个 Git 仓库（嵌套仓库或子模块），放弃会连带删除整个内部仓库；此操作请在终端中完成', 'the nested-repo refusal shows the localized copy in the dialog')
+
+  const partial = await nestedRepoErrorScenario('nested-repo-partial')
+  assert.equal(partial.errors.length, 0, 'no console errors: ' + JSON.stringify(partial.errors))
+  assert.equal(partial.out.feedback, '该条目本身是一个 Git 仓库（嵌套仓库或子模块），拒绝连带删除；但同批中位于它之前的条目已经被删除了，请刷新后确认剩余变更，此操作请在终端中完成', 'the mid-batch refusal says earlier paths were already deleted')
 
   const tips = await tipsScenario()
   assert.equal(tips.errors.length, 0, 'no console errors: ' + JSON.stringify(tips.errors))
@@ -431,6 +444,7 @@ try {
     discard: batch.out.actions, stagedOnly: stagedOnly.out.actions,
     stageDelay: tipDelay(tips.out.stageLog), armedDelay: tipDelay(tips.out.armedLog),
     tips: [tips.out.stageTip?.text, tips.out.discardTip?.text, tips.out.armedTip?.text, tips.out.unstageTip?.text],
+    refusals: [refused.out.feedback, partial.out.feedback],
   }))
 } catch (e) {
   console.error('e2e changes-discard.mjs: FAIL', e.message)

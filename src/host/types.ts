@@ -267,6 +267,10 @@ export type GitErrorCode =
   // submodule): a recursive delete would take the whole inner repository with
   // it, so the action is refused before anything is removed.
   | 'nested-repo'
+  // Same refusal, but raised inside the remove loop: the repository appeared
+  // after the batch pre-flight and paths earlier in the batch were already
+  // deleted, so the copy must say so instead of implying nothing happened.
+  | 'nested-repo-partial'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'

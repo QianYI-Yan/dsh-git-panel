@@ -365,12 +365,15 @@ async function looksLikeRepository(deps: SnapshotDeps, target: string): Promise<
     await deps.fs.stat(join(target, '.git'))
     return true
   } catch { /* not a nested repo / submodule — check the bare layout below */ }
-  // One readdir both finds and types the bare markers: a plain folder that
-  // merely holds three similarly named *files* is not a repository and must
-  // not be refused as one.
+  // Type the three bare markers with `stat` (which follows symlinks): a plain
+  // folder holding three similarly named *files* is not a repository and must
+  // not be refused as one, while an `objects/` that is a directory *or* a
+  // symlink to one still counts — refusing is the safe direction here.
   try {
-    const kinds = new Map((await deps.fs.readdir(target)).map((e) => [e.name, e.isDirectory]))
-    return kinds.get('HEAD') === false && kinds.get('objects') === true && kinds.get('refs') === true
+    const head = await deps.fs.stat(join(target, 'HEAD'))
+    const objects = await deps.fs.stat(join(target, 'objects'))
+    const refs = await deps.fs.stat(join(target, 'refs'))
+    return !head.isDirectory() && objects.isDirectory() && refs.isDirectory()
   } catch {
     return false
   }
@@ -420,6 +423,7 @@ async function discardUntracked(
   // `recursive`, a permission error, …). Paths already gone stay gone — the
   // caller gets an error instead of a silent no-op.
   const failures: string[] = []
+  let removedCount = 0
   for (const path of untracked) {
     if (!isSafePath(path)) return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `unsafe path: ${path}` } } }
     const target = join(root, path)
@@ -435,12 +439,18 @@ async function discardUntracked(
     // Last-moment re-check: the pre-flight above can be raced by a repository
     // appearing under a directory target after it scanned. Statting again
     // immediately before the removal narrows that window to the few syscalls
-    // between this call and the `rm` itself.
+    // between this call and the `rm` itself. Nothing has been removed yet in
+    // the normal case, so the refusal still means "the batch is untouched"; if
+    // it fires after earlier paths were deleted, say so with its own code —
+    // the generic copy would read as if the whole batch had been skipped.
     if (await looksLikeRepository(deps, target)) {
-      return { ok: false, result: { ok: false, error: { code: 'nested-repo', message: `repository directory: ${path}` } } }
+      const code = removedCount === 0 ? 'nested-repo' : 'nested-repo-partial'
+      const detail = removedCount === 0 ? '' : `; ${removedCount} path(s) already removed`
+      return { ok: false, result: { ok: false, error: { code, message: `repository directory: ${path}${detail}` } } }
     }
     try {
       await deps.fs.remove(target)
+      removedCount += 1
     } catch (e) {
       failures.push(`${path}: ${e instanceof Error ? e.message : String(e)}`)
     }

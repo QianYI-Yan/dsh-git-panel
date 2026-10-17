@@ -34,6 +34,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'not-found': return t('error.notFound')
     case 'branch-in-use': return t('error.branchInUse')
     case 'nested-repo': return t('error.nestedRepo')
+    // The same refusal raised mid-loop, after earlier paths were deleted: the
+    // copy must not read as "nothing happened".
+    case 'nested-repo-partial': return t('error.nestedRepoPartial')
     // The cause varies (branch in use, missing ref, conflict), so the raw git
     // message rides along — the localized text alone would not say why.
     case 'stash-switch-failed': return t('error.stashSwitchFailed', { reason: message ?? '' })

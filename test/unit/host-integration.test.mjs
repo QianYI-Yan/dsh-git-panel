@@ -1262,6 +1262,29 @@ test('a directory of three plain files named like bare markers is not mistaken f
   }
 })
 
+test('a bare repository whose objects/ is a symlink to a directory is still refused', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-baresym-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    await runGit(dir, ['init', '--bare', '-q', 'bare.git'])
+    const { mkdirSync, symlinkSync, existsSync } = await import('node:fs')
+    // Shared-object layouts point objects/ at a sibling directory. The marker
+    // typing must follow the symlink: refusing is the safe direction here.
+    rmSync(join(dir, 'bare.git', 'objects'), { recursive: true, force: true })
+    mkdirSync(join(dir, 'shared-objects'))
+    symlinkSync(join(dir, 'shared-objects'), join(dir, 'bare.git', 'objects'))
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['bare.git'] } })
+    assert.equal(res.ok, false, 'a bare repository with a symlinked objects/ is refused too')
+    assert.equal(res.error.code, 'nested-repo')
+    assert.equal(existsSync(join(dir, 'bare.git', 'HEAD')), true, 'the bare repository is intact')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a repository appearing after the batch pre-flight is caught by the per-path re-check', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-race-'))
   try {
@@ -1292,6 +1315,44 @@ test('a repository appearing after the batch pre-flight is caught by the per-pat
     assert.ok(probes >= 2, 'the entry was probed again immediately before removal')
     assert.equal(existsSync(join(dir, 'morph', '.git')), true, 'the repository that appeared mid-request is intact')
     assert.equal(existsSync(join(dir, 'morph', 'x.txt')), true, 'nothing inside it was removed')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a mid-batch repository refusal says earlier paths were already deleted', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-racepart-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    // `aa` sorts first and is deleted for real; `morph` is the repository whose
+    // pre-flight probe is made to miss, so the refusal lands after `aa` is gone.
+    mkdirSync(join(dir, 'aa'))
+    writeFileSync(join(dir, 'aa', 'a.txt'), 'a\n')
+    mkdirSync(join(dir, 'morph'))
+    await runGit(join(dir, 'morph'), ['init', '-q'])
+    writeFileSync(join(dir, 'morph', 'x.txt'), 'x\n')
+    const deps = depsAt(dir)
+    const realStat = deps.fs.stat
+    let probes = 0
+    deps.fs.stat = async (p) => {
+      if (p.endsWith('/morph/.git')) {
+        probes += 1
+        if (probes === 1) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; throw e }
+      }
+      return realStat(p)
+    }
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['aa', 'morph'] } })
+    assert.equal(res.ok, false)
+    // A generic `nested-repo` here would claim the batch was untouched while
+    // `aa` is already gone; the partial code is what makes the copy honest.
+    assert.equal(res.error.code, 'nested-repo-partial')
+    assert.match(res.error.message, /1 path\(s\) already removed/)
+    assert.equal(existsSync(join(dir, 'aa')), false, 'the earlier path really was deleted')
+    assert.equal(existsSync(join(dir, 'morph', '.git')), true, 'the repository is intact')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
