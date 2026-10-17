@@ -162,3 +162,30 @@ export function primaryRemoteRef(remote: readonly GitBranch[], remoteName: strin
   }
   return null
 }
+
+/** The pinned rows plus the folded remainder of the local branch list. */
+export interface LocalBranchSection {
+  /** Rendered above the tree in full: the current branch, then the primary. */
+  readonly pinned: readonly GitBranch[]
+  /** Every other branch, folded in input order. */
+  readonly nodes: readonly BranchTreeNode[]
+}
+
+/**
+ * Split the local list for the pinned rows: `current` when it exists, then
+ * `primary` — a name that is both leads once. Both leave the tree, so a slashed
+ * name shows in full above it instead of disappearing into its directory.
+ * Everything else keeps the host order.
+ */
+export function buildLocalBranchSection(branches: readonly GitBranch[], current: string | null, primary: string | null): LocalBranchSection {
+  const pinned: GitBranch[] = []
+  const take = (name: string | null): void => {
+    if (name === null || pinned.some((b) => b.name === name)) return
+    const found = branches.find((b) => b.name === name)
+    if (found !== undefined) pinned.push(found)
+  }
+  take(current)
+  take(primary)
+  const pinnedNames = new Set(pinned.map((b) => b.name))
+  return { pinned, nodes: buildBranchTree(branches.filter((b) => !pinnedNames.has(b.name))) }
+}

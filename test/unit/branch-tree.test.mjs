@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildBranchTree, pinPrimaryFirst, primaryBranchName, primaryRemoteRef } from '../../lib/testkit.mjs'
+import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranchName, primaryRemoteRef } from '../../lib/testkit.mjs'
 
 const br = (name, extra = {}) => ({ name, shortHash: 'abc1234', ...extra })
 
@@ -256,4 +256,62 @@ test('keeps a wide, deep ref set linked to the right parents', () => {
   walk(tree, '')
   assert.equal(seen.length, items.length)
   assert.deepEqual([...seen].sort(), items.map((b) => b.name).sort())
+})
+
+test('buildLocalBranchSection pins the current branch, then the primary', () => {
+  const branches = [br('feat/x'), br('main'), br('pr-38'), br('release/1.0')]
+  const { pinned, nodes } = buildLocalBranchSection(branches, 'feat/x', 'main')
+  assert.deepEqual(pinned.map((b) => b.name), ['feat/x', 'main'], 'current first, primary second')
+  assert.equal(pinned[0], branches[0], 'the original object is pinned')
+  // Both left the tree; the rest keeps the input order.
+  assert.deepEqual(nodes.map((n) => n.label), ['pr-38', 'release'])
+})
+
+test('a current branch that is also the primary pins once', () => {
+  const branches = [br('feat/x'), br('main')]
+  const { pinned, nodes } = buildLocalBranchSection(branches, 'main', 'main')
+  assert.deepEqual(pinned.map((b) => b.name), ['main'])
+  assert.deepEqual(nodes.map((n) => n.label), ['feat'])
+})
+
+test('a slashed current branch is pinned in full and never duplicated in the tree', () => {
+  const branches = [br('feat/x'), br('feat/y'), br('main')]
+  const { pinned, nodes } = buildLocalBranchSection(branches, 'feat/x', 'main')
+  assert.deepEqual(pinned.map((b) => b.name), ['feat/x', 'main'])
+  const leaves = []
+  const walk = (list) => {
+    for (const node of list) {
+      if (node.kind === 'leaf') leaves.push(node.path)
+      else walk(node.children)
+    }
+  }
+  walk(nodes)
+  assert.deepEqual(leaves, ['feat/y'], 'the pinned ref is gone from its directory')
+  assert.deepEqual(nodes.map((n) => n.label), ['feat'])
+})
+
+test('a detached HEAD, a stale current or a missing primary pins only what exists', () => {
+  const branches = [br('main'), br('feat/x'), br('pr-38')]
+  // Detached HEAD: only the primary is pinned.
+  const detached = buildLocalBranchSection(branches, null, 'main')
+  assert.deepEqual(detached.pinned.map((b) => b.name), ['main'])
+  assert.deepEqual(detached.nodes.map((n) => n.label), ['feat', 'pr-38'])
+  // Nothing to pin: the tree is the plain one.
+  const none = buildLocalBranchSection(branches, null, null)
+  assert.deepEqual(none.pinned, [])
+  assert.deepEqual(none.nodes, buildBranchTree(branches))
+  // A primary missing locally, and a current that is no longer in the list.
+  const missing = buildLocalBranchSection(branches, 'feat/x', 'release')
+  assert.deepEqual(missing.pinned.map((b) => b.name), ['feat/x'])
+  assert.deepEqual(missing.nodes.map((n) => n.label), ['main', 'pr-38'])
+  const stale = buildLocalBranchSection(branches, 'gone', 'main')
+  assert.deepEqual(stale.pinned.map((b) => b.name), ['main'])
+})
+
+test('buildLocalBranchSection never mutates its input', () => {
+  const branches = [br('main'), br('feat/x')]
+  const snapshot = JSON.stringify(branches)
+  buildLocalBranchSection(branches, 'feat/x', 'main')
+  assert.equal(JSON.stringify(branches), snapshot)
+  assert.equal(branches.length, 2)
 })

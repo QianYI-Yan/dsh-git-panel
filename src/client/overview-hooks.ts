@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
-import { DIFF_EXPAND_CONTEXT, type GitBranch, type GitCommit, type GitDiffPayload, type GitFileStat, type GraphCommit, type DiffViewMode } from './types.js'
+import { DIFF_EXPAND_CONTEXT, type GitBranch, type GitCommit, type GitDiffPayload, type GitFileStat, type GitGraphNode, type GraphCommit, type DiffViewMode } from './types.js'
 import type { DiffMode } from './DiffView.js'
 import { useVisibleRequest } from './use-visible-request.js'
 import { pageVisibility } from './visibility.js'
@@ -73,6 +73,55 @@ export function useBranchTree(remote: GitPanelRemote, sessionId: string, queryKe
   return { tree, treeError, authors, reload }
 }
 
+/** Hidden (non-visible) topology nodes kept across pages. Visible commits never
+ * spend this budget and are never dropped; an over-budget ancestry simply ends
+ * as a shorter boundary in the projection (no extra query is issued to refill). */
+const HIDDEN_TOPOLOGY_CAP = 20000
+
+/**
+ * Merge one page's raw ancestry into the accumulated topology.
+ *
+ * `pageTopology === undefined` means the response carried no topology data at
+ * all; the projection stays undefined and the caller decides what to draw. Page 0
+ * starts a fresh generation (replace); later pages merge by hash.
+ *
+ * Visible commits are authoritative and go in first: the page's own `%P` is the
+ * truth for a commit we actually show, even when the bounded walk reported
+ * different parents for the same hash (shallow boundary, budget truncation) or
+ * dropped the seed entirely. Hidden nodes then fill only what the page does not
+ * own, capped so a long scroll cannot grow the cache without bound.
+ *
+ * For a hidden hash the NEWEST record wins: an earlier page can only see a
+ * shallow boundary (no parents) while a later one has the real links, so a
+ * first-wins rule would freeze the empty record and truncate the path.
+ */
+function mergeTopology(
+  previous: readonly GitGraphNode[] | undefined,
+  pageTopology: readonly GitGraphNode[] | undefined,
+  commits: readonly GraphCommit[],
+): readonly GitGraphNode[] | undefined {
+  if (pageTopology === undefined) return previous
+  const visible = commits.map((commit) => ({ hash: commit.hash, parents: commit.parents }))
+  const visibleHashes = new Set(visible.map((node) => node.hash))
+  // Re-inserting moves a re-seen hash to the tail, so the cap keeps the newest.
+  const hidden = new Map<string, readonly string[]>()
+  for (const node of [...(previous ?? []), ...pageTopology]) {
+    if (visibleHashes.has(node.hash)) continue
+    hidden.delete(node.hash)
+    hidden.set(node.hash, node.parents)
+  }
+  const entries = [...hidden]
+  const kept = entries.length > HIDDEN_TOPOLOGY_CAP ? entries.slice(entries.length - HIDDEN_TOPOLOGY_CAP) : entries
+  return [...visible, ...kept.map(([hash, parents]) => ({ hash, parents }))]
+}
+
+interface HistoryData {
+  readonly commits: readonly GraphCommit[]
+  readonly topology: readonly GitGraphNode[] | undefined
+  readonly total: number
+  readonly appliedFilter: HistoryFilter
+}
+
 /**
  * Middle column: paged commit history. One effect owns page 0 (keyed on
  * filter + queryKey) so a filter change and a snapshot advance can't race and
@@ -94,6 +143,11 @@ export function useHistory(
   visible = true,
 ): {
   commits: readonly GraphCommit[]
+  /** Raw ancestry accumulated across the pages of one generation; undefined when
+   * the responses carried no topology data. */
+  topology: readonly GitGraphNode[] | undefined
+  /** Filter that produced the published rows and topology, not the pending request. */
+  appliedFilter: HistoryFilter
   total: number
   loading: boolean
   listError: boolean
@@ -101,12 +155,17 @@ export function useHistory(
   listRef: React.RefObject<HTMLDivElement>
   loadMore: () => void
 } {
-  const [commits, setCommits] = useState<readonly GraphCommit[]>([])
-  const [total, setTotal] = useState(0)
+  // The layout policy travels with its data, so a pending toolbar filter cannot
+  // reinterpret the previous rows, even when React does not batch state updates.
+  const [history, setHistory] = useState<HistoryData>({ commits: [], topology: undefined, total: 0, appliedFilter: filter })
+  const { commits, topology, total, appliedFilter } = history
   const [loading, setLoading] = useState(false)
   const [listError, setListError] = useState(false)
   const seqRef = useRef(0)
   const loadingRef = useRef(false)
+  // Pagination merges against the last complete publication, not render timing.
+  const historyRef = useRef(history)
+  const appendReady = useRef(false)
   const currentPage = useRef<() => boolean>(() => false)
   const visibleRef = useRef(visible)
   visibleRef.current = visible
@@ -133,9 +192,17 @@ export function useHistory(
     setLoading(false)
     const history = queryAs(res, 'history')
     if (history === null) { setListError(true); return }
-    const page = history.commits
-    setCommits((prev) => (skip === 0 ? page : [...prev, ...page]))
-    setTotal(history.total)
+    const previous = historyRef.current
+    const commits = skip === 0 ? history.commits : [...previous.commits, ...history.commits]
+    const next: HistoryData = {
+      commits,
+      topology: mergeTopology(skip === 0 ? undefined : previous.topology, history.topology, commits),
+      total: history.total,
+      appliedFilter: f,
+    }
+    historyRef.current = next
+    appendReady.current = true
+    setHistory(next)
   }, [remote, sessionId])
 
   const prevFilter = useRef(filter)
@@ -143,6 +210,9 @@ export function useHistory(
     seqRef.current += 1
     loadingRef.current = false
     currentPage.current = isCurrent
+    // A failed replacement may leave old rows visible, but cannot append a page
+    // from the new filter/session to that retained result.
+    appendReady.current = false
     // Only a changed filter clears selection/scroll; poll and visibility do not.
     if (prevFilter.current !== filter) {
       prevFilter.current = filter
@@ -154,7 +224,7 @@ export function useHistory(
 
   const hasMore = total < 0 ? true : commits.length < total
   const loadMore = useCallback(() => {
-    if (!visibleRef.current || !pageVisibility.isVisible() || loadingRef.current || !hasMore || !currentPage.current()) return
+    if (!visibleRef.current || !pageVisibility.isVisible() || loadingRef.current || !appendReady.current || !hasMore || !currentPage.current()) return
     const isCurrent = currentPage.current
     void loadPage(commits.length, filter, isCurrent).catch(() => {
       if (!isCurrent()) return
@@ -164,7 +234,7 @@ export function useHistory(
     })
   }, [loadPage, commits.length, filter, hasMore])
 
-  return { commits, total, loading, listError, hasMore, listRef, loadMore }
+  return { commits, topology, appliedFilter, total, loading, listError, hasMore, listRef, loadMore }
 }
 
 /**

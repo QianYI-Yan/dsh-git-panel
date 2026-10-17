@@ -12,9 +12,12 @@ import { IconChevronDownOutlineRegular, Menu, type MenuItem } from '@deepseek-ai
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, BranchIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
-import { buildBranchTree, pinPrimaryFirst, primaryBranchName, primaryRemoteRef, type BranchTreeNode } from './branch-tree.js'
+import { layoutFilteredGraph } from './filtered-graph.js'
+import { CommitGraph, GRAPH_LANE_W } from './CommitGraph.js'
+import { isHistoryHashSearch } from './types.js'
+import { buildBranchTree, buildLocalBranchSection, pinPrimaryFirst, primaryBranchName, primaryRemoteRef, type BranchTreeNode } from './branch-tree.js'
 import { buildFileTree } from './file-tree.js'
 import { absoluteDateTime, absoluteTime, timeAgo } from './time.js'
 import { statusChar, statusClass } from './status.js'
@@ -68,7 +71,6 @@ interface OverviewProps {
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-const LANE_W = 14
 const ROW_H = 30
 
 /** Shallow equality of two ref lists by kind/name/head (ignores array identity). */
@@ -215,15 +217,21 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     const local = tree?.local ?? []
     const remote = tree?.remote ?? []
     const defaultBranch = tree?.defaultBranch ?? null
+    const localPrimary = primaryBranchName(local, defaultBranch)
+    const remotePrimary = primaryRemoteRef(remote, remoteName, defaultBranch)
+    const localSection = buildLocalBranchSection(local, tree?.current ?? null, localPrimary)
     return {
-      local: buildBranchTree(pinPrimaryFirst(local, primaryBranchName(local, defaultBranch))),
-      remote: buildBranchTree(pinPrimaryFirst(remote, primaryRemoteRef(remote, remoteName, defaultBranch))),
+      local: localSection.nodes,
+      localPinned: localSection.pinned,
+      localPrimary,
+      remotePrimary,
+      remote: buildBranchTree(pinPrimaryFirst(remote, remotePrimary)),
       tags: buildBranchTree(tree?.tags ?? []),
     }
-  }, [tree?.local, tree?.remote, tree?.tags, tree?.defaultBranch, remoteName])
+  }, [tree?.local, tree?.remote, tree?.tags, tree?.current, tree?.defaultBranch, remoteName])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
-  const { commits, loading, listError, hasMore, listRef, loadMore } = useHistory(
+  const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore } = useHistory(
     remote, sessionId, filter, overviewQueryKey, detail.clearSelection, queryVisible,
   )
 
@@ -233,13 +241,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     return () => clearTimeout(timer)
   }, [searchInput])
 
-  // Any history filter (search / author / since) breaks the parent chain: the
-  // parents of the shown commits are usually filtered out too, so every lane
-  // would dangle. Such a subset has no meaningful topology — draw no graph.
-  const filtered = filter.search !== '' || filter.author !== '' || filter.since !== ''
-  const rows: GraphRow[] = useMemo(() => (filtered ? commits.map((c) => ({ commit: c, lane: 0, color: 0, edges: [], merge: false })) : layoutGraph(commits, snapshot.graphStyle)), [commits, filtered, snapshot.graphStyle])
-  const laneCount = useMemo(() => (filtered ? 0 : graphWidth(rows)), [rows, filtered])
-  const graphW = filtered ? 12 : Math.max(LANE_W, laneCount * LANE_W)
+  // A hash search jumps to a revision; content filters instead project the raw
+  // ancestry onto the visible rows. Missing ancestors remain short boundaries.
+  // Pending controls must not reinterpret the last successful history page.
+  const filtered = !isHistoryHashSearch(appliedFilter.search) && (appliedFilter.search.trim() !== '' || appliedFilter.author !== '' || appliedFilter.since !== '')
+  const rows: GraphRow[] = useMemo(() => filtered
+    ? layoutFilteredGraph(commits, topology ?? [], snapshot.graphStyle)
+    : layoutGraph(commits, snapshot.graphStyle), [commits, topology, filtered, snapshot.graphStyle])
+  const laneCount = useMemo(() => graphWidth(rows), [rows])
+  const graphW = Math.max(GRAPH_LANE_W, laneCount * GRAPH_LANE_W)
   const rowH = compact ? ROW_H_COMPACT : ROW_H
   // Wide: graph | subject | hash | author | date. Compact: graph | stacked text.
   const gridTpl = compact ? `${graphW}px minmax(0,1fr)` : `${graphW}px minmax(120px,1fr) 72px 120px 96px`
@@ -607,7 +617,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
         : rows.map((row) => renderCommitRow(row, {
           selected: selected?.hash === row.commit.hash,
-          gridTpl, graphW, laneCount, filtered, now, compact, rowH,
+          // snapshot.head is Git's unique abbreviation; history uses full hashes.
+          current: !snapshot.unborn && snapshot.head !== null && snapshot.head !== '' && row.commit.hash.startsWith(snapshot.head),
+          gridTpl, laneCount, now, compact, rowH,
           onSelect: () => selectCommit(row.commit),
           onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
           t,
@@ -771,6 +783,9 @@ interface BranchCbs {
 /** Folded trees for the three ref sections, built once per snapshot. */
 interface BranchTrees {
   readonly local: readonly BranchTreeNode[]
+  readonly localPinned: readonly GitBranch[]
+  readonly localPrimary: string | null
+  readonly remotePrimary: string | null
   readonly remote: readonly BranchTreeNode[]
   readonly tags: readonly BranchTreeNode[]
 }
@@ -786,13 +801,26 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
   /** One branch row. `label` is the last path segment; `title` keeps the full ref. */
   const branchRow = (b: GitBranch, label: string, depth: number, sectionKey: string, icon: JSX.Element): JSX.Element => {
     const ref = b.name
-    const isCurrent = tree.current === b.name
-    const cls = `gp-branch-row${activeRef === ref ? ' gp-branch-row--active' : ''}${isCurrent ? ' gp-branch-row--current' : ''}`
+    const isCurrent = sectionKey === 'local' && tree.current === b.name
+    const isPrimary = (sectionKey === 'local' && trees.localPrimary === b.name) || (sectionKey === 'remote' && trees.remotePrimary === b.name)
+    const cls = `gp-branch-row${activeRef === ref ? ' gp-branch-row--active' : ''}${isCurrent ? ' gp-branch-row--current' : ''}${isPrimary ? ' gp-branch-row--primary' : ''}`
     const target = cb.switchOptions.get(`${sectionKey}:${b.name}`)
-    return h('div', { key: b.name, className: cls, style: { paddingLeft: BRANCH_BASE + depth * BRANCH_INDENT }, title: b.name, onClick: () => cb.onFilter(activeRef === ref ? null : ref) }, [
-      h('span', { key: 'i', className: 'gp-branch-row__ic' }, icon),
+    const roleLabel = [isCurrent ? cb.t('overview.currentBranch') : '', isPrimary ? cb.t('overview.primaryBranch') : ''].filter(Boolean).join(' · ')
+    const rowIcon = isCurrent ? h(BranchCurrentIcon, { size: 14 }) : isPrimary ? h(BranchPrimaryIcon, { size: 14 }) : icon
+    const sync = (direction: 'ahead' | 'behind', count: number | undefined): JSX.Element | null => count && count > 0
+      ? h('span', { key: direction, className: 'gp-branch-row__sync', title: cb.t(direction === 'ahead' ? 'overview.branchAhead' : 'overview.branchBehind', { n: count }), 'aria-label': cb.t(direction === 'ahead' ? 'overview.branchAhead' : 'overview.branchBehind', { n: count }) }, [
+          h(BranchSyncIcon, { key: 'icon', size: 12, direction }),
+          h('span', { key: 'count' }, count),
+        ])
+      : null
+    return h('div', {
+      key: b.name, className: cls, style: { paddingLeft: BRANCH_BASE + depth * BRANCH_INDENT }, title: b.name,
+      'data-current': isCurrent ? 'true' : undefined, 'data-primary': isPrimary ? 'true' : undefined,
+      onClick: () => cb.onFilter(activeRef === ref ? null : ref),
+    }, [
+      h('span', { key: 'i', className: `gp-branch-row__ic${isCurrent ? ' gp-branch-row__ic--current' : isPrimary ? ' gp-branch-row__ic--primary' : ''}`, title: roleLabel || undefined, 'aria-label': roleLabel || undefined }, rowIcon),
       h('span', { key: 'n', className: 'gp-tree-name' }, label),
-      (b.ahead || b.behind) ? h('span', { key: 't', className: 'gp-branch-row__track' }, `${b.ahead ? `↑${b.ahead}` : ''}${b.behind ? `↓${b.behind}` : ''}`) : null,
+      (b.ahead || b.behind) ? h('span', { key: 't', className: 'gp-branch-row__track' }, [sync('ahead', b.ahead), sync('behind', b.behind)]) : null,
       // Shown on hover (always on touch); stops propagation so switching
       // never also toggles the row's history filter.
       target === undefined ? null : h('button', {
@@ -835,9 +863,12 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       walk(node.children, depth + 1, sectionKey, icon, rows)
     }
   }
-  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, nodes: readonly BranchTreeNode[]): JSX.Element => {
+  const section = (key: string, labelKey: GitKey, items: readonly GitBranch[], icon: JSX.Element, nodes: readonly BranchTreeNode[], pinned: readonly GitBranch[] = []): JSX.Element => {
     const rows: JSX.Element[] = []
-    if (!closed.has(key)) walk(nodes, 0, key, icon, rows)
+    if (!closed.has(key)) {
+      for (const branch of pinned) rows.push(branchRow(branch, branch.name, 0, key, icon))
+      walk(nodes, 0, key, icon, rows)
+    }
     return h('div', { key, className: 'gp-branch-group' }, [
       h('div', { key: 'head', className: 'gp-branch-group__head', onClick: () => cb.onToggle(key) }, [
         h(ChevronIcon, { key: 'c', size: 11, open: !closed.has(key) }),
@@ -848,7 +879,7 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
   }
   return h('div', {}, [
     h('div', { key: 'head-row', className: 'gp-branch-row', style: { fontWeight: 600, justifyContent: 'center', padding: '4px 10px' }, onClick: () => cb.onFilter(null) }, cb.t('overview.head')),
-    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 }), trees.local),
+    section('local', 'overview.local', tree.local, h(BranchIcon, { size: 13 }), trees.local, trees.localPinned),
     section('remote', 'overview.remote', tree.remote, h(BranchIcon, { size: 13 }), trees.remote),
     section('tags', 'overview.tags', tree.tags, h(TagIcon, { size: 13 }), trees.tags),
   ])
@@ -879,11 +910,9 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
 
 interface RowCbs {
   selected: boolean
+  current: boolean
   gridTpl: string
-  graphW: number
   laneCount: number
-  /** A history filter is active: the filtered subset has no drawable topology. */
-  filtered: boolean
   now: number
   compact: boolean
   rowH: number
@@ -899,7 +928,7 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     key: r.name,
     className: `gp-ref-chip${r.head ? ' gp-ref-chip--head' : ''}${r.kind === 'remote' ? ' gp-ref-chip--remote' : ''}${r.kind === 'tag' ? ' gp-ref-chip--tag' : ''}`,
   }, r.name))
-  const graphCell = h('div', { key: 'g', className: 'gp-graph-cell' }, cb.filtered ? null : renderGraphCell(row, cb.laneCount, cb.rowH))
+  const graphCell = h('div', { key: 'g', className: 'gp-graph-cell' }, h(CommitGraph, { row, laneCount: cb.laneCount, rowH: cb.rowH, current: cb.current }))
   // Compact: two stacked lines (subject / hash·author·time) beside the graph,
   // taller rows for touch, and no hover handlers (tap drills into the detail).
   if (cb.compact) {
@@ -934,31 +963,6 @@ function renderCommitRow(row: GraphRow, cb: RowCbs): JSX.Element {
     h('div', { key: 'a', className: 'gp-commit-author' }, c.author),
     h('div', { key: 'd', className: 'gp-commit-date', title: absoluteTime(c.dateIso) }, timeAgo(c.dateIso, cb.now, cb.t)),
   ])
-}
-
-const PALETTE = ['#4e9bff', '#3fb950', '#e0982e', '#d05ce3', '#e5534b', '#2dc6c6', '#d29922', '#8b949e']
-
-function renderGraphCell(row: GraphRow, laneCount: number, rowH: number = ROW_H): JSX.Element {
-  const w = Math.max(LANE_W, laneCount * LANE_W)
-  const cx = (lane: number): number => lane * LANE_W + LANE_W / 2
-  const mid = rowH / 2
-  const els: JSX.Element[] = []
-  for (const e of row.edges) {
-    const color = PALETTE[e.color % PALETTE.length]
-    // Vertical span per edge kind: into stops at the node, out starts there,
-    // pass crosses the whole row. Control points sit at each span's midpoint,
-    // so both halves leave/join the node on a vertical tangent.
-    const y0 = e.kind === 'out' ? mid : 0
-    const y1 = e.kind === 'into' ? mid : rowH
-    const cy = (y0 + y1) / 2
-    els.push(h('path', {
-      key: `e${e.kind}-${e.fromLane}-${e.toLane}-${e.color}`,
-      d: `M ${cx(e.fromLane)} ${y0} C ${cx(e.fromLane)} ${cy}, ${cx(e.toLane)} ${cy}, ${cx(e.toLane)} ${y1}`,
-      stroke: color, strokeWidth: 1.6, fill: 'none',
-    }))
-  }
-  els.push(h('circle', { key: 'node', cx: cx(row.lane), cy: mid, r: row.merge ? 4 : 3.2, fill: PALETTE[row.color % PALETTE.length], stroke: 'var(--dsw-alias-bg-layer-1)', strokeWidth: 1 }))
-  return h('svg', { className: 'gp-graph-svg', width: w, height: rowH }, els)
 }
 
 interface FileTreeCbs {

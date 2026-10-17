@@ -6,9 +6,10 @@ import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
 import { isSafePath, isSafeRev } from './validate.js'
+import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.js'
-import { imageMimeFor, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from './types.js'
+import { imageMimeFor, isHistoryHashSearch, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -21,11 +22,6 @@ const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
  * rebase, refs/notes) stay excluded (issue #9 follow-up).
  */
 const VISIBLE_REFS: readonly string[] = ['--branches', '--remotes', '--tags', 'HEAD']
-
-/** 7+ hex chars → treat search as a commit hash prefix. */
-function isHexLike(text: string): boolean {
-  return /^[0-9a-fA-F]{7,40}$/.test(text.trim())
-}
 
 export async function runQuery(
   deps: SnapshotDeps,
@@ -92,7 +88,19 @@ async function queryHistory(
   // and not misclassify it (which mislabeled the current-branch chip).
   const args = ['git', 'log', '--topo-order', '--decorate=full', GRAPH_FORMAT, `--max-count=${limit}`, `--skip=${skip}`]
   const search = q.search?.trim() ?? ''
-  const hexJump = search !== '' && isHexLike(search)
+  const hexJump = isHistoryHashSearch(search)
+  // Exactly the flags pushed below (one source, so they can never disagree). An
+  // effective filter hides commits — and therefore parents — from the page
+  // itself, which is what makes the raw-ancestry walk necessary; a ref-only walk
+  // still sees every commit. A whitespace-only author/since is a real filter
+  // (`--author=' '` matches names containing a space), so only undefined/'' are
+  // absent.
+  const author = q.author ?? ''
+  const since = q.since ?? ''
+  const searchFilter = search !== ''
+  const authorFilter = author !== ''
+  const sinceFilter = since !== ''
+  const filtered = !hexJump && (searchFilter || authorFilter || sinceFilter)
   const countArgs = ['git', 'rev-list', '--count']
   // Untrusted ref/author filters must never reach an option position: reject a
   // dash-prefixed / metacharacter ref (the `--output=` file-write vector) and
@@ -100,9 +108,9 @@ async function queryHistory(
   if (!hexJump) {
     // The same filter set feeds both the page log and the total-count walk.
     const filters: string[] = []
-    if (search !== '') filters.push('-i', '-E', `--grep=${search}`)
-    if (q.author !== undefined && q.author !== '') filters.push(`--author=${q.author}`)
-    if (q.since !== undefined && q.since !== '') filters.push(`--since=${q.since}`)
+    if (searchFilter) filters.push('-i', '-E', `--grep=${search}`)
+    if (authorFilter) filters.push(`--author=${author}`)
+    if (sinceFilter) filters.push(`--since=${since}`)
     if (q.ref !== undefined && q.ref !== '') {
       if (!isSafeRev(q.ref)) return { ok: false, error: { code: 'invalid-name', message: `unsafe ref: ${q.ref}` } }
       filters.push('--end-of-options', q.ref)
@@ -112,7 +120,8 @@ async function queryHistory(
     args.push(...filters)
     countArgs.push(...filters)
   } else {
-    // Hash jump: `search` is already constrained to [0-9a-f]{7,40} by isHexLike.
+    // Hash jump: `search` is already constrained to [0-9a-f]{7,40} by
+    // isHistoryHashSearch.
     args.push('--end-of-options', search)
   }
   // Run the page log and the total count concurrently (the count is a second
@@ -130,7 +139,9 @@ async function queryHistory(
     // "no commits" that would also mask malformed input.
     const stderr = res.run.stderr.trim()
     if (hexJump || /unknown revision|bad revision|does not have any commits|ambiguous argument/i.test(stderr)) {
-      return { ok: true, value: { kind: 'history', commits: [], total: 0 } }
+      // A filtered empty page still carries the field, so the client can tell
+      // "filtered, no ancestry" from "unfiltered / old host".
+      return { ok: true, value: { kind: 'history', commits: [], total: 0, ...(filtered ? { topology: [] } : {}) } }
     }
     return { ok: false, error: { code: 'git-error', message: stderr || `git exited ${res.run.exitCode}` } }
   }
@@ -143,7 +154,13 @@ async function queryHistory(
     const n = Number(countRes.run.stdout.trim())
     if (Number.isFinite(n)) total = n
   }
-  return { ok: true, value: { kind: 'history', commits, total } }
+  // A filtered page is missing most of its parents, so one bounded auxiliary
+  // walk supplies the raw ancestry. An empty page has nothing to walk, and an
+  // unfiltered/hash-jump page omits the field entirely (no extra command).
+  const topology = filtered
+    ? (commits.length === 0 ? [] : await walkHistoryTopology(deps.run, root, commits.map((c) => c.hash), deps.signal))
+    : undefined
+  return { ok: true, value: { kind: 'history', commits, total, ...(topology !== undefined ? { topology } : {}) } }
 }
 
 async function queryDiff(

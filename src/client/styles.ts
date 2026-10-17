@@ -90,8 +90,11 @@ const CSS = `
 .gp-branch-row{display:flex;align-items:center;gap:6px;padding:4px 10px 4px 22px;cursor:pointer;border-radius:0 6px 6px 0;font-size:12px;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gp-branch-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-branch-row--active,.gp-branch-row--active:hover{color:var(--dsw-alias-state-business-primary);background:var(--gp-select-bg);box-shadow:var(--gp-select-bar)}
-.gp-branch-row--current{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
-.gp-branch-row__track{margin-left:auto;font-size:10px;color:var(--dsw-alias-label-tertiary)}
+.gp-branch-row--current .gp-tree-name{font-weight:600}
+.gp-branch-row__ic--current,.gp-branch-row__ic--primary{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+.gp-branch-row__track{display:inline-flex;align-items:center;gap:7px;flex:none;margin-left:auto;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-business-primary)}
+.gp-branch-row__sync{display:inline-flex;align-items:center;gap:2px;white-space:nowrap}
+.gp-branch-row__sync-icon{flex:none}
 .gp-branch-row__switch{display:none;flex:none;margin:-2px 0 -2px auto;padding:0 7px;height:18px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-branch-row__track+.gp-branch-row__switch{margin-left:0}
 .gp-branch-row:hover .gp-branch-row__switch{display:inline-block}
@@ -139,6 +142,8 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-ref-chip--head{background:var(--dsw-alias-state-business-primary);color:#fff;border-color:transparent;font-weight:700;font-size:11px}
 .gp-graph-cell{position:relative}
 .gp-graph-svg{display:block}
+.gp-graph-edge,.gp-graph-boundary{vector-effect:non-scaling-stroke}
+.gp-graph-boundary{opacity:.8}
 .gp-search{flex:1;min-width:60px;height:28px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 10px;box-sizing:border-box}
 .gp-search:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 /* Filter dropdowns are the platform Menu: the wrapper is the Menu's own anchor
