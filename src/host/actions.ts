@@ -58,13 +58,17 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
     }
     case 'branch-checkout': {
       if (!isSafeBranchName(action.name)) return { error: 'invalid-name', message: `unsafe branch name: ${action.name}` }
-      let checkout = ['git', 'checkout', '--end-of-options', action.name]
+      // No `--end-of-options`: `git checkout` supports it on no git version
+      // (older git reads it as a pathspec → "did not match any file(s) known
+      // to git" and the switch silently never happens). isSafeBranchName
+      // already forbids a leading dash, which is the entire injection surface.
+      let checkout = ['git', 'checkout', action.name]
       if (action.createFrom !== undefined) {
         // A remote row: create the local branch explicitly and set its upstream.
         // `-b <name> --track <ref>` is deterministic — `git checkout <remote>/<x>`
         // would detach HEAD instead, and DWIM name inference depends on config.
         if (!isSafeBranchName(action.createFrom)) return { error: 'invalid-name', message: `unsafe tracking ref: ${action.createFrom}` }
-        checkout = ['git', 'checkout', '-b', action.name, '--track', '--end-of-options', action.createFrom]
+        checkout = ['git', 'checkout', '-b', action.name, '--track', action.createFrom]
       }
       const msg = action.stashMessage?.trim() ?? ''
       // Stash-then-switch (the dirty-work-tree path the dialog offers): the
@@ -132,7 +136,9 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
       if (action.mode !== 'soft' && action.mode !== 'mixed' && action.mode !== 'hard') {
         return { error: 'invalid-name', message: `invalid reset mode: ${String(action.mode)}` }
       }
-      return { argv: [['git', 'reset', `--${action.mode}`, '--end-of-options', action.commit]] }
+      // No `--end-of-options` either: older git rejects it outright ("must
+      // come before non-option arguments"); isSafeRev rules out a leading dash.
+      return { argv: [['git', 'reset', `--${action.mode}`, action.commit]] }
     }
   }
 }
