@@ -13,8 +13,9 @@ import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { realpath, readFile, readdir, rm, stat, lstat, readlink } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
+import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX } from '../../lib/host/types.js'
 
 let repo
@@ -57,15 +58,9 @@ function runGit(cwd, args) {
 function depsAt(dir) {
   return {
     run: createGitRunner(subprocess, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes),
-    fs: {
-      realpath, stat: (p) => stat(p), readFile: (p) => readFile(p),
-      // Same shape as the production wiring: the link target text, else null.
-      symlinkTarget: async (p) => {
-        try { return (await lstat(p)).isSymbolicLink() ? await readlink(p) : null } catch { return null }
-      },
-      readdir: async (p) => (await readdir(p, { withFileTypes: true })).map((e) => ({ name: e.name, isDirectory: e.isDirectory() })),
-      remove: (p) => rm(p, { force: true }),
-    },
+    // The production wiring itself, never a mirror: an untracked directory once
+    // slipped through because the mirrored copy shared its missing `recursive`.
+    fs: createFsDeps(),
     sessions: { liveCwd: () => dir, persistedMeta: async () => undefined },
   }
 }
@@ -1104,6 +1099,50 @@ test('discard removes an untracked file from the work tree (H6)', async () => {
     const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt'] } })
     assert.equal(res.ok, true, 'discard of an untracked file succeeds instead of failing on pathspec')
     assert.equal(existsSync(join(dir, 'u.txt')), false, 'the untracked file is deleted')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard removes an untracked directory (recursively) from the work tree', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discdir-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { mkdirSync, writeFileSync, existsSync } = await import('node:fs')
+    mkdirSync(join(dir, 'newdir', 'sub'), { recursive: true })
+    writeFileSync(join(dir, 'newdir', 'a.txt'), 'x\n')
+    writeFileSync(join(dir, 'newdir', 'sub', 'b.txt'), 'y\n')
+    const snap = await snapshotForSession(depsAt(dir), DEFAULT_CONFIG, SID)
+    assert.equal(snap.ok, true)
+    // Porcelain reports the whole directory as one untracked entry.
+    assert.deepEqual(snap.value.changes.map((c) => [c.path, c.isDirectory]), [['newdir', true]])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['newdir'] } })
+    assert.equal(res.ok, true, 'discarding an untracked directory succeeds instead of no-oping on EISDIR')
+    assert.equal(existsSync(join(dir, 'newdir')), false, 'the directory and its contents are gone')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a failed untracked removal surfaces as an error instead of a silent success', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discfail-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const { writeFileSync, existsSync } = await import('node:fs')
+    writeFileSync(join(dir, 'u.txt'), 'junk\n')
+    const deps = depsAt(dir)
+    deps.fs.remove = async () => { throw new Error('EACCES: permission denied') }
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard', paths: ['u.txt'] } })
+    assert.equal(res.ok, false, 'the removal failure is reported, not swallowed')
+    assert.equal(res.error.code, 'git-error')
+    assert.match(res.error.message, /could not discard 1 path\(s\): u\.txt: EACCES/)
+    assert.equal(existsSync(join(dir, 'u.txt')), true, 'the file is still there — the ui must not claim success')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

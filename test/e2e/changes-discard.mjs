@@ -30,18 +30,22 @@ const FIXTURE_ROOT = 'fixture-repo'
 
 // dup.txt carries both sides (porcelain `MM`): picking its `:s` row must read as
 // staged-only, picking its `:w` row must clear that, and the batch count must
-// dedupe the file. s1.txt is index-only; w1.txt is working-tree only.
+// dedupe the file. s1.txt is index-only; w1.txt is working-tree only. del.txt is
+// an index-side deletion (the row whose old discard button failed outright) and
+// newdir is an untracked directory, which porcelain collapses into one entry.
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
-  staged: 2, modified: 2, untracked: 0, ahead: 0, behind: 0, hasUpstream: true,
+  staged: 3, modified: 2, untracked: 1, ahead: 0, behind: 0, hasUpstream: true,
   remote: null, lastCommit: null,
   changes: [
+    { path: 'del.txt', status: 'deleted', staged: true, isDirectory: false },
     { path: 'dup.txt', status: 'modified', staged: true, isDirectory: false },
     { path: 'dup.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 's1.txt', status: 'modified', staged: true, isDirectory: false },
     { path: 'w1.txt', status: 'modified', staged: false, isDirectory: false },
+    { path: 'newdir', status: 'untracked', staged: false, isDirectory: true },
   ],
-  stats: { fileCount: 4, staged: 2, modified: 2, untracked: 0, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
+  stats: { fileCount: 6, staged: 3, modified: 2, untracked: 1, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
@@ -191,6 +195,34 @@ async function stagedOnlyScenario() {
   return { out, errors }
 }
 
+/** (b3): an untracked directory reaches the request and is named as a disk deletion. */
+async function untrackedDirScenario() {
+  const { page, errors } = await openPanel(SNAP)
+  const out = await page.evaluate(async (glyphs) => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const rowOf = (name, glyph) => [...document.querySelectorAll('.gp-file-row')].find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === name
+      && (r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent ?? '') === glyph) ?? null
+    const picked = () => document.querySelector('.gp-changes__discard-picked')
+
+    // The untracked directory is one row (porcelain collapses `?? newdir/`).
+    rowOf('newdir', glyphs.stage)?.querySelector('input.gp-check')?.click()
+    await wait(60)
+    result.enabled = picked().disabled === false
+    picked().click()
+    await wait(150)
+    const modal = document.querySelector('.gp-modal--sm')
+    result.modalTexts = [...(modal?.querySelectorAll('.gp-modal__confirmtext') ?? [])].map((n) => n.textContent)
+    const actionsBefore = window.__gpFixture.actions.length
+    ;[...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn--danger')][0]?.click()
+    await wait(250)
+    result.actions = window.__gpFixture.actions.slice(actionsBefore)
+    return result
+  }, { stage: STAGE_GLYPH })
+  await page.close()
+  return { out, errors }
+}
+
 /** (c)+(d): real pointer hover on the row buttons, tip text and delay. */
 async function tipsScenario() {
   const { page, errors } = await openPanel(SNAP)
@@ -281,17 +313,19 @@ function tipDelay(log) {
 try {
   const batch = await batchScenario()
   assert.equal(batch.errors.length, 0, 'no console errors: ' + JSON.stringify(batch.errors))
-  // Fixture sanity: the staged group lists dup.txt + s1.txt, the unstaged group
-  // dup.txt + w1.txt (one row per side), and neither group is collapsed.
-  assert.deepEqual(batch.out.rows, ['dup.txt:\u2212', 's1.txt:\u2212', 'dup.txt:+', 'w1.txt:+'], 'one row per changed side, staged group first')
+  // Fixture sanity: staged rows first (del.txt / dup.txt / s1.txt), then the
+  // working-tree ones, then the untracked directory; no group is collapsed.
+  assert.deepEqual(batch.out.rows, ['del.txt:\u2212', 'dup.txt:\u2212', 's1.txt:\u2212', 'dup.txt:+', 'w1.txt:+', 'newdir:+'], 'one row per changed side, staged group first')
   // The index side has no working-tree changes to discard: offering the button
-  // there used to no-op (`M `/`A `/`R `) or fail outright (`D `).
+  // there used to no-op (`M `/`A `/`R `) or fail outright (`D `, del.txt here).
   assert.deepEqual(batch.out.rowActions, [
+    { row: 'del.txt:\u2212', labels: ['取消暂存'] },
     { row: 'dup.txt:\u2212', labels: ['取消暂存'] },
     { row: 's1.txt:\u2212', labels: ['取消暂存'] },
     { row: 'dup.txt:+', labels: ['暂存', '放弃更改'] },
     { row: 'w1.txt:+', labels: ['暂存', '放弃更改'] },
-  ], 'index-side rows offer unstage only; working-tree rows keep both actions')
+    { row: 'newdir:+', labels: ['暂存', '放弃更改'] },
+  ], 'index-side rows offer unstage only; working-tree and untracked rows keep both actions')
   assert.equal(batch.out.entryAfterUnstageAll, true, 'the discard entry follows "unstage all": ' + JSON.stringify(batch.out.toolbar))
   assert.equal(batch.out.entryBeforeStash, true, 'the discard entry precedes "stash changes": ' + JSON.stringify(batch.out.toolbar))
   assert.equal(batch.out.entryLabel, '放弃选中的更改', 'toolbar label is the zh entry copy')
@@ -318,6 +352,17 @@ try {
     '另有 1 个选中项在暂存区，不在此次放弃范围（如需撤销暂存请用「取消暂存」）。',
   ], 'an index-side pick is reported as out of scope, not silently swallowed')
   assert.deepEqual(stagedOnly.out.actions, [{ kind: 'discard', paths: ['w1.txt'] }], 'the staged-only path never reaches the request')
+
+  // Untracked targets are deleted from disk, not restored from the index — the
+  // host does that recursively now, so a directory must reach the request too.
+  const untrackedDir = await untrackedDirScenario()
+  assert.equal(untrackedDir.errors.length, 0, 'no console errors: ' + JSON.stringify(untrackedDir.errors))
+  assert.equal(untrackedDir.out.enabled, true, 'an untracked directory pick enables the entry')
+  assert.deepEqual(untrackedDir.out.modalTexts, [
+    '将放弃 1 个文件在工作区的未提交更改，此操作不可恢复。',
+    '其中 1 个是未跟踪的文件或目录，将从磁盘删除（不在 Git 历史中，无法恢复）。',
+  ], 'untracked targets are called out as disk deletions')
+  assert.deepEqual(untrackedDir.out.actions, [{ kind: 'discard', paths: ['newdir'] }], 'the untracked directory reaches the discard request')
 
   const tips = await tipsScenario()
   assert.equal(tips.errors.length, 0, 'no console errors: ' + JSON.stringify(tips.errors))

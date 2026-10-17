@@ -379,6 +379,11 @@ async function discardUntracked(
   } catch {
     return { ok: false, result: { ok: false, error: { code: 'git-error', message: 'repository root unavailable' } } }
   }
+  // Remove every untracked target, collecting failures: a removal that did not
+  // happen must not come back as a successful discard (a directory without
+  // `recursive`, a permission error, …). Paths already gone stay gone — the
+  // caller gets an error instead of a silent no-op.
+  const failures: string[] = []
   for (const path of untracked) {
     if (!isSafePath(path)) return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `unsafe path: ${path}` } } }
     const target = join(root, path)
@@ -391,7 +396,17 @@ async function discardUntracked(
     if (targetReal !== rootReal && !targetReal.startsWith(rootReal + sep)) {
       return { ok: false, result: { ok: false, error: { code: 'invalid-path', message: `path escapes repository: ${path}` } } }
     }
-    await deps.fs.remove(target).catch(() => {})
+    try {
+      await deps.fs.remove(target)
+    } catch (e) {
+      failures.push(`${path}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+  if (failures.length > 0) {
+    return {
+      ok: false,
+      result: { ok: false, error: { code: 'git-error', message: `could not discard ${failures.length} path(s): ${failures.join('; ')}` } },
+    }
   }
   return { ok: true, remainingTracked: tracked }
 }
