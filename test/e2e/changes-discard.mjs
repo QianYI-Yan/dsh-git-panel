@@ -8,13 +8,20 @@
  * (b) A staged-only pick enables nothing (there is nothing to discard there);
  *     mixing it into a live selection adds the "not affected" line and still
  *     keeps its path out of the request.
+ * (b2) The same mix as its own scenario, asserting the request carries the
+ *     working-tree path alone.
+ * (b3) An untracked directory reaches the request and is named as a disk
+ *     deletion.
  * (c) The two row icon buttons explain themselves through the shared fast
  *     tooltip (a `div.gp-tip.gp-tip--sb` portaled to body, ~140ms delay),
  *     including the armed "click again" wording, while `aria-label` keeps the
  *     short name and no native `title` is left behind.
+ * (d) The same tooltip contract for the stage hint on a working-tree row.
  * (e) A host refusal (`nested-repo`, e.g. discarding a directory that is
  *     itself a repository) surfaces the localized zh copy inside the still-open
  *     confirm dialog instead of closing it as if the discard had landed.
+ * (f) Touch media: the compact 30px control height must outrank the global
+ *     `@media (hover:none)` rule.
  * (g) A refused batch discard (`index-busy`, the index lock) keeps the dialog
  *     open with the localized copy, disables the confirm key only while the
  *     call is in flight, re-enables it afterwards, and re-sends exactly one
@@ -44,6 +51,12 @@ const FIXTURE_ROOT = 'fixture-repo'
 // an index-side deletion and rn.txt an index-side rename — the two index status
 // letters whose discard button used to no-op or fail outright — and newdir is an
 // untracked directory, which porcelain collapses into one entry.
+//
+// The array order is load-bearing: keep the unstaged `dup.txt` row next to the
+// staged one so the input order does NOT already match the rendered order. The
+// list groups staged → unstaged → untracked and sorts by path
+// (ChangesTab.tsx), so a fixture that arrives pre-grouped would make the
+// `staged group first` row assertion pass even if the grouping were removed.
 const SNAP = {
   root: FIXTURE_ROOT, branch: 'main', head: 'de54fc0', unborn: false, dirty: true,
   staged: 4, modified: 2, untracked: 1, ahead: 0, behind: 0, hasUpstream: true,
@@ -51,13 +64,15 @@ const SNAP = {
   changes: [
     { path: 'del.txt', status: 'deleted', staged: true, isDirectory: false },
     { path: 'dup.txt', status: 'modified', staged: true, isDirectory: false },
+    { path: 'dup.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'rn.txt', status: 'renamed', staged: true, isDirectory: false },
     { path: 's1.txt', status: 'modified', staged: true, isDirectory: false },
-    { path: 'dup.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'w1.txt', status: 'modified', staged: false, isDirectory: false },
     { path: 'newdir', status: 'untracked', staged: false, isDirectory: true },
   ],
-  stats: { fileCount: 7, staged: 4, modified: 2, untracked: 1, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
+  // `fileCount` is the distinct-path count (host `core.ts`: `distinct.size`), so
+  // the two dup.txt rows count once: 6 distinct paths, 7 list entries.
+  stats: { fileCount: 6, staged: 4, modified: 2, untracked: 1, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
   truncated: false, refreshIntervalMs: 0, showInputPill: true, defaultDiffView: 'unified', checkedAt: Date.now(),
 }
 
@@ -605,9 +620,9 @@ function tipDelay(log) {
 try {
   const batch = await batchScenario()
   assert.equal(batch.errors.length, 0, 'no console errors: ' + JSON.stringify(batch.errors))
-  // Fixture sanity: staged rows first (del.txt / dup.txt / rn.txt / s1.txt),
-  // then the working-tree ones, then the untracked directory; no group is
-  // collapsed.
+  // Fixture sanity: the list regroups the fixture's deliberately interleaved
+  // rows into staged (del.txt / dup.txt / rn.txt / s1.txt), then the
+  // working-tree ones, then the untracked directory; no group is collapsed.
   assert.deepEqual(batch.out.rows, ['del.txt:\u2212', 'dup.txt:\u2212', 'rn.txt:\u2212', 's1.txt:\u2212', 'dup.txt:+', 'w1.txt:+', 'newdir:+'], 'one row per changed side, staged group first')
   assert.equal(batch.out.renamedBadge, 'R', 'the index-side rename carries the R status glyph')
   // The index side has no working-tree changes to discard: offering the button

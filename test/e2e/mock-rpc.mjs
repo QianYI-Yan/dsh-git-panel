@@ -13,14 +13,14 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     fileQueries: [],
     // Branch-switch probes: every `run` action lands here, and `branchQueries`
     // counts the branch-list reloads a landed checkout must trigger.
-    // `runFailure` forces a wire error once: `{kind?, code, message}` where
-    // `kind` names the single action it applies to. Omitting `kind` (or passing
-    // `'*'`) makes the forced failure fire for whatever `run` lands next — the
-    // old default (`branch-checkout`) could not drive the discard refusal path.
+    // `runFailure` forces a wire error once: `{kind, code, message}` for exactly
+    // the action named by `kind`. The field is required — the old default
+    // (`branch-checkout`) silently armed whatever ran first, which is why the
+    // discard refusal path could not be driven at all.
     runFailure: null, branchQueries: 0,
-    // `holdRun = {kind?}` parks the matching `run` until `releaseRun()` is
-    // called, so a test can observe a dialog's in-flight busy state; `kind`
-    // omitted or `'*'` parks whatever `run` lands next.
+    // `holdRun = {kind}` parks that action's `run` until `releaseRun()` is
+    // called, so a test can observe a dialog's in-flight busy state before the
+    // response lands.
     holdRun: null, releaseRun: null,
     secondaryQueryFailure: null, secondaryFailures: [], repeatedDiffRevision: null,
     deferBinaryDiff: false, releaseBinaryDiff: null,
@@ -44,6 +44,28 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     const { checkedAt, stateFingerprint, ...business } = fixture.snapshot
     return { ...fixture.snapshot, checkedAt: Date.now(), stateFingerprint: JSON.stringify(business) }
   }
+  // Park an in-flight RPC so a test can observe busy state before the response
+  // lands. `slot` names the fixture field that holds the release handle; calling
+  // it releases every call parked on that slot and clears the field, so a test
+  // only needs `fixture.releaseX()` (taking the handle first, then nulling the
+  // field, still works) and a second park can no longer strand the first waiter.
+  const park = (slot) => new Promise((resolve) => {
+    let handle = fixture[slot]
+    if (handle === null) {
+      const waiters = []
+      handle = () => { if (fixture[slot] === handle) fixture[slot] = null; for (const waiter of waiters) waiter() }
+      handle.waiters = waiters
+      fixture[slot] = handle
+    }
+    handle.waiters.push(resolve)
+  })
+  // `runFailure` / `holdRun` target exactly one action kind. Requiring the field
+  // keeps a forgotten or misspelled `kind` from silently arming an unrelated
+  // action — the mistake the old `branch-checkout` default used to hide.
+  const targetsRun = (spec, act) => {
+    if (spec.kind === undefined) throw new Error('runFailure / holdRun needs an explicit `kind`')
+    return act.kind === spec.kind
+  }
 
   const connection = {
     rpc: {
@@ -51,7 +73,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
         const request = payload && payload.args && payload.args.request
         if (endpoint === 'gitPanel/snapshot') {
           fixture.snapshotCalls++
-          if (fixture.holdSnapshot) await new Promise((resolve) => { fixture.releaseSnapshot = resolve })
+          if (fixture.holdSnapshot) await park('releaseSnapshot')
           fixture.snapshotReplies++
           if (fixture.snapshotError !== null) {
             const error = fixture.snapshotError
@@ -78,7 +100,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           ] } } }
           if (q.kind === 'show') return { ok: true, value: { ok: true, value: { kind: 'show', ref: q.ref, commit: { hash: q.ref, shortHash: q.ref.slice(0, 7), subject: 'feat: add c', author: 'Tester', dateIso: new Date().toISOString() }, body: 'detailed body text', stats: [{ path: 'index.ts', status: 'modified' }, { path: 'src/app.ts', status: 'added' }], insertions: 12, deletions: 4 } } }
           if (q.kind === 'diff') {
-            if (fixture.deferBinaryDiff && q.path === 'img.png') await new Promise((resolve) => { fixture.releaseBinaryDiff = resolve })
+            if (fixture.deferBinaryDiff && q.path === 'img.png') await park('releaseBinaryDiff')
             // An image path diffs as the binary marker, like real git.
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'diff', path: q.path, text: 'diff --git a/img.png b/img.png\nBinary files a/img.png and b/img.png differ\n', newLines: 0 } } }
             // An SVG is text: git produces a real source diff for it.
@@ -132,14 +154,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           const act = request.action
           fixture.actions.push(act)
           // Park the call so a test can assert the dialog's busy state before
-          // the response lands (`holdRun.kind` omitted or `'*'` parks any run).
-          if (fixture.holdRun !== null
-            && (fixture.holdRun.kind === undefined || fixture.holdRun.kind === '*' || act.kind === fixture.holdRun.kind)) {
-            await new Promise((resolve) => { fixture.releaseRun = resolve })
-            fixture.releaseRun = null
-          }
+          // the response lands.
+          if (fixture.holdRun !== null && targetsRun(fixture.holdRun, act)) await park('releaseRun')
           if (act.kind === 'fetch') {
-            if (fixture.holdFetch) await new Promise((resolve) => { fixture.releaseFetch = resolve })
+            if (fixture.holdFetch) await park('releaseFetch')
             if (fixture.fetchError !== null) {
               const error = fixture.fetchError
               fixture.fetchError = null
@@ -148,10 +166,8 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           }
           // A forced failure drives a refusal path (dirty work tree, nested
           // repo, …) without the mock having to model the real git/fs checks;
-          // it fires once for the action named by `kind` (any action when the
-          // field is omitted or `'*'`).
-          if (fixture.runFailure !== null
-            && (fixture.runFailure.kind === undefined || fixture.runFailure.kind === '*' || act.kind === fixture.runFailure.kind)) {
+          // it fires once, for the action named by `kind`.
+          if (fixture.runFailure !== null && targetsRun(fixture.runFailure, act)) {
             const failure = fixture.runFailure
             fixture.runFailure = null
             const { kind: _kind, ...error } = failure
@@ -165,8 +181,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
         if (endpoint === 'gitPanel/suggest') {
           fixture.suggestCalls++
           // Park until the test has observed the commit box's in-flight lock.
-          await new Promise((r) => { fixture.releaseSuggest = r })
-          fixture.releaseSuggest = null
+          await park('releaseSuggest')
           return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: fixture.suggestTruncated === true } } }
         }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
