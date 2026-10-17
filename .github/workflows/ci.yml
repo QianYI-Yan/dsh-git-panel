@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json engines: ^22.19.0 || >=24.0.0
+        node: ['22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # The lock is committed and guarded by test/unit/lock-sync.test.mjs;
+      # @deepseek-ai/dsh is an optional peer, so this installs the devDeps and
+      # the type-level platform peers only, never the harness tree.
+      - name: Install
+        run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # playwright-core ships no browsers, and the e2e runners launch chromium
+      # themselves (no test runner, no display, file:// fixtures only).
+      - name: Install Chromium
+        run: npx --no-install playwright-core install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: E2E tests
+        run: npm run test:e2e
+
+      # lib/ is committed as the published artifact: a src/ change that forgot
+      # to rebuild must fail here, not silently ship a stale bundle.
+      - name: Built lib/ is fresh
+        run: git diff --exit-code -- lib/

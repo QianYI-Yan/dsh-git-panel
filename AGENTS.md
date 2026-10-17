@@ -110,6 +110,7 @@ MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依�
 - 新用到的平台组件必须同步加进 e2e 平台桩 `test/e2e/harness.html`，否则面板在 e2e 中直接崩溃。
 - 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行等）才自研。
 - 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。
+- `@deepseek-ai/dsh` 标为 **optional peer**（`peerDependenciesMeta`）：`src/` 不 import 它，宿主在运行时提供，标可选后 `npm ci` 不再拉整棵 harness 依赖树。其余 5 个 peer 保持必需——`src/` 要用它们的类型（`@deepseek-ai/dsh-llm` 本身不在 peer 里，经 `@deepseek-ai/dsh-session` 传递装上）。标 optional 不削弱兼容门禁：`evaluatePluginCompatibility` 只读 `peerDependencies`。
 
 ## 构建
 
@@ -134,6 +135,8 @@ npm run typecheck     # 类型检查
 - client 改动：`node build.mjs` 成功后，用隔离浏览器 / 隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权。
 - 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。`test:e2e` 经 `test/e2e/all.mjs` 跑完全部 runner 再汇总失败——不要改回 `&&` 串联：首个红 runner 会吞掉后面所有 runner（曾因此让 9 个 runner 长期不执行）。
 - 一键门禁 `npm run check`：类型检查 + 全部测试 + `git diff --exit-code -- lib/`（构建产物已提交且新鲜）。提交前必须通过。
+- CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵；`npm ci` → `npx playwright-core install --with-deps chromium` → typecheck → 单测 → e2e → `git diff --exit-code -- lib/`，与本地 `npm run check` 等价。e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。
+- `package-lock.json` 入库且必须与 `package.json` 同步：CI 的 `npm ci` 一旦发现两者不一致就直接拒绝运行（lock 曾停在 0.3.0 跨越七次发版，因为发版只改 manifest）。发版用 `npm version <v> --no-git-tag-version`——它同时更新 manifest 与 lock 的两处 version；漂移由 `test/unit/lock-sync.test.mjs` 守住。
 
 ## 代码约定
 
