@@ -518,6 +518,15 @@ export type GitQueryResult =
     readonly mtimeMs?: number
   }
 
+/**
+ * Byte envelope of the file browser's "copy file content" action: a text
+ * document is copyable strictly below this size. Shared by both halves —
+ * the host floors its text read here (so every copyable document can
+ * actually load) and the client hides the copy button at/above it, keeping
+ * one boundary for load and copy.
+ */
+export const FILE_COPY_MAX_BYTES = 10 * 1024 * 1024
+
 export type GitQueryResponse =
   | { readonly ok: true; readonly value: GitQueryResult }
   | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }
