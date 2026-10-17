@@ -597,6 +597,25 @@ test('file-content flags a text file over the copy envelope as tooLarge', async 
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+test('file-content loads a text file exactly at the copy envelope with the default cap', async () => {
+  // Pins the floor itself: under DEFAULT_CONFIG (maxBytes 4 MiB) a document of
+  // exactly FILE_COPY_MAX_BYTES must load. Together with the +1 → tooLarge
+  // case above this forces the cap to equal the envelope exactly — a drifted
+  // floor (e.g. 5 MiB) would turn copyable documents into tooLarge and hide
+  // their copy button while every other test stayed green.
+  const dir = mkdtempSync(join(tmpdir(), 'gp-fc-edge-'))
+  try {
+    const { writeFileSync } = await import('node:fs')
+    await runGit(dir, ['init', '-q'])
+    writeFileSync(join(dir, 'edge.txt'), Buffer.alloc(FILE_COPY_MAX_BYTES, 0x61))
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'edge.txt' } })
+    assert.equal(res.ok, true)
+    assert.equal(res.value.variant, 'text')
+    assert.equal(res.value.tooLarge, undefined)
+    assert.equal(res.value.content.length, FILE_COPY_MAX_BYTES)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('file-content still applies maxBytes to images over the cap', async () => {
   const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
   const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'img.png' } })

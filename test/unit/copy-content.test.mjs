@@ -30,4 +30,9 @@ test('copy content falls back to the body byte length without a stat size', () =
   assert.equal(canCopyContent({ kind: 'text', content: 'const x = 1\n' }), true)
   assert.equal(canCopyContent({ kind: 'text', content: undefined }), true, 'an empty body is still a text file')
   assert.equal(canCopyContent({ kind: 'text', content: 'a'.repeat(FILE_COPY_MAX_BYTES) }), false, 'an oversized body stays out of the clipboard')
+  // Byte vs character counting: '€' is 3 UTF-8 bytes, so half an envelope of
+  // characters is under the limit as characters but over it as bytes — a
+  // char-counting regression would wrongly report true here.
+  assert.equal(canCopyContent({ kind: 'text', content: '€'.repeat(FILE_COPY_MAX_BYTES / 2) }), false, 'multibyte bodies count UTF-8 bytes, not characters')
+  assert.equal(canCopyContent({ kind: 'text', content: '€'.repeat(1000) }), true, 'a small multibyte body still copies')
 })
