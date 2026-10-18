@@ -70,8 +70,3 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e
-
-      # lib/ is committed as the published artifact: a src/ change that forgot
-      # to rebuild must fail here, not silently ship a stale bundle.
-      - name: Built lib/ is fresh
-        run: git diff --exit-code -- lib/

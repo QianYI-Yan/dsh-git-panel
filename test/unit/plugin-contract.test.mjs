@@ -139,9 +139,10 @@ test('apply registers the conversation.view panel and input.left marker', () => 
 })
 
 // DSH STORE's catalog automation blocks install when an install-time lifecycle
-// script is present: the committed lib/ is the shipped artifact, so no build
-// must run during `npm install` / git install. Keep build under an explicit
-// script the author runs by hand before release.
+// script is present: the shipped tree (npm pack output, not the git repo)
+// carries a prebuilt lib/, so no build must run during `npm install` / git
+// install. Keep build under an explicit script the author runs by hand; the
+// release workflow packs lib/ and scripts/assert-pack.mjs checks the tarball.
 test('no install-time lifecycle scripts are declared', () => {
   const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
   const installHooks = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish', 'prepublishOnly', 'prepack', 'postpack']

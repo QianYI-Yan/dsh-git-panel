@@ -13,8 +13,9 @@ import reactHooks from 'eslint-plugin-react-hooks'
 
 export default tseslint.config(
   {
-    // `lib/` is committed build output; `test/e2e/*.js` are vendored fixtures
-    // copied in by `test/e2e/setup.mjs`; `docs/` and `.agents/` are not code.
+    // `lib/` is local build output (gitignored); `test/e2e/*.js` are vendored
+    // fixtures copied in by `test/e2e/setup.mjs`; `docs/` and `.agents/` are
+    // not code.
     ignores: [
       'lib/**',
       'node_modules/**',

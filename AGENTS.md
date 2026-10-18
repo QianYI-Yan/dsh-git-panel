@@ -119,25 +119,25 @@ MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依�
 1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`。
 2. esbuild 把 `src/host/*.ts` **逐文件**转译成 `lib/host/*.js`（`bundle: false`，与 `src/host/` 一一对应；`@deepseek-ai/*` 不打包）。host **绝不压缩**：typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约。
 3. esbuild 把 `src/client/index.ts` 打成 `lib/client.js`（cjs，包成 `window.__ModuleLoader__.load({id,factory})`，平台模块 external，可 minify）。
-4. esbuild 把 `src/client/mermaid-chunk.ts` 打成 `lib/client.mermaid.js`（同款包装但注册 `chunk: "client.mermaid.js"`）：包内懒加载 chunk，由 `/plugins` 路由按需下发（`require.async`），文件名必须匹配平台的 `client.<name>.js` 规则且随 `lib/` 提交；e2e 里由 harness 桩的 `require.async` 代替。
+4. esbuild 把 `src/client/mermaid-chunk.ts` 打成 `lib/client.mermaid.js`（同款包装但注册 `chunk: "client.mermaid.js"`）：包内懒加载 chunk，由 `/plugins` 路由按需下发（`require.async`），文件名必须匹配平台的 `client.<name>.js` 规则；e2e 里由 harness 桩的 `require.async` 代替。
 
-`lib/testkit.mjs` / `lib/hookkit.mjs` 是测试专用 bundle（已 gitignore，`npm run test:unit` 会重建）。集成测试中的 controller 与 hooks 必须从同一个 bundle（hookkit）导入，否则 `pageVisibility` 单例会分裂。
+`lib/testkit.mjs` / `lib/hookkit.mjs` 是测试专用 bundle（随整个 `lib/` 一并 gitignore，`npm run test:unit` 会重建）。集成测试中的 controller 与 hooks 必须从同一个 bundle（hookkit）导入，否则 `pageVisibility` 单例会分裂。
 
 ```bash
 node build.mjs        # 全量构建 host + client + testkit/hookkit
 npm run typecheck     # 类型检查
 ```
 
-构建只作为显式脚本手动执行，**不挂 `prepare` 等安装期生命周期钩子**：`lib/` 入库即发布产物，DSH STORE 上架契约会拦截安装期执行脚本的插件（`plugin-contract.test.mjs` 守住）。改动 `src/` 后手动 `node build.mjs` 并把 `lib/` 一起提交。
+构建只作为显式脚本手动执行，**不挂 `prepare` 等安装期生命周期钩子**：`lib/` 不入库（ADR-0018），发布产物由 workflow 的 `npm pack` 在门禁后生成；DSH STORE 上架契约会拦截安装期执行脚本的插件（`plugin-contract.test.mjs` 守住）。改动 `src/` 后本地 `node build.mjs` 供开发与测试；出厂产物把关交给 `scripts/assert-pack.mjs`。
 
 ## 验证
 
 - host 改动：类型检查通过 + 端点逻辑单测。
 - client 改动：`node build.mjs` 成功后，用隔离浏览器 / 隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权。
 - 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。`test:e2e` 经 `test/e2e/all.mjs` 跑完全部 runner 再汇总失败——不要改回 `&&` 串联：首个红 runner 会吞掉后面所有 runner（曾因此让 9 个 runner 长期不执行）。
-- 一键门禁 `npm run check`：类型检查 + 全部测试 + `git diff --exit-code -- lib/`（构建产物已提交且新鲜）。提交前必须通过。
+- 一键门禁 `npm run check`：lint + 类型检查 + 全部测试。提交前必须通过。
 - `test:unit` **刻意不传 `--test-force-exit`**：它在文件并行下会把仍在跑的文件整个拆掉，丢掉正在执行的用例及其后同文件的全部用例，而 `fail 0`、`skipped 0`——门禁绿着少跑测试。实测（容器内 node 22，默认并发）带该 flag 17 次里 8 次少跑（489→483/482/481），去掉后 17 次全部正常，耗时同为 ~18s。它本就冗余：2026-09-25 评审实测删掉后 52/52 正常退出无挂起。别再加回来。
-- CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵；`npm ci` → `npx playwright-core install --with-deps chromium` → typecheck → 单测 → e2e → `git diff --exit-code -- lib/`，与本地 `npm run check` 等价。e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。
+- CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵；`npm ci` → `npx playwright-core install --with-deps chromium` → lint → typecheck → 单测 → e2e，与本地 `npm run check` 等价。e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。
 - `package-lock.json` 入库且必须与 `package.json` 同步：CI 的 `npm ci` 一旦发现两者不一致就直接拒绝运行（lock 曾停在 0.3.0 跨越七次发版，因为发版只改 manifest）。发版用 `npm version <v> --no-git-tag-version`——它同时更新 manifest 与 lock 的两处 version；漂移由 `test/unit/lock-sync.test.mjs` 守住。
 
 ## 发布
@@ -147,9 +147,9 @@ npm run typecheck     # 类型检查
 - **Release 正文随发版提交入库**：`docs/releases/v<版本>.md`，格式以 **`.github/RELEASE_TEMPLATE.md`** 为唯一来源——照它写，**不要再去翻历史 release 反推格式**（格式漂过多次，v1.6.1 起才固定为四段双语 + 对比链接）。workflow 用 `--notes-file` 读它，**不用 `--generate-notes`**。预发布同样要有正文文件。
 - 正文中英双语：`## 主要变更` / `## 验证`，`---` 分隔后接 `## English` / `## Verification`；两段都以 `<PREV>...<TAG>` 的 compare 链接收尾。不保留 GitHub 自动生成的 `## What's Changed`。
 - 「验证」里的单测数 / e2e runner 数与产物一致性结论取自**当次** `npm run check` 的真实输出，不得沿用上一版。`test/unit/release-notes.test.mjs` 在本地与 CI 把关格式。
-- 版本号用 `npm version <v> --no-git-tag-version`（同时改 manifest 与 lock）；`lib/` 与 `src/` 放在同一个提交里，不要发版后再补一次「重建产物」。
+- 版本号用 `npm version <v> --no-git-tag-version`（同时改 manifest 与 lock）；`lib/` 不入库，发布产物由 workflow 的 `npm pack` 生成。
 - **tag 由 workflow 打在触发发布的 main 提交上**，不要手工在 main 上打；发布前 workflow 会校验正文文件与门禁，缺正文在打包前失败。npm 上已有该版本、远端已有 tag、已有 Release 时相应步骤自动跳过（Release 改为更新正文），失败后可直接重跑。
-- `npm run check` 含 `git diff --exit-code -- lib/`（产物新鲜度，`lib/` 移出 main 后删除）；`scripts/assert-pack.mjs` 另对**真正发布的 tarball**断言产物齐全且无安装期脚本。
+- `scripts/assert-pack.mjs` 对**真正发布的 tarball**断言产物齐全且无安装期脚本——这是出厂产物的唯一把关（`plugin-contract.test.mjs` 校验的是本地构建，不是入库树）。
 - 预发布不触发版本条「有新版本」：GitHub 的 `releases/latest` 服务端排除 prerelease，`version.ts` 零改动。预发布用于自测与隔离 profile 验证，安装用 Release 附件 URL。
 
 ## 代码约定
@@ -164,5 +164,5 @@ npm run typecheck     # 类型检查
 ## 目录与提交
 
 - `docs/local/` 是本地设计稿目录，已 gitignore，**不提交**。
-- `lib/` **提交入库**，使 `dsh plugin add github:xbzbing/dsh-git-panel` 无需在安装端构建；仅测试期 bundle（`lib/testkit.mjs` / `lib/hookkit.mjs`）忽略。`node_modules/` 不提交。`lib/` 移出 main 是本 PR 合并后的独立 PR（ADR-0018），届时本条与 `npm run check` 的产物 diff 检查一并删除。
+- `lib/` **不提交**（本地构建产物，整个目录 gitignore）；发布产物由 release workflow 的 `npm pack` 生成并附到 GitHub Release。`node_modules/` 不提交。
 - 只在用户明确要求时创建 commit；优先暂存具体文件而非 `git add .`。
