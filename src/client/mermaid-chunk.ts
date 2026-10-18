@@ -21,14 +21,17 @@ let sequence = 0
 
 /** Render one mermaid source to SVG markup under the given built-in theme. */
 export async function renderMermaid(source: string, theme: 'default' | 'dark'): Promise<string> {
+  const id = `gp-mermaid-${String(++sequence)}`
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
     theme,
-    // Deterministic element ids keep repeated renders of the same source from
-    // colliding inside one document and make the SVG deterministic.
+    // Deterministic ids seeded per figure: identical sources in one document
+    // still derive distinct internal SVG ids (no colliding defs/marker
+    // references), while each figure's own render stays reproducible.
     deterministicIds: true,
+    deterministicIDSeed: id,
   })
-  const { svg } = await mermaid.render(`gp-mermaid-${String(++sequence)}`, source)
+  const { svg } = await mermaid.render(id, source)
   return svg
 }

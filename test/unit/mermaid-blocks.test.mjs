@@ -84,3 +84,27 @@ test('kbd inside fenced code and inline code stays literal', () => {
   )
   assert.equal(markdownKbdToCode('write `<kbd>x</kbd>` literally'), 'write `<kbd>x</kbd>` literally')
 })
+
+test('kbd content containing backticks stays well-formed', () => {
+  // Unpaired backticks get a CommonMark double-backtick span around the body…
+  assert.equal(markdownKbdToCode('run <kbd>x`y</kbd> now'), 'run ``x`y`` now')
+  // …while content that is itself a complete inline-code span keeps the
+  // literal markup (inline-code masking wins — never a partial rewrite).
+  assert.equal(markdownKbdToCode('edge <kbd>`tick`</kbd>'), 'edge <kbd>`tick`</kbd>')
+})
+
+test('CRLF documents split mermaid fences', () => {
+  const crlf = 'Intro\r\n\r\n```mermaid\r\ngraph TD; A-->B\r\n```\r\n'
+  const segments = splitMermaidSegments(crlf)
+  assert.equal(segments.length, 2)
+  assert.equal(segments[0].kind, 'markdown')
+  assert.deepEqual(segments[1], { kind: 'mermaid', source: 'graph TD; A-->B\r' })
+})
+
+test('CRLF fences still protect literal kbd examples', () => {
+  const fenced = '```md\r\npress <kbd>Ctrl</kbd>\r\n```\r\nprose <kbd>Ctrl</kbd>\r\n'
+  assert.equal(
+    markdownKbdToCode(fenced),
+    '```md\r\npress <kbd>Ctrl</kbd>\r\n```\r\nprose `Ctrl`\r\n',
+  )
+})

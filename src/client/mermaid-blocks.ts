@@ -22,7 +22,11 @@ interface Fence {
 
 /** Parse one potential fence line (up to 3 indent spaces, CommonMark). */
 function fenceOf(line: string): Fence | null {
-  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line)
+  // Fence syntax is line-based: a CRLF document leaves `\r` at every line end,
+  // which JS `.` and end-anchored `$` refuse to match. Strip it for detection
+  // only — line content stays verbatim in segments and sources.
+  const probe = line.endsWith('\r') ? line.slice(0, -1) : line
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(probe)
   if (match === null) return null
   const marker = match[1][0] as '`' | '~'
   const info = match[2].trim()
@@ -121,17 +125,31 @@ export function markdownKbdToCode(markdown: string): string {
   }).join('\n')
 }
 
-/** Replace `<kbd>x</kbd>` with `` `x` `` everywhere except inside backtick spans. */
+/** Replace `<kbd>x</kbd>` with an inline-code span everywhere except inside backtick spans. */
 function kbdOutsideInlineCode(line: string): string {
   const inlineCode = /(`+)[\s\S]*?\1/g
   const kbd = /<kbd>([\s\S]*?)<\/kbd>/gi
+  const substitute = (_match: string, body: string): string => kbdToCode(body)
   let out = ''
   let last = 0
   let match: RegExpExecArray | null
   while ((match = inlineCode.exec(line)) !== null) {
-    out += line.slice(last, match.index).replace(kbd, '`$1`')
+    out += line.slice(last, match.index).replace(kbd, substitute)
     out += match[0]
     last = match.index + match[0].length
   }
-  return out + line.slice(last).replace(kbd, '`$1`')
+  return out + line.slice(last).replace(kbd, substitute)
+}
+
+/**
+ * Wrap kbd content as one valid inline-code span (CommonMark backtick rules):
+ * the delimiter run is longer than any run inside the content, and content
+ * starting/ending with a backtick is padded with a space.
+ */
+function kbdToCode(body: string): string {
+  let longest = 0
+  for (const run of body.match(/`+/g) ?? []) longest = Math.max(longest, run.length)
+  const fence = '`'.repeat(longest + 1)
+  const pad = body.startsWith('`') || body.endsWith('`') ? ' ' : ''
+  return `${fence}${pad}${body}${pad}${fence}`
 }
