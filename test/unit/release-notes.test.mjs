@@ -18,7 +18,7 @@ const TEMPLATE = fileURLToPath(new URL('.github/RELEASE_TEMPLATE.md', ROOT))
 const NOTES_DIR = fileURLToPath(new URL('docs/releases/', ROOT))
 
 /** Headings every body must carry, in both languages. */
-const REQUIRED_HEADINGS = ['## 主要变更', '## 验证', '## English', '## Verification']
+const REQUIRED_HEADINGS = ['## 主要变更', '## 安装', '## 验证', '## English', '## Install', '## Verification']
 
 /** The compare link that closes each language half. */
 const COMPARE_URL = /https:\/\/github\.com\/xbzbing\/dsh-git-panel\/compare\/\S+/

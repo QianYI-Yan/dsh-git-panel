@@ -23,6 +23,11 @@
 - 再写 1–3 条最有判别力的回归：修了什么、哪条测试会在去掉修复后转红。
 - 没有新验证内容时，宁可只留 `npm run check` 一行，也不要编。
 
+**安装**
+
+- 两个示例都给：正式版走 npm，预发布走 GitHub Release 附件 URL（URL 里的 tag 用本版真实 tag）。
+- 命令必须带 `--profile <profile>`，示例统一用 `web`。
+
 **篇幅**
 
 | 版本类型 | 中文条目数 |
@@ -42,6 +47,16 @@
 - **修复**：<修掉的现象与影响面>（#<N>）
 - **内部**：<约定 / 门禁 / 结构性改动>
 
+## 安装
+
+```bash
+# 正式版（npm）
+dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
+
+# 预发布（GitHub Release 附件，不发 npm）
+dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
+```
+
 ## 验证
 
 - `npm run check` 全绿：typecheck + <N> 单测 + <M> 个 e2e runner + 产物一致性
@@ -57,6 +72,16 @@
 - **<Title>**: <description>
 - **Fixes**: <the symptom and its blast radius> (#<N>)
 - **Internal**: <conventions / gates / structural changes>
+
+## Install
+
+```bash
+# Stable (npm)
+dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
+
+# Pre-release (GitHub Release asset, never published to npm)
+dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
+```
 
 ## Verification
 
