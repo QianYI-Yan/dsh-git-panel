@@ -3,7 +3,7 @@
  */
 import { dirname, join } from 'node:path'
 import type { GitRunner } from './git.js'
-import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
+import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
@@ -36,6 +36,9 @@ export interface GitPanelConfig {
   /** Optional provider/model route override; absent → the agent default. */
   readonly suggestProvider?: string
   readonly suggestModel?: string
+  /** Adapter-owned effort for the fixed route; absent → omit from the request
+   * (the model / adapter default applies). Ignored when the route is not fixed. */
+  readonly suggestReasoningEffort?: string
 }
 
 export const DEFAULT_CONFIG: GitPanelConfig = {
@@ -69,10 +72,22 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     return typeof raw === 'number' && Number.isFinite(raw) ? Math.min(limit.max, Math.max(limit.min, Math.floor(raw))) : limit.default
   }
   // Provider/model overrides must be supplied together; a lone half is ignored
-  // so a mistyped profile degrades to the agent default route.
-  const hasProvider = typeof c.suggestProvider === 'string' && c.suggestProvider !== ''
-  const hasModel = typeof c.suggestModel === 'string' && c.suggestModel !== ''
-  const route = hasProvider && hasModel ? { suggestProvider: c.suggestProvider, suggestModel: c.suggestModel } : {}
+  // so a mistyped profile degrades to the agent default route. The effort is
+  // only meaningful on a fixed route, so an unpaired config drops it too —
+  // no half-applied residual can survive a broken pair. All three are volatile:
+  // unwrap the `{ get() }` ref before the pair check, or a live-edited route
+  // never matches and suggest falls back to the session model.
+  const provider = unwrapVolatile(c.suggestProvider)
+  const model = unwrapVolatile(c.suggestModel)
+  const effort = unwrapVolatile(c.suggestReasoningEffort)
+  const route = typeof provider === 'string' && provider !== ''
+    && typeof model === 'string' && model !== ''
+    ? {
+      suggestProvider: provider,
+      suggestModel: model,
+      ...(typeof effort === 'string' && effort !== '' ? { suggestReasoningEffort: effort } : {}),
+    }
+    : {}
   return {
     timeoutMs: num(c.timeoutMs, DEFAULT_CONFIG.timeoutMs),
     maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),
@@ -172,14 +187,17 @@ export interface SnapshotDeps {
    */
   readonly rootNegCache?: Map<string, number>
   /**
-   * Optional per-request resolvers for the host `llm` and `agentDefaultModel`
-   * services (see llm-face.ts). Resolved on every suggest call — never frozen
-   * at construction — so a provider fiber that activates late or restarts is
+   * Optional per-request resolvers for the host model services (see
+   * llm-face.ts). Resolved on every suggest call — never frozen at
+   * construction — so a provider fiber that activates late or restarts is
    * picked up. Absent in deployments without a model backend; the suggest
    * endpoint then reports `llm-unavailable` instead of failing activation.
    */
   readonly getLlm?: () => LlmFace | undefined
   readonly getAgentDefaultModel?: () => AgentDefaultModelFace | undefined
+  /** The session's durable model selection (projection next); undefined when
+   * the session has never selected a model. */
+  readonly getSessionModel?: (sessionId: string) => SessionModelSelection | undefined
 }
 
 /** Non-repo negative-cache lifetime; short so a freshly-created repo is seen. */

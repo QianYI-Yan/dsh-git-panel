@@ -8,7 +8,7 @@ import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, s
 import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
-import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, StashEntry } from './types.js'
+import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
 import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
@@ -42,6 +42,14 @@ export async function runQuery(
   request: GitQueryRequest,
 ): Promise<GitQueryResponse> {
   const q = request.query
+  // Model catalog for the config form: reads ctx.llm only, no workspace.
+  if (q.kind === 'model-catalog') {
+    try {
+      return await queryModelCatalog(deps)
+    } catch (error) {
+      return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
+    }
+  }
   // The file browser works outside a git repository too: resolve a plain
   // directory root (work-tree top when in a repo, else the session cwd) so
   // dir-list / file-content still function; every git-backed query keeps
@@ -804,4 +812,65 @@ async function queryWorktreeStats(
   const snapshot = await snapshotForSession(deps, config, sessionId)
   if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot failed' } }
   return { ok: true, value: { kind: 'worktree-stats', stats: snapshot.value.stats } }
+}
+
+/**
+ * Aggregate ctx.llm providers / models / reasoning metadata for the config
+ * form. Each provider and model lookup is isolated into `failures` so one
+ * broken adapter never blanks the whole catalog; providers run in parallel
+ * because `listModels` / `resolveModelInfo` may be remote-backed, while the
+ * input order is kept for a stable listing.
+ *
+ * The host `LlmRuntime` implements catalog methods with `this.registration(...)`,
+ * so bind the service as receiver before detaching — an unbound call throws
+ * on every provider and blanks the catalog.
+ */
+async function queryModelCatalog(deps: SnapshotDeps): Promise<GitQueryResponse> {
+  const llm = deps.getLlm?.()
+  const empty = { kind: 'model-catalog' as const, groups: [], failures: [] }
+  if (llm === undefined || typeof llm.listModels !== 'function') {
+    return { ok: true, value: empty }
+  }
+  const listModels = llm.listModels.bind(llm)
+  const resolveModelInfo = typeof llm.resolveModelInfo === 'function' ? llm.resolveModelInfo.bind(llm) : undefined
+  const providers = llm.listProviders?.() ?? []
+  const results = await Promise.all(providers.map(async (provider): Promise<ModelCatalogGroup | ModelCatalogFailure | null> => {
+    const name = provider.name ?? provider.id
+    let listed: readonly { readonly id: string; readonly name?: string }[]
+    try {
+      listed = await listModels(provider.id)
+    } catch (error) {
+      return { id: provider.id, name, message: error instanceof Error ? error.message : String(error) }
+    }
+    const models: ModelCatalogModel[] = await Promise.all(listed.map(async (model): Promise<ModelCatalogModel> => {
+      const entry: ModelCatalogModel = { id: model.id, name: model.name ?? model.id }
+      if (resolveModelInfo === undefined) return entry
+      try {
+        const info = await resolveModelInfo(provider.id, model.id, deps.signal)
+        const reasoning = info.reasoning
+        if (reasoning !== undefined && reasoning.efforts.length > 0) {
+          return {
+            ...entry,
+            reasoning: {
+              efforts: reasoning.efforts.map((effort) => ({ id: effort.id, name: effort.name })),
+            },
+          }
+        }
+      } catch {
+        // Metadata is advisory; the model still appears without efforts.
+      }
+      return entry
+    }))
+    // A provider that lists zero models is dropped entirely, not a failure.
+    if (models.length === 0) return null
+    return { id: provider.id, name, models }
+  }))
+  const groups: ModelCatalogGroup[] = []
+  const failures: ModelCatalogFailure[] = []
+  for (const one of results) {
+    if (one === null) continue
+    if ('models' in one) groups.push(one)
+    else failures.push(one)
+  }
+  return { ok: true, value: { kind: 'model-catalog', groups, failures } }
 }

@@ -11,12 +11,12 @@
  * @deepseek-ai/dsh-session-title-llm: JSON-wrapped input, a bounded input
  * cap, an output token cap, a timeout, and finish-reason → error mapping.
  */
-import type { FinishReason, GenerateOptions, MessageId } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, GenerateOptions, MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { GitPanelConfig, SnapshotDeps } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand } from './core.js'
 import { isSafePath } from './validate.js'
 import { parseStatus } from './parser.js'
-import type { AgentDefaultModelFace } from './llm-face.js'
+import type { AgentDefaultModelFace, SessionModelSelection } from './llm-face.js'
 import type { GitChange, GitSuggestRequest, GitSuggestResult, ResolvedLanguage, SuggestLanguage } from './types.js'
 
 /** One endpoint failure (the inner envelope of GitSuggestResult). */
@@ -154,13 +154,27 @@ const UNTRACKED_FILE_CAP = 16
  */
 const PROMPT_FILE_CAP = 200
 
-/** Resolve the model route: config override pair first, then the agent default. */
+/** Resolve the model route: config override pair first, then the session's
+ * durable model selection, then the agent default. A route may carry an effort
+ * (config override or session selection); the agent-default path never does. */
 function resolveRoute(
   config: GitPanelConfig,
+  sessionModel: SessionModelSelection | undefined,
   agentDefaultModel: AgentDefaultModelFace | undefined,
-): { readonly provider: string; readonly model: string } | undefined {
+): { readonly provider: string; readonly model: string; readonly reasoningEffort?: string } | undefined {
   if (config.suggestProvider !== undefined && config.suggestModel !== undefined) {
-    return { provider: config.suggestProvider, model: config.suggestModel }
+    return {
+      provider: config.suggestProvider,
+      model: config.suggestModel,
+      ...(config.suggestReasoningEffort !== undefined ? { reasoningEffort: config.suggestReasoningEffort } : {}),
+    }
+  }
+  if (sessionModel !== undefined) {
+    return {
+      provider: sessionModel.provider,
+      model: sessionModel.model,
+      ...(sessionModel.reasoningEffort !== undefined ? { reasoningEffort: sessionModel.reasoningEffort } : {}),
+    }
   }
   return agentDefaultModel?.currentSelection()
 }
@@ -444,7 +458,7 @@ export async function runSuggest(
   // Resolved per request so a model service that activates late or restarts
   // is picked up (never frozen at construction).
   const llm = deps.getLlm?.()
-  const route = resolveRoute(config, deps.getAgentDefaultModel?.())
+  const route = resolveRoute(config, deps.getSessionModel?.(request.sessionId), deps.getAgentDefaultModel?.())
   if (llm === undefined || route === undefined) {
     return { ok: false, error: { code: 'llm-unavailable', message: 'no model service or route is configured' } }
   }
@@ -463,6 +477,10 @@ export async function runSuggest(
   const options: GenerateOptions = {
     provider: route.provider,
     model: route.model,
+    // Catalog effort ids come from the same adapter surface GenerateOptions
+    // accepts; the brand is compile-time only (the runtime factory lives in
+    // @deepseek-ai/dsh-llm, which is externalized), so a cast is the boundary.
+    ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort as ReasoningEffortId } : {}),
     system: systemPrompt(language),
     messages: [{
       id: 'git-panel-suggest' as MessageId,
@@ -507,6 +525,7 @@ export async function runSuggest(
       message,
       provider: route.provider,
       model: route.model,
+      ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
       ...(truncated ? { truncated: true } : {}),
     },
   }

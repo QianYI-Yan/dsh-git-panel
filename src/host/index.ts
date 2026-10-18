@@ -15,7 +15,7 @@ import { normalizeConfig, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfi
 import { runAction } from './actions.js'
 import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
-import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
+import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
 import { checkLatestVersion, readVersionInfo } from './version.js'
 import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js'
 
@@ -25,6 +25,7 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
+  ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage } from './core.js'
 export { createGitRunner } from './git.js'
@@ -35,9 +36,24 @@ export { runQuery } from './queries.js'
 export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from './suggest.js'
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js'
 
-/** Structural slice of the Cordis sessions store (live cwd). */
+/** Structural slice of the Cordis sessions store (live session objects). */
 interface SessionsService {
   get(id: string): { readonly header?: { readonly cwd?: string } } | undefined
+}
+
+/** Structural slice of sessionProjections: read the modelSelection wire view. */
+interface SessionProjectionsLike {
+  snapshot(session: unknown, keys?: readonly string[]): {
+    readonly values?: {
+      readonly modelSelection?: {
+        readonly next?: {
+          readonly provider?: unknown
+          readonly model?: unknown
+          readonly reasoningEffort?: unknown
+        } | null
+      } | null
+    }
+  }
 }
 
 /** Structural slice of the sessionPersistence service (persisted cwd). */
@@ -75,6 +91,12 @@ export class GitPanelService extends TypertRemoteService {
     suggestMaxBytes: Schema.number().default(DEFAULT_CONFIG.suggestMaxBytes).volatile().description('AI 生成输入预算（diff 字节上限，16–512 KiB）'),
     suggestMaxOutputTokens: Schema.number().default(DEFAULT_CONFIG.suggestMaxOutputTokens).volatile().description('AI 生成输出上限（tokens，256–16384）'),
     suggestTimeoutMs: Schema.number().default(DEFAULT_CONFIG.suggestTimeoutMs).volatile().description('AI 生成超时（毫秒，5–120 秒）'),
+    // Fixed model route: both halves of the pair must be non-empty to take
+    // effect (normalizeConfig); effort is omitted from the request when blank.
+    // No .default(): without one the field stays optional in the object schema.
+    suggestProvider: Schema.string().volatile().description('AI 生成固定模型的 provider（留空 = 跟随会话默认）'),
+    suggestModel: Schema.string().volatile().description('AI 生成固定模型的 model id（须与 provider 成对）'),
+    suggestReasoningEffort: Schema.string().volatile().description('AI 生成固定模型的推理强度（留空 = 不设置，用模型默认）'),
   })
 
   private readonly deps: SnapshotDeps
@@ -101,6 +123,7 @@ export class GitPanelService extends TypertRemoteService {
       : createGitRunner(subprocess, config.timeoutMs, config.maxBytes)
     const sessions = get('sessions') as SessionsService | undefined
     const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
+    const projections = get('sessionProjections') as SessionProjectionsLike | undefined
     return {
       run,
       fs,
@@ -124,6 +147,26 @@ export class GitPanelService extends TypertRemoteService {
       // rather than failing activation (kept out of `static inject` on purpose).
       getLlm: () => get('llm') as LlmFace | undefined,
       getAgentDefaultModel: () => get('agentDefaultModel') as AgentDefaultModelFace | undefined,
+      // Session model selection: projection `next` is pending ?? lastUsed —
+      // the route the next prompt in this session would use.
+      getSessionModel: (sessionId: string): SessionModelSelection | undefined => {
+        const session = sessions?.get(sessionId)
+        if (session === undefined || projections === undefined) return undefined
+        try {
+          const next = projections.snapshot(session, ['modelSelection']).values?.modelSelection?.next
+          if (next == null || typeof next.provider !== 'string' || typeof next.model !== 'string') return undefined
+          if (next.provider === '' || next.model === '') return undefined
+          return {
+            provider: next.provider,
+            model: next.model,
+            ...(typeof next.reasoningEffort === 'string' && next.reasoningEffort !== ''
+              ? { reasoningEffort: next.reasoningEffort }
+              : {}),
+          }
+        } catch {
+          return undefined
+        }
+      },
     }
   }
 

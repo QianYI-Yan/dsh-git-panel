@@ -367,6 +367,8 @@ export type GitQuery =
   // (commits / files / +- lines). Local-only, so it previews what a push would
   // publish. No upstream → hasUpstream:false and zeroed counts.
   | { readonly kind: 'push-preview' }
+  // Model catalog for the config form. No workspace required — reads ctx.llm only.
+  | { readonly kind: 'model-catalog' }
 
 /** One entry in a `dir-list` result. */
 export interface DirEntry {
@@ -403,6 +405,37 @@ export interface StashEntry {
   readonly branch: string | null
   /** Human relative time (e.g. "2 hours ago"). */
   readonly relTime: string
+}
+
+/** Selectable reasoning effort for one exact model route (ids go straight
+ * into `GenerateOptions.reasoningEffort`). */
+export interface ModelCatalogEffort {
+  readonly id: string
+  readonly name: string
+}
+
+/** One model inside a provider group of the host-level catalog. */
+export interface ModelCatalogModel {
+  readonly id: string
+  readonly name: string
+  /** Adapter-advertised efforts; absent when the model exposes none. */
+  readonly reasoning?: {
+    readonly efforts: readonly ModelCatalogEffort[]
+  }
+}
+
+/** One provider and its successfully listed models. */
+export interface ModelCatalogGroup {
+  readonly id: string
+  readonly name: string
+  readonly models: readonly ModelCatalogModel[]
+}
+
+/** One provider / model whose catalog lookup failed in isolation. */
+export interface ModelCatalogFailure {
+  readonly id: string
+  readonly name: string
+  readonly message: string
 }
 
 /** Working-tree statistics for the changes page header. */
@@ -511,6 +544,13 @@ export type GitQueryResult =
   // the branch tracks nothing (then the counts are all 0).
   | { readonly kind: 'pull-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
   | { readonly kind: 'push-preview'; readonly hasUpstream: boolean; readonly commits: number; readonly files: number; readonly insertions: number; readonly deletions: number }
+  // Model catalog. `groups` only carries providers that yielded at least one
+  // model; isolated per-provider / per-model failures land in `failures`.
+  | {
+    readonly kind: 'model-catalog'
+    readonly groups: readonly ModelCatalogGroup[]
+    readonly failures: readonly ModelCatalogFailure[]
+  }
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
@@ -609,6 +649,8 @@ export type GitSuggestResult =
       /** Actual provider/model route used (display only). */
       readonly provider?: string
       readonly model?: string
+      /** Effort actually sent; absent when the request omitted it. */
+      readonly reasoningEffort?: string
       /** The diff reached the model truncated: over the input cap, or cut
        * by the per-command runner stdout cap before it. */
       readonly truncated?: boolean
