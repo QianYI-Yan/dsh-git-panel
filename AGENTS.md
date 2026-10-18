@@ -140,6 +140,18 @@ npm run typecheck     # 类型检查
 - CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵；`npm ci` → `npx playwright-core install --with-deps chromium` → typecheck → 单测 → e2e → `git diff --exit-code -- lib/`，与本地 `npm run check` 等价。e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。
 - `package-lock.json` 入库且必须与 `package.json` 同步：CI 的 `npm ci` 一旦发现两者不一致就直接拒绝运行（lock 曾停在 0.3.0 跨越七次发版，因为发版只改 manifest）。发版用 `npm version <v> --no-git-tag-version`——它同时更新 manifest 与 lock 的两处 version；漂移由 `test/unit/lock-sync.test.mjs` 守住。
 
+## 发布
+
+发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时执行：跑完整门禁 → 打 tag →（仅正式版）发 npm → 用 `docs/releases/v<版本>.md` 建 GitHub Release 并附上 `npm pack` 产物。版本号含 `-`（如 `1.8.0-rc.1`）是**预发布**：只建 GitHub prerelease Release、**不发 npm**；正式版才走 npm + 稳定 Release。没有 `dist` 分支，GitHub 安装路径是 Release 附件 tgz URL。决策与背景见 `docs/adr/0018`（分发渠道）与 `docs/adr/0019`（发布流程）。
+
+- **Release 正文随发版提交入库**：`docs/releases/v<版本>.md`，格式以 **`.github/RELEASE_TEMPLATE.md`** 为唯一来源——照它写，**不要再去翻历史 release 反推格式**（格式漂过多次，v1.6.1 起才固定为四段双语 + 对比链接）。workflow 用 `--notes-file` 读它，**不用 `--generate-notes`**。预发布同样要有正文文件。
+- 正文中英双语：`## 主要变更` / `## 验证`，`---` 分隔后接 `## English` / `## Verification`；两段都以 `<PREV>...<TAG>` 的 compare 链接收尾。不保留 GitHub 自动生成的 `## What's Changed`。
+- 「验证」里的单测数 / e2e runner 数与产物一致性结论取自**当次** `npm run check` 的真实输出，不得沿用上一版。`test/unit/release-notes.test.mjs` 在本地与 CI 把关格式。
+- 版本号用 `npm version <v> --no-git-tag-version`（同时改 manifest 与 lock）；`lib/` 与 `src/` 放在同一个提交里，不要发版后再补一次「重建产物」。
+- **tag 由 workflow 打在触发发布的 main 提交上**，不要手工在 main 上打；发布前 workflow 会校验正文文件与门禁，缺正文在打包前失败。npm 上已有该版本、远端已有 tag、已有 Release 时相应步骤自动跳过（Release 改为更新正文），失败后可直接重跑。
+- `npm run check` 含 `git diff --exit-code -- lib/`（产物新鲜度，`lib/` 移出 main 后删除）；`scripts/assert-pack.mjs` 另对**真正发布的 tarball**断言产物齐全且无安装期脚本。
+- 预发布不触发版本条「有新版本」：GitHub 的 `releases/latest` 服务端排除 prerelease，`version.ts` 零改动。预发布用于自测与隔离 profile 验证，安装用 Release 附件 URL。
+
 ## 代码约定
 
 - TypeScript 严格模式，无隐式 any。
@@ -152,5 +164,5 @@ npm run typecheck     # 类型检查
 ## 目录与提交
 
 - `docs/local/` 是本地设计稿目录，已 gitignore，**不提交**。
-- `lib/` **提交入库**，使 `dsh plugin add github:xbzbing/dsh-git-panel` 无需在安装端构建；仅测试期 bundle（`lib/testkit.mjs` / `lib/hookkit.mjs`）忽略。`node_modules/` 不提交。
+- `lib/` **提交入库**，使 `dsh plugin add github:xbzbing/dsh-git-panel` 无需在安装端构建；仅测试期 bundle（`lib/testkit.mjs` / `lib/hookkit.mjs`）忽略。`node_modules/` 不提交。`lib/` 移出 main 是本 PR 合并后的独立 PR（ADR-0018），届时本条与 `npm run check` 的产物 diff 检查一并删除。
 - 只在用户明确要求时创建 commit；优先暂存具体文件而非 `git add .`。

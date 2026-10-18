@@ -21,14 +21,11 @@ import { DIFF_EXPAND_CONTEXT, type GitQuery } from './types.js'
 import { useImageDiff } from './image-diff-hook.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import type { GitKey } from './locales.js'
+import type { DiffBase, DiffMode } from './views/diff/diff-types.js'
 
 /** unified = single inline column; split = side-by-side; before/after show one
  * side's full content. */
-export type DiffMode = 'unified' | 'split' | 'before' | 'after'
-
-/** Diff base for the compared sides — selects the image panes and the source
- * the hidden-context expansion reads from. */
-export type DiffBase = 'worktree' | 'staged' | 'commit'
+export type { DiffMode, DiffBase } from './views/diff/diff-types.js'
 
 // --- row virtualization ---
 // Code rows are exactly one line box tall; hunk and gap bands carry their own

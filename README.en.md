@@ -11,12 +11,14 @@ The panel only reads the Git repository at the current session's working directo
 ## Install
 
 ```bash
-# npm (default)
+# Stable release (npm)
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
-# or from the GitHub repository (the built tree is committed, no local build needed)
-dsh plugin --profile web add github:xbzbing/dsh-git-panel
+# Pre-release (GitHub Release asset; never published to npm)
+dsh plugin add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
 ```
+
+Pre-release versions carry a `-` suffix (e.g. `1.8.0-rc.1`): they appear only as GitHub prereleases, are never pushed to npm, and never trigger the in-panel "update available" prompt. A stable release ships to npm and as a stable GitHub Release at the same time. `lib/` is still committed to the repository, so `dsh plugin add github:xbzbing/dsh-git-panel` also works; that short form stops working once `lib/` leaves main — use the Release asset URL above instead.
 
 After installing or updating, the **Git** panel appears in the workspace tab bar (after Chat and Trajectory) with no service restart and no page refresh: dsh's hmr watches the profile's `package.json` and patch files and mounts the plugin live, while the client bundle (`lib/client.js`) is picked up within a second of being replaced and pushed to the browser over `/plugins/events`, where the old fiber is torn down and the new code remounted in place — already-open pages get the update without reloading. Only host-half modules (`lib/host/*.js`, whose loaded code keeps running until the next restart) and profile changes made while hmr is unavailable still need a restart. In-panel settings (the input-bar marker toggle and the default diff view on the detail page) are hot-written and apply immediately.
 

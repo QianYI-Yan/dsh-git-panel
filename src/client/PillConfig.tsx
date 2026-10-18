@@ -79,7 +79,6 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     if (mirror === undefined) return
     void mirror.ensure()
     return mirror.subscribe(bump)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mirror])
 
   // Resolved once per mirror view (not per render): the schema scan is the
@@ -91,7 +90,6 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   useEffect(() => {
     if (form === undefined) return
     return form.subscribe(bump)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form])
 
   const snap = form?.getSnapshot()
