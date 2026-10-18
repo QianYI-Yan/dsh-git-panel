@@ -249,6 +249,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__props:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-files__props:disabled{opacity:0.5;cursor:default}
 .gp-files__props:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__props[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 .gp-files__mode-seg{flex:none}
 /* Compact preview toolbar: the relative path and the two copy buttons are gone
  * (they forced three wrapped rows on a phone). Back + the official source/render
@@ -271,7 +272,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-mermaid__fallback{overflow:auto;background:var(--dsw-alias-markdown-code-block);border-radius:6px;padding:10px 12px;font-family:var(--dsw-font-mono,monospace);font-size:12px;margin:8px 0}
 .gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
-.gp-files__header{position:sticky;top:0;z-index:2}
+/* Both sticky axes: the header must also stay put under horizontal scroll
+ * (reachable only in nowrap mode), or the find bar slides out of view. */
+.gp-files__header{position:sticky;top:0;left:0;z-index:2}
 .gp-files__note{padding:5px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-find{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-find__input{flex:1;min-width:60px;height:26px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 8px;box-sizing:border-box}
@@ -296,6 +299,16 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* Fixed row height needs non-wrapping cells; a long line scrolls horizontally
  * on the container instead of growing the row past ROW_HEIGHT. */
 .gp-files__row .gp-diff-cell{white-space:pre;overflow:hidden;text-overflow:clip}
+/* No-wrap: rows size to the longest line (min-width keeps short files full-bleed)
+ * so the container's overflow:auto exposes a real horizontal scrollbar. */
+.gp-files__code--nowrap .gp-files__single--virt{width:max-content;min-width:100%}
+.gp-files__code--nowrap .gp-files__row{right:auto;width:max-content;min-width:100%}
+.gp-files__code--nowrap .gp-files__row .gp-diff-cell{overflow:visible}
+/* Wrap: flow layout (not the fixed-height virtual grid) so a line can grow the
+ * row; the gutter stays one column beside the wrapping cell. */
+.gp-files__code--wrap .gp-files__single--virt{position:static;width:auto;height:auto!important}
+.gp-files__code--wrap .gp-files__row{position:static;height:auto;min-height:20px}
+.gp-files__code--wrap .gp-files__row .gp-diff-cell{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
 .gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:flex-start;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
 .gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
