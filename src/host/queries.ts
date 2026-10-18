@@ -545,7 +545,8 @@ async function queryDirList(
   if ((rel !== '' && !isSafePath(rel)) || hasGitSegment(rel)) return { ok: false, error: { code: 'invalid-path', message: rel } }
   const dir = rel === '' ? root : join(root, rel)
   const inside = await isInsideRoot(deps, root, dir, true)
-  if (!inside) return { ok: false, error: { code: 'invalid-path', message: rel } }
+  if (inside === 'missing') return { ok: false, error: { code: 'file-not-found', message: rel } }
+  if (inside === 'outside') return { ok: false, error: { code: 'invalid-path', message: rel } }
   let raw: ReadonlyArray<{ name: string; isDirectory: boolean }>
   try {
     raw = await deps.fs.readdir(dir)
@@ -608,12 +609,15 @@ async function queryFileContent(
   if (!isSafePath(q.path) || hasGitSegment(q.path)) return { ok: false, error: { code: 'invalid-path', message: q.path } }
   const file = join(root, q.path)
   const inside = await isInsideRoot(deps, root, file, true)
-  if (!inside) return { ok: false, error: { code: 'invalid-path', message: q.path } }
+  // A gone file is a real state (the tree still lists it), not a bad path:
+  // report it separately so the preview can say the file no longer exists.
+  if (inside === 'missing') return { ok: false, error: { code: 'file-not-found', message: q.path } }
+  if (inside === 'outside') return { ok: false, error: { code: 'invalid-path', message: q.path } }
   let info: { size: number; mtimeMs: number }
   try {
     info = await deps.fs.stat(file)
   } catch (error) {
-    return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'stat failed' } }
+    return { ok: false, error: { code: isMissingPath(error) ? 'file-not-found' : 'git-error', message: error instanceof Error ? error.message : 'stat failed' } }
   }
   const mime = imageMimeFor(q.path)
   // Non-image reads floor at the copy envelope: every document the copy
@@ -631,7 +635,7 @@ async function queryFileContent(
   try {
     buf = await deps.fs.readFile(file)
   } catch (error) {
-    return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : 'read failed' } }
+    return { ok: false, error: { code: isMissingPath(error) ? 'file-not-found' : 'git-error', message: error instanceof Error ? error.message : 'read failed' } }
   }
   if (buf.length > cap) return tooLarge
   if (mime !== null) {
@@ -651,15 +655,22 @@ function hasGitSegment(path: string): boolean {
   return path.split(/[\\/]/).includes('.git')
 }
 
-/** True when a path resolves inside the browse root, outside its .git tree. */
-async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<boolean> {
+/** Whether a path resolves inside the browse root, outside its .git tree, or
+ * is absent (a deleted entry still listed by a stale tree). */
+type PathState = 'inside' | 'outside' | 'missing'
+
+function isMissingPath(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+}
+
+async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<PathState> {
   try {
     const real = await deps.fs.realpath(path)
     const rootReal = await deps.fs.realpath(root)
-    if (real !== rootReal && !real.startsWith(rootReal + sep)) return false
-    return !hideGit || !hasGitSegment(real.slice(rootReal.length + 1))
-  } catch {
-    return false
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) return 'outside'
+    return !hideGit || !hasGitSegment(real.slice(rootReal.length + 1)) ? 'inside' : 'outside'
+  } catch (error) {
+    return isMissingPath(error) ? 'missing' : 'outside'
   }
 }
 

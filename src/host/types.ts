@@ -272,6 +272,9 @@ export type GitErrorCode =
   | 'revert-merge'
   // A named tag / stash entry does not exist.
   | 'not-found'
+  // The requested working-tree file (or its directory) is gone: deleted or
+  // moved between the directory listing and the read.
+  | 'file-not-found'
   // The target branch is checked out in another worktree of the same repo, so
   // git refuses to switch to it here.
   | 'branch-in-use'

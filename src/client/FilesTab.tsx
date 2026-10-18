@@ -84,7 +84,7 @@ type FileState =
   | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
-  | { readonly kind: 'error'; readonly path: string }
+  | { readonly kind: 'error'; readonly path: string; readonly code?: string }
 
 /**
  * Preserved Files-tab state so a quick return (within the same ~1-minute
@@ -231,7 +231,9 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     void remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
       if (seq !== fileSeq.current) return
       const fc = queryAs(res, 'file-content')
-      if (fc === null) { setFile({ kind: 'error', path }); return }
+      // Carry the wire code into the error state so the preview can name the
+      // real cause (a file deleted after the listing is `file-not-found`).
+      if (fc === null) { setFile({ kind: 'error', path, ...(res.ok ? {} : { code: res.error.code }) }); return }
       const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
       if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path, ...stat }); return }
       if (fc.variant === 'image' && fc.dataUrl !== undefined) { setFile({ kind: 'image', path, dataUrl: fc.dataUrl, ...stat }); return }
@@ -558,7 +560,7 @@ function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, params?:
   switch (file.kind) {
     case 'idle': return h('div', { className: 'gp-empty' }, t('files.selectFile'))
     case 'loading': return h('div', { className: 'gp-empty' }, t('common.loading'))
-    case 'error': return h('div', { className: 'gp-empty' }, t('files.loadFailed'))
+    case 'error': return h('div', { className: 'gp-empty' }, file.code === 'file-not-found' ? t('files.notFound') : t('files.loadFailed'))
     case 'tooLarge': return h('div', { className: 'gp-empty' }, t('files.tooLarge'))
     case 'binary': return h('div', { className: 'gp-empty' }, t('files.binary'))
     case 'image':

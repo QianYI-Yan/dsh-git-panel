@@ -648,6 +648,25 @@ test('file-content rejects an unsafe path', async () => {
   assert.equal(res.error.code, 'invalid-path')
 })
 
+test('file-content reports a deleted file as file-not-found, not a generic error', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-gone-'))
+  try {
+    const { writeFileSync, rmSync } = await import('node:fs')
+    writeFileSync(join(dir, 'gone.txt'), 'here')
+    const d = depsAt(dir)
+    const before = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'gone.txt' } })
+    assert.equal(before.ok, true)
+    rmSync(join(dir, 'gone.txt'))
+    const after = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'gone.txt' } })
+    assert.equal(after.ok, false)
+    assert.equal(after.error.code, 'file-not-found')
+    // A directory that vanished between listing and expansion reads the same.
+    const dirAfter = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path: 'vanished' } })
+    assert.equal(dirAfter.ok, false)
+    assert.equal(dirAfter.error.code, 'file-not-found')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('show returns commit meta + changed files', async () => {  const hist = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'history', limit: 5, skip: 0 } })
   const ref = hist.value.commits.find((c) => c.subject.includes('add a')).hash
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'show', ref } })

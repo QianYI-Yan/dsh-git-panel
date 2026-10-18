@@ -155,6 +155,7 @@ export const zh = {
   // files browser
   'files.selectFile': '选择一个文件查看内容',
   'files.loadFailed': '加载失败',
+  'files.notFound': '文件不存在（可能已被删除或移动）',
   'files.backToTree': '返回文件树',
   'files.truncated': '条目过多，已截断',
   'files.tooLarge': '文件过大，无法预览',
@@ -507,6 +508,7 @@ export const en: Record<GitKey, string> = {
   'stash.dropConfirm': 'Drop this stash? This cannot be undone: {name}',
   'files.selectFile': 'Select a file to preview',
   'files.loadFailed': 'Load failed',
+  'files.notFound': 'File not found (deleted or moved)',
   'files.backToTree': 'Back to files',
   'files.truncated': 'Too many entries — truncated',
   'files.tooLarge': 'File too large to preview',
