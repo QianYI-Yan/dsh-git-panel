@@ -18,7 +18,7 @@ dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 dsh plugin --profile web add github:xbzbing/dsh-git-panel
 ```
 
-After installing or updating, restart the `dsh web` service and refresh the page; the **Git** panel then appears in the workspace tab bar (after Chat and Trajectory). The plugin has a host half and a client half, and both the host mount and the client bundle manifest are fixed when the service starts, so code updates (installing, or an `add` that overwrites `lib`) usually need a service restart — a page refresh alone may not pick them up. In-panel settings (the input-bar marker toggle and the default diff view on the detail page) are hot-written and apply immediately without a restart.
+After installing or updating, the **Git** panel appears in the workspace tab bar (after Chat and Trajectory) with no service restart and no page refresh: dsh's hmr watches the profile's `package.json` and patch files and mounts the plugin live, while the client bundle (`lib/client.js`) is picked up within a second of being replaced and pushed to the browser over `/plugins/events`, where the old fiber is torn down and the new code remounted in place — already-open pages get the update without reloading. Only host-half modules (`lib/host/*.js`, whose loaded code keeps running until the next restart) and profile changes made while hmr is unavailable still need a restart. In-panel settings (the input-bar marker toggle and the default diff view on the detail page) are hot-written and apply immediately.
 
 > **Compatibility**: verified on `dsh@0.2.1-rc.2` — installation, the Git panel, the input-bar marker, and the host RPC all work normally.
 
@@ -72,7 +72,7 @@ npm run test:e2e    # isolated file:// headless-browser e2e (never touches a run
 npm test            # unit + e2e
 ```
 
-The host output is emitted one file per `src/host/` module (stack traces land in the module that raised) and is never minified: the typert gateway validates arguments by method parameter name, and minification would rename them and break the wire contract. Client changes are not hot-reloaded — rebuild and refresh the page. `lib/` is committed as a build artifact so `dsh plugin add github:…` installs the built tree directly; after editing `src/` you must rebuild and commit, or a GitHub install loads a stale entry. The test-time `lib/testkit.mjs` is not committed. For local development, add the plugin to a dsh web profile's `dsh.profile.bundles` with a `file:` dependency pointing at this directory; a rebuild makes it effective.
+The host output is emitted one file per `src/host/` module (stack traces land in the module that raised) and is never minified: the typert gateway validates arguments by method parameter name, and minification would rename them and break the wire contract. Client changes are hot-reloaded: after rebuilding `lib/client.js`, the running dsh detects the file change within a second and pushes it to the browser for an in-place swap (old fiber torn down, new code remounted) — no page refresh needed; host changes still need a restart, since loaded modules keep running their previous code. `lib/` is committed as a build artifact so `dsh plugin add github:…` installs the built tree directly; after editing `src/` you must rebuild and commit, or a GitHub install loads a stale entry. The test-time `lib/testkit.mjs` is not committed. For local development, add the plugin to a dsh web profile's `dsh.profile.bundles` with a `file:` dependency pointing at this directory; a rebuild makes it effective.
 
 ## Project structure
 
