@@ -505,6 +505,11 @@ export type GitQueryResult = {
     readonly content?: string;
     /** text variant: total line count. */
     readonly lines?: number;
+    /** text variant: absolute path of this file — the rendered-Markdown
+     * image resolver needs the document's own location to resolve relative
+     * destinations onto the authenticated `api/file` route. Absent on older
+     * hosts; the client then keeps the alt-text fallback. */
+    readonly absolutePath?: string;
     /** image variant: a `data:<mime>;base64,…` URL. */
     readonly dataUrl?: string;
     /** The file exceeded the byte cap, so no content is returned. */

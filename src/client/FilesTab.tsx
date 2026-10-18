@@ -22,6 +22,9 @@ import { useDialogFocus } from './dialog-focus.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { canCopyContent } from './copy-content.js'
+import { createPathImages, type PathImages } from './path-images.js'
+import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
+import { MermaidFigure } from './MermaidFigure.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -64,7 +67,7 @@ const VIEWPORT_FALLBACK = 600
 type FileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading'; readonly path: string }
-  | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly absolutePath?: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
@@ -126,6 +129,24 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   // tabs name `<id>-<value>-panel`, so compact keeps one panel per mode.
   const modeId = useId()
   const markdownLabels = useMemo(() => ({ code: { copyLabel: t('files.copy'), copiedLabel: t('files.copied') }, footnotes: t('files.footnotes') }), [t])
+  // Official local-image contract: rendered Markdown resolves relative image
+  // destinations beside the document through the authenticated api/file
+  // route. Identity stays stable per loaded file so MarkdownText's parse is
+  // not repeated on unrelated re-renders (find, toolbar state).
+  const pathImages = useMemo(
+    () => file.kind === 'text' && file.absolutePath !== undefined ? createPathImages(document.baseURI, file.absolutePath) : undefined,
+    [file],
+  )
+  // The rendered-Markdown document (mermaid split + kbd rewrite) derives from
+  // the file content, so it is computed once per loaded file. Unrelated
+  // re-renders (find input, column drag, toolbar, snapshot ticks) reuse the
+  // same segment identities instead of re-splitting the whole text per frame.
+  const markdownSegments = useMemo<MermaidSegment[] | undefined>(() => {
+    if (file.kind !== 'text') return undefined
+    return splitMermaidSegments(file.content).map((segment) => segment.kind === 'mermaid'
+      ? segment
+      : { kind: 'markdown' as const, text: markdownKbdToCode(segment.text) })
+  }, [file])
   const fileSeq = useRef(0)
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
@@ -198,7 +219,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
       if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path, ...stat }); return }
       if (fc.variant === 'image' && fc.dataUrl !== undefined) { setFile({ kind: 'image', path, dataUrl: fc.dataUrl, ...stat }); return }
-      if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat }); return }
+      if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat, ...(fc.absolutePath !== undefined ? { absolutePath: fc.absolutePath } : {}) }); return }
       setFile({ kind: 'binary', path, ...stat })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
   }, [remote, sessionId, compact])
@@ -341,19 +362,19 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       h('div', {
         key: 'src', id: `${modeId}-source-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-source`,
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, markdownLabels, t)),
+      }, renderMarkdown ? null : renderContent(file, false, markdownLabels, pathImages, markdownSegments, t)),
       h('div', {
         key: 'rnd', id: `${modeId}-render-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-render`,
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, markdownLabels, t) : null),
+      }, renderMarkdown ? renderContent(file, true, markdownLabels, pathImages, markdownSegments, t) : null),
     ]
-    : renderContent(file, renderMarkdown, markdownLabels, t)
+    : renderContent(file, renderMarkdown, markdownLabels, pathImages, markdownSegments, t)
 
   const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
     selected !== null ? (compact ? compactBar : wideBar) : null,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     fullscreen && selected !== null && file.kind === 'text'
-      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, markdownLabels, onClose: () => setFullscreen(false), t })
+      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, markdownLabels, pathImages, markdownSegments, onClose: () => setFullscreen(false), t })
       : null,
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
@@ -377,10 +398,21 @@ function renderContent(
   file: FileState,
   renderMarkdown: boolean,
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string },
+  pathImages: PathImages | undefined,
+  markdownSegments: MermaidSegment[] | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
-  if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path)) {
-    return h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: file.content, labels: markdownLabels, variant: 'body' }))
+  if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
+    const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
+    if (markdownSegments.length === 1 && markdownSegments[0].kind === 'markdown') {
+      return h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps }))
+    }
+    // Mermaid fences render through the lazy engine chunk; every other
+    // segment stays on the official MarkdownText, in document order, with
+    // kbd hints already rewritten (see the memoized markdownSegments).
+    return h('div', { className: 'gp-files__markdown' }, markdownSegments.map((segment, index) => segment.kind === 'mermaid'
+      ? h(MermaidFigure, { key: index, source: segment.source, t })
+      : h(MarkdownText, { key: index, text: segment.text, ...markdownProps })))
   }
   if (file.kind === 'text' && renderMarkdown && isHtmlPath(file.path)) {
     // Render in a locked-down iframe: allow-scripts lets an interactive page
@@ -405,10 +437,12 @@ function FileFullscreen(props: {
   file: FileState
   renderMarkdown: boolean
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
+  pathImages: PathImages | undefined
+  markdownSegments: MermaidSegment[] | undefined
   onClose: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }): JSX.Element | null {
-  const { file, renderMarkdown, markdownLabels, onClose, t } = props
+  const { file, renderMarkdown, markdownLabels, pathImages, markdownSegments, onClose, t } = props
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   useDialogFocus(dialogRef, onClose, closeRef)
@@ -425,7 +459,7 @@ function FileFullscreen(props: {
       }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, t))),
+      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, markdownLabels, pathImages, markdownSegments, t))),
   ])), document.body, 'file-fullscreen')
 }
 

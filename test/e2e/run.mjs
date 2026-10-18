@@ -1165,6 +1165,18 @@ const out = await page.evaluate(async (snap) => {
   const renderBtn = modeTab('files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  // Mermaid: a document with a mermaid fence renders the diagram through the
+  // lazy chunk, keeps the surrounding markdown in order, and a diagram the
+  // engine rejects falls back to the plain code block.
+  const diagramRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('diagram.md'))
+  if (diagramRow) { diagramRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.mermaidRendered = document.querySelector('.gp-mermaid svg[data-mermaid-stub]') !== null
+    && [...document.querySelectorAll('[data-markdown-rendered]')].some((n) => (n.textContent || '').includes('Intro para'))
+    && [...document.querySelectorAll('[data-markdown-rendered]')].some((n) => (n.textContent || '').includes('Outro para'))
+  const brokenRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('broken.md'))
+  if (brokenRow) { brokenRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.mermaidFallback = document.querySelector('[data-mermaid-fallback]') !== null
+    && document.querySelector('.gp-mermaid svg') === null
   // HTML defaults to source (no auto-run); switching to render mounts a
   // sandboxed iframe that carries the page bytes but drops same-origin.
   const htmlRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('page.html'))

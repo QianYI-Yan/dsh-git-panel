@@ -632,7 +632,10 @@ async function queryFileContent(
   if (isBinaryBuffer(buf)) return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary', ...statFields } }
   const content = buf.toString('utf8')
   const lines = content === '' ? 0 : content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
-  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines, ...statFields } }
+  // `absolutePath` feeds the client's Markdown image resolver: relative image
+  // destinations join beside the document, so the document's own absolute
+  // path is the one fact the browser cannot derive from the relative tree.
+  return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content, lines, absolutePath: file, ...statFields } }
 }
 
 /** Do not expose Git metadata even through an explicit RPC path. */

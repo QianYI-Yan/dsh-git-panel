@@ -32,6 +32,10 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     labels: MarkdownLabels
     variant?: 'body' | 'compact'
     streaming?: boolean
+    /** Official local-image contract: resolve an authored destination onto a
+     * URL (undefined keeps the alt-text fallback). External http(s)
+     * destinations pass through without this resolver. */
+    pathImages?: { readonly resolve: (destination: string) => string | undefined }
   }) => JSX.Element
 
   /** One selectable menu row (optionally with a nested submenu). */
