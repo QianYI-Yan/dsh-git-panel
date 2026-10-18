@@ -13,6 +13,15 @@
     'react': window.React,
     'react-dom': window.ReactDOM,
     'react/jsx-runtime': window.jsxRuntime,
+    // Lazy mermaid chunk stub: the production chunk is a package-local
+    // /plugins route the file:// harness cannot serve, so require.async
+    // resolves this in-table stand-in instead (same renderMermaid contract).
+    '@xbzbing/dsh-git-panel/client.mermaid': {
+      renderMermaid: function (source) {
+        if (source.indexOf('broken') !== -1) return Promise.reject(new Error('parse error'));
+        return Promise.resolve('<svg data-mermaid-stub="1"></svg>');
+      },
+    },
     // Official dsh MarkdownText is provided by the platform in production.
     // The isolated harness substitutes a minimal React render to test the UI toggle.
     '@deepseek-ai/dsh-client-ui-primitives': {
@@ -212,10 +221,17 @@
   var LOADED = null;
   window.__ModuleLoader__ = {
     load: function (entry) {
-      LOADED = entry.factory(function (id) {
+      var requireFn = function (id) {
         if (MOD[id]) return MOD[id];
         throw new Error('unknown module ' + id);
-      });
+      };
+      // Package-local lazy chunks (require.async('./client.<name>.js')),
+      // mirroring the production client-modules import path.
+      requireFn.async = function (spec) {
+        if (spec === './client.mermaid.js') return Promise.resolve(MOD['@xbzbing/dsh-git-panel/client.mermaid']);
+        return Promise.reject(new Error('unknown chunk ' + spec));
+      };
+      LOADED = entry.factory(requireFn);
     },
   };
   window.__getLoaded = function () { return LOADED; };

@@ -262,6 +262,13 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__props{height:30px;box-sizing:border-box;padding:0 6px}
 .gp-files__bar--compact .gp-files__mode-seg button{padding:0 10px;font-size:12px}
 .gp-files__markdown{overflow:auto;overscroll-behavior:contain;padding:16px 24px;color:var(--dsw-alias-label-primary)}
+/* Mermaid figures: the SVG centers and never overflows the pane width; a
+ * parse/load failure falls back to the source as a plain code block. */
+.gp-mermaid{overflow-x:auto;padding:4px 0}
+.gp-mermaid svg{display:block;max-width:100%;height:auto;margin:0 auto}
+.gp-mermaid--loading{min-height:64px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-skeleton);color:var(--dsw-alias-label-tertiary)}
+.gp-mermaid__loading-text{font-size:12px;line-height:20px}
+.gp-mermaid__fallback{overflow:auto;background:var(--dsw-alias-markdown-code-block);border-radius:6px;padding:10px 12px;font-family:var(--dsw-font-mono,monospace);font-size:12px;margin:8px 0}
 .gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
 .gp-files__header{position:sticky;top:0;z-index:2}

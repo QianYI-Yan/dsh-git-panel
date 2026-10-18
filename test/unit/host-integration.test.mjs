@@ -495,7 +495,7 @@ test('dir-list lists the root, dirs-first, skipping .git', async () => {
 test('file browser lists a non-git cwd and previews a file without exposing .git', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gp-nongit-'))
   try {
-    const { writeFileSync, mkdirSync, symlinkSync } = await import('node:fs')
+    const { writeFileSync, mkdirSync, symlinkSync, realpathSync } = await import('node:fs')
     writeFileSync(join(dir, 'note.md'), '# hello\n')
     mkdirSync(join(dir, '.git'))
     writeFileSync(join(dir, '.git', 'config'), 'secret')
@@ -508,6 +508,9 @@ test('file browser lists a non-git cwd and previews a file without exposing .git
     const preview = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'note.md' } })
     assert.equal(preview.ok, true)
     assert.equal(preview.value.content, '# hello\n')
+    // The rendered-Markdown image resolver joins relative destinations beside
+    // this path, so the text variant must carry the document's absolute path.
+    assert.equal(preview.value.absolutePath, join(realpathSync(dir), 'note.md'))
     for (const path of ['.git', 'git-alias']) {
       const blocked = await runQuery(d, DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'dir-list', path } })
       assert.equal(blocked.ok, false)

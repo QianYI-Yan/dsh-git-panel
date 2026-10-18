@@ -55,8 +55,8 @@ Host 半 (Cordis + typert, lib/host)
 - 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
 - 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
 - 页面：`Panel.tsx`（子 tab 路由、字号、版本条）、`OverviewTab.tsx` + `overview-hooks.ts` / `overview-statusbar.tsx` / `overview-modals.tsx`、`ChangesTab.tsx` + `changes-hooks.ts` / `ChangesToolbar.tsx` / `ChangeStats.tsx`、`DiffView.tsx` + `image-diff-hook.ts` / `ImageCompare.tsx`、`FilesTab.tsx`、`GitPill.tsx`、`PillConfig.tsx`。
-- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`。
-- 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`（悬浮提示）、`notice.tsx`（可关闭提示条）、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`。
+- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`、`path-images.ts`（Markdown 本地图片 → `api/file` 路由，镜像官方解析）、`mermaid-blocks.ts`（mermaid 围栏分段 + `<kbd>`→行内代码——MarkdownText 刻意转义内联 HTML，kbd 只能在送入前文本替换，围栏与行内代码内不替换）。
+- 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`（悬浮提示）、`notice.tsx`（可关闭提示条）、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（经 `require.async` 懒加载 `client.mermaid.js` chunk 渲染 mermaid，失败回退代码块）。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 
 ## 安全与信任边界
@@ -109,7 +109,7 @@ MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依�
 - 优先用 `@deepseek-ai/dsh-client-ui-primitives` 的现成组件：代码高亮 `languageForPath` / `useCodeHighlighter`（语法色走宿主 `--shiki-*` 变量）、`MarkdownText`、`Menu`（`onSelect` 需自行关闭）、`SegmentedControl`、`SegmentedTabs`、`FileTypeIcon` 等。不额外引入 marked / dompurify 之类的同类库。
 - 新用到的平台组件必须同步加进 e2e 平台桩 `test/e2e/harness.html`，否则面板在 e2e 中直接崩溃。
 - 只有 dsh 平台专有逻辑（slot / typert 契约、提交图车道布局、路径折树、diff 拆行等）才自研。
-- 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。
+- 引入新依赖前先确认宿主未提供；确需引入时 pin 精确版本写入 `package.json`。`mermaid` 是目前唯一的非平台运行时依赖（宿主不提供、平台组件也无 mermaid 钩子）：pin 在 devDependencies，构建期打进懒加载 chunk `lib/client.mermaid.js`，**绝不进主 bundle**——主 bundle 里只允许 `require.async('./client.mermaid.js')` 这一个引用点（`MermaidFigure.tsx`）。
 - `@deepseek-ai/dsh` 标为 **optional peer**（`peerDependenciesMeta`）：`src/` 不 import 它，宿主在运行时提供，标可选后 `npm ci` 不再拉整棵 harness 依赖树。其余 5 个 peer 保持必需——`src/` 要用它们的类型（`@deepseek-ai/dsh-llm` 本身不在 peer 里，经 `@deepseek-ai/dsh-session` 传递装上）。标 optional 不削弱兼容门禁：`evaluatePluginCompatibility` 只读 `peerDependencies`。
 
 ## 构建
@@ -119,6 +119,7 @@ MIT 协议下优先复用 dsh 官方能力，不为相同功能重复打包依�
 1. `tsc -p tsconfig.build.json` 仅出 `lib/host/*.d.ts`。
 2. esbuild 把 `src/host/*.ts` **逐文件**转译成 `lib/host/*.js`（`bundle: false`，与 `src/host/` 一一对应；`@deepseek-ai/*` 不打包）。host **绝不压缩**：typert 靠方法参数名反射校验参数，重命名会破坏 wire 契约。
 3. esbuild 把 `src/client/index.ts` 打成 `lib/client.js`（cjs，包成 `window.__ModuleLoader__.load({id,factory})`，平台模块 external，可 minify）。
+4. esbuild 把 `src/client/mermaid-chunk.ts` 打成 `lib/client.mermaid.js`（同款包装但注册 `chunk: "client.mermaid.js"`）：包内懒加载 chunk，由 `/plugins` 路由按需下发（`require.async`），文件名必须匹配平台的 `client.<name>.js` 规则且随 `lib/` 提交；e2e 里由 harness 桩的 `require.async` 代替。
 
 `lib/testkit.mjs` / `lib/hookkit.mjs` 是测试专用 bundle（已 gitignore，`npm run test:unit` 会重建）。集成测试中的 controller 与 hooks 必须从同一个 bundle（hookkit）导入，否则 `pageVisibility` 单例会分裂。
 

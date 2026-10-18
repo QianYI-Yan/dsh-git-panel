@@ -267,6 +267,8 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
+  assert.equal(out.mermaidRendered, true, 'a mermaid fence renders the diagram via the lazy chunk with surrounding markdown intact')
+  assert.equal(out.mermaidFallback, true, 'a diagram the engine rejects falls back to the plain code block')
   assert.equal(out.htmlSourceDefault, true, 'HTML defaults to the source view, never auto-rendered')
   assert.equal(out.htmlRenderShown, true, 'switching HTML to render mounts the preview iframe')
   assert.equal(out.htmlFrameSandbox, 'allow-scripts', 'the HTML iframe runs scripts but stays a unique opaque origin (no allow-same-origin)')

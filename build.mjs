@@ -80,6 +80,30 @@ await esbuild.build({
   },
 })
 
+// ── Mermaid chunk: lazy package-local bundle ──────────────────────────────
+// Loaded only when a rendered Markdown document actually contains a mermaid
+// fence (`require.async('./client.mermaid.js')` → /plugins route serves this
+// file). Keeps ~1–2MB of mermaid out of the main client bundle; the chunk
+// registration mirrors the official document preview's lazy chunks.
+await esbuild.build({
+  entryPoints: [resolve(ROOT, 'src/client/mermaid-chunk.ts')],
+  bundle: true,
+  format: 'cjs',
+  platform: 'browser',
+  target: 'es2022',
+  minify: true,
+  sourcemap: false,
+  logOverride: { 'commonjs-variable-in-esm': 'silent' },
+  outfile: resolve(ROOT, 'lib/client.mermaid.js'),
+  logLevel: 'info',
+  banner: {
+    js: 'window.__ModuleLoader__.load({ id: "@xbzbing/dsh-git-panel", chunk: "client.mermaid.js", factory: (require) => {\nvar module = { exports: {} }; var exports = module.exports;',
+  },
+  footer: {
+    js: 'return module.exports;\n} });',
+  },
+})
+
 // ── Test kit: pure algorithms as a plain ESM bundle for `node --test` ─────
 await esbuild.build({
   entryPoints: [resolve(ROOT, 'src/client/testkit.ts')],
