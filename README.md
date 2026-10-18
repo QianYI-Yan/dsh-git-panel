@@ -15,7 +15,7 @@
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
 # 预发布（GitHub Release 附件，不发 npm）
-dsh plugin add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
+dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
 ```
 
 预发布版本号带 `-`（如 `1.8.0-rc.1`），只出现在 GitHub Release，不会推送 npm，也不会触发面板里的「有新版本」提示；正式版发布时 npm 与稳定 Release 同时上线。`lib/` 不随仓库提交，请不要用 `dsh plugin add github:…` 安装——改用上面的 npm 或 Release 附件 URL。

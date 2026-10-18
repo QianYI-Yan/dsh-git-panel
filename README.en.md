@@ -15,7 +15,7 @@ The panel only reads the Git repository at the current session's working directo
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
 # Pre-release (GitHub Release asset; never published to npm)
-dsh plugin add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
+dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
 ```
 
 Pre-release versions carry a `-` suffix (e.g. `1.8.0-rc.1`): they appear only as GitHub prereleases, are never pushed to npm, and never trigger the in-panel "update available" prompt. A stable release ships to npm and as a stable GitHub Release at the same time. `lib/` is not committed to the repository — do not install with `dsh plugin add github:…`; use the npm or Release asset URL above.
