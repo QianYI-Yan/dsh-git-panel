@@ -1,0 +1,80 @@
+#!/usr/bin/env node
+/**
+ * Asserts an unpacked `npm pack` tree carries everything the plugin needs to
+ * load, and nothing that would run during install.
+ *
+ * The unit and e2e suites exercise `lib/` from the working tree, and both
+ * rebuild before running — so neither can notice a `files` entry that dropped a
+ * runtime artifact, or a lifecycle script that only exists to build one. This
+ * script checks the artifact that actually ships (the same tree the `dist`
+ * branch and the npm tarball receive), so such a mistake fails the release
+ * instead of the user.
+ *
+ * Usage: node scripts/assert-pack.mjs <unpacked-package-dir>
+ */
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join, relative, resolve } from 'node:path'
+
+/** Lifecycle hooks that must never be present: DSH STORE and this project
+ * refuse install-time scripts (see docs/adr/0003). */
+const INSTALL_HOOKS = [
+  'preinstall', 'install', 'postinstall', 'prepare',
+  'prepublish', 'prepublishOnly', 'prepack', 'postpack',
+]
+
+/** Artifacts every install needs, whatever else is in the package. */
+const REQUIRED = [
+  'package.json',
+  'cordis.patch.yml',
+  'lib/client.js',
+  'lib/client.mermaid.js',
+  'lib/host/index.js',
+  'lib/host/index.d.ts',
+  'locale/zh.json',
+  'locale/en.json',
+  'icon.svg',
+  'LICENSE',
+]
+
+const root = resolve(process.argv[2] ?? '')
+if (root === '' || !existsSync(root)) {
+  console.error(`assert-pack: package directory not found: ${process.argv[2] ?? '(missing argument)'}`)
+  process.exit(2)
+}
+
+const problems = []
+const at = (file) => `${relative(process.cwd(), root)}/${file}`
+
+for (const file of REQUIRED) {
+  if (!existsSync(join(root, file))) problems.push(`missing required file: ${file}`)
+}
+
+// Every host source module must ship as a .js sibling. The build is one-file-per-
+// module (docs/adr/0004), so a missing sibling is a real import failure, not a
+// cosmetic gap.
+const hostSrc = resolve('src/host')
+if (existsSync(hostSrc)) {
+  for (const name of readdirSync(hostSrc).filter((f) => f.endsWith('.ts'))) {
+    const shipped = name.replace(/\.ts$/, '.js')
+    if (!existsSync(join(root, 'lib/host', shipped))) {
+      problems.push(`host module has no shipped build: src/host/${name} -> lib/host/${shipped}`)
+    }
+  }
+}
+
+// The manifest itself must stay free of install-time hooks; the working-tree
+// copy is asserted by plugin-contract.test.mjs, and this is the same check
+// applied to what is actually published.
+const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+for (const hook of INSTALL_HOOKS) {
+  if (manifest.scripts?.[hook] !== undefined) {
+    problems.push(`install-time lifecycle script declared: scripts.${hook} — see docs/adr/0003`)
+  }
+}
+
+if (problems.length > 0) {
+  console.error(`assert-pack: ${at('')} does not ship a loadable plugin:\n  - ${problems.join('\n  - ')}`)
+  process.exit(1)
+}
+
+console.log(`assert-pack: ${at('')} is loadable (${REQUIRED.length} required files + all host modules present)`)

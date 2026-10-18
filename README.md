@@ -11,12 +11,14 @@
 ## 安装
 
 ```bash
-# npm（默认）
+# 正式版（npm）
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
-# 或从 GitHub 仓库安装（仓库已提交构建产物，无需本地构建）
-dsh plugin --profile web add github:xbzbing/dsh-git-panel
+# 预发布（GitHub Release 附件，不发 npm）
+dsh plugin add https://github.com/xbzbing/dsh-git-panel/releases/download/v1.8.0-rc.1/xbzbing-dsh-git-panel-1.8.0-rc.1.tgz
 ```
+
+预发布版本号带 `-`（如 `1.8.0-rc.1`），只出现在 GitHub Release，不会推送 npm，也不会触发面板里的「有新版本」提示；正式版发布时 npm 与稳定 Release 同时上线。`lib/` 目前仍随仓库提交，因此 `dsh plugin add github:xbzbing/dsh-git-panel` 也可用；`lib/` 移出 main 后该简写失效，请改用上面的 Release 附件 URL。
 
 安装或更新后，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板，无需重启服务、也无需刷新页面：dsh 的 hmr 监听 profile 的 `package.json` 与 patch 文件，插件装好即热挂载；client 半产物（`lib/client.js`）被替换后也会被秒级轮询拾取，经 `/plugins/events` 推给浏览器原地热替换（拆掉旧 fiber 重挂新代码），已打开的页面不刷新即可拿到更新。仅 host 半模块（`lib/host/*.js`，进程内已加载的旧代码会一直跑到重启为止）与 hmr 不可用时的 profile 变更仍需重启服务。面板内的配置项（详情页的输入框标记开关、差异默认视图）走配置热写，改动即时生效。
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import type { GitQuery, GitQueryResult } from './types.js'
-import type { DiffBase } from './DiffView.js'
+import type { DiffBase } from './views/diff/diff-types.js'
 import { useVisibleRequest } from './use-visible-request.js'
 import type { QueryKey } from './query-key.js'
 

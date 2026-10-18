@@ -5,7 +5,7 @@
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
-import type { DiffMode } from './DiffView.js'
+import type { DiffMode } from './views/diff/diff-types.js'
 import type { GitKey } from './locales.js'
 import { ZoomableImage } from './ImageZoom.js'
 

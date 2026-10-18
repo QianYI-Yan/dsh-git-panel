@@ -286,6 +286,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (fresh !== undefined && fresh !== selected && !refsEqual(fresh.refs, selected.refs)) {
       detail.resyncSelected(fresh)
     }
+    // `detail` is the stable hook face: listing it would re-run this on every
+    // render, and the only inputs that change are the commit list and the
+    // selection (refresh keys stay structured, not object identity — ADR-0010).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commits, selected])
 
