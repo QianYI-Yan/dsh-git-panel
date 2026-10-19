@@ -12,7 +12,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
 import { useResizableColumn } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, languageForPath, MarkdownText, SegmentedControl, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
@@ -151,6 +151,13 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
+  // Manual refresh from the tree's floating button: re-lists the open
+  // directories and re-reads the selected file. `refreshFlight` keeps one
+  // refresh at a time (the button is disabled while it runs); `dirGen` drops
+  // listings that a branch switch made stale while they were in flight.
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshFlight = useRef(false)
+  const dirGen = useRef(0)
   // Instance-scoped ids for the official source/render SegmentedControl: its
   // tabs name `<id>-<value>-panel`, so compact keeps one panel per mode.
   const modeId = useId()
@@ -208,15 +215,21 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
 
-  const loadDir = useCallback((path: string) => {
+  // Listing of one directory. `force` re-reads a directory that is already
+  // listed, keeping its current entries mounted until the new listing lands;
+  // the normal path only starts a listing that is missing or failed. A
+  // response from before a branch switch is dropped by `dirGen`.
+  const loadDir = useCallback((path: string, force = false): Promise<void> => {
+    const gen = dirGen.current
     setDirs((prev) => {
       const cur = prev.get(path)
-      if (cur !== undefined && cur.status !== 'error') return prev
+      if (cur !== undefined && (force ? cur.status === 'ready' : cur.status !== 'error')) return prev
       const next = new Map(prev)
       next.set(path, { status: 'loading' })
       return next
     })
-    void remote.query({ sessionId, query: { kind: 'dir-list', path } }).then((res) => {
+    return remote.query({ sessionId, query: { kind: 'dir-list', path } }).then((res) => {
+      if (gen !== dirGen.current) return
       const dl = queryAs(res, 'dir-list')
       setDirs((prev) => {
         const next = new Map(prev)
@@ -224,12 +237,13 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
         return next
       })
     }).catch(() => {
+      if (gen !== dirGen.current) return
       setDirs((prev) => { const next = new Map(prev); next.set(path, { status: 'error' }); return next })
     })
   }, [remote, sessionId])
 
   // Load the root once on mount / when the session changes.
-  useEffect(() => { loadDir('') }, [loadDir])
+  useEffect(() => { void loadDir('') }, [loadDir])
 
   // A branch switch replaces every file under the root: drop the preserved
   // state (and the sticky cache a remount would restore from) and start over
@@ -239,13 +253,15 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   useEffect(() => {
     if (genRef.current === worktreeGen) return
     genRef.current = worktreeGen
+    dirGen.current += 1
+    fileSeq.current += 1
     filesCache.delete(sessionId)
     setDirs(new Map())
     setOpen(new Set(['']))
     setSelected(null)
     setFile({ kind: 'idle' })
     setPane('tree')
-    loadDir('')
+    void loadDir('')
   }, [worktreeGen, sessionId, loadDir])
 
   const toggleDir = useCallback((path: string) => {
@@ -253,23 +269,18 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       const next = new Set(prev)
       if (next.has(path)) { next.delete(path); return next }
       next.add(path)
-      if (dirs.get(path) === undefined) loadDir(path)
+      if (dirs.get(path) === undefined) void loadDir(path)
       return next
     })
   }, [dirs, loadDir])
 
-  const selectFile = useCallback((path: string) => {
-    setSelected(path)
-    if (compact) setPane('preview')
-    // Rendered view is the default for Markdown; HTML defaults to source so a
-    // page never auto-executes on selection — the user opts into the preview.
-    setRenderMarkdown(!isHtmlPath(path))
-    setCopyState('idle')
-    setCopyContentState('idle')
-    setShowProps(false)
+  // Read one file into the preview. A fresh selection blanks the pane to its
+  // loading state; a refresh keeps the current content on screen until the
+  // re-read lands (a failed read still replaces it with the error state).
+  const loadFile = useCallback((path: string, clear: boolean): Promise<void> => {
     const seq = ++fileSeq.current
-    setFile({ kind: 'loading', path })
-    void remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
+    if (clear) setFile({ kind: 'loading', path })
+    return remote.query({ sessionId, query: { kind: 'file-content', path } }).then((res) => {
       if (seq !== fileSeq.current) return
       const fc = queryAs(res, 'file-content')
       // Carry the wire code into the error state so the preview can name the
@@ -281,7 +292,39 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat, ...(fc.absolutePath !== undefined ? { absolutePath: fc.absolutePath } : {}) }); return }
       setFile({ kind: 'binary', path, ...stat })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
-  }, [remote, sessionId, compact])
+  }, [remote, sessionId])
+
+  const selectFile = useCallback((path: string) => {
+    setSelected(path)
+    if (compact) setPane('preview')
+    // Rendered view is the default for Markdown; HTML defaults to source so a
+    // page never auto-executes on selection — the user opts into the preview.
+    setRenderMarkdown(!isHtmlPath(path))
+    setCopyState('idle')
+    setCopyContentState('idle')
+    setShowProps(false)
+    void loadFile(path, true)
+  }, [compact, loadFile])
+
+  // Manual refresh (the tree's top-right button): re-list every expanded
+  // directory and re-read the selected file, so an edit made outside the panel
+  // (a checkout in a terminal, an editor save) shows up without leaving the
+  // tab. Listings of collapsed directories are dropped and read again on the
+  // next expand.
+  const refresh = useCallback((): void => {
+    if (refreshFlight.current) return
+    refreshFlight.current = true
+    setRefreshing(true)
+    const openDirs = open
+    setDirs((prev) => new Map([...prev].filter(([path]) => openDirs.has(path))))
+    const pending: Array<Promise<void>> = [...openDirs].map((path) => loadDir(path, true))
+    if (selected !== null) pending.push(loadFile(selected, false))
+    const settle = (): void => {
+      refreshFlight.current = false
+      setRefreshing(false)
+    }
+    void Promise.all(pending).then(settle, settle)
+  }, [open, selected, loadDir, loadFile])
 
   // Persist the browsing state when the panel unmounts (view-tab switch or
   // session change) so a quick return restores it; a ref carries the latest
@@ -345,7 +388,26 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     }
   })()
 
-  const treeBlock = h('div', { key: 'left', className: 'gp-files__tree', style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` } }, treeRows)
+  // The refresh control floats at the tree's top-right corner: it re-lists the
+  // expanded directories and re-reads the open file (see `refresh`) without a
+  // row of its own above the list, and it stays put while the entries scroll
+  // under it.
+  const refreshButton = h('button', {
+    key: 'refresh', type: 'button', className: `gp-files__refresh${refreshing ? ' gp-files__refresh--busy' : ''}`,
+    title: t('files.refresh'), 'aria-label': t('files.refresh'),
+    'aria-busy': refreshing, disabled: refreshing,
+    onClick: () => refresh(),
+  }, h(RefreshIcon, { size: 14 }))
+
+  const treeBlock = h('div', {
+    key: 'left', className: 'gp-files__tree-wrap',
+    style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
+  }, [
+    // The control leads in DOM order so keyboard users reach it before walking
+    // the entry rows; its absolute position puts it at the box's corner.
+    refreshButton,
+    h('div', { key: 'tree', className: 'gp-files__tree' }, treeRows),
+  ])
 
   const richPreview = file.kind === 'text' && isRichPath(file.path)
   // One definition per toolbar control; the compact and wide bars compose the
