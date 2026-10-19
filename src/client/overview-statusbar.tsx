@@ -8,7 +8,7 @@ import type { JSX } from 'react'
 import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
-import { useHoverTip } from './tip.js'
+import { TipWrapper, useHoverTip } from './tip.js'
 import { canPush as canPushSnapshot } from './push-policy.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
@@ -129,29 +129,39 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
     return h('span', { key: 's', className: `gp-statusbar__state${tone}` }, text)
   })()
 
+  // Tip handlers live on a non-disabled wrapper so a busy (`disabled`) control
+  // still explains itself on hover (issue #61).
   const actions: (JSX.Element | null)[] = [
     // Fetch-check is offered whenever a remote exists (even without an upstream,
     // a fetch can populate the tracking refs the first time).
-    remote !== null ? h('button', {
-      key: 'check', type: 'button', className: 'gp-icon-btn gp-statusbar__btn',
-      disabled: cb.syncBusy, 'aria-label': t('status.check'), ...tipProps(t('status.checkTitle')),
+    remote !== null ? h(TipWrapper, {
+      key: 'check', tipProps: tipProps(t('status.checkTitle')),
+    }, h('button', {
+      type: 'button', className: 'gp-icon-btn gp-statusbar__btn',
+      disabled: cb.syncBusy, 'aria-label': t('status.check'),
       onClick: () => { hideTip(); cb.onCheck() },
-    }, h(SyncIcon, { size: 13 })) : null,
-    canPull ? h('button', {
-      key: 'pull', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.pullBusy, 'aria-label': t('status.pullTitle'), ...tipProps(t('status.pullTitle')),
+    }, h(SyncIcon, { size: 13 }))) : null,
+    canPull ? h(TipWrapper, {
+      key: 'pull', tipProps: tipProps(t('status.pullTitle')),
+    }, h('button', {
+      type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
+      disabled: cb.pullBusy, 'aria-label': t('status.pullTitle'),
       onClick: () => { hideTip(); cb.onPull() },
-    }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')]) : null,
-    canPush ? h('button', {
-      key: 'push', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'), ...tipProps(t('status.pushTitle')),
+    }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')])) : null,
+    canPush ? h(TipWrapper, {
+      key: 'push', tipProps: tipProps(t('status.pushTitle')),
+    }, h('button', {
+      type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
+      disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'),
       onClick: () => { hideTip(); cb.onPush() },
-    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')]) : null,
-    canPublish ? h('button', {
-      key: 'publish', type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
-      disabled: cb.publishBusy, 'aria-label': t('status.publishTitle'), ...tipProps(t('status.publishTitle')),
+    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')])) : null,
+    canPublish ? h(TipWrapper, {
+      key: 'publish', tipProps: tipProps(t('status.publishTitle')),
+    }, h('button', {
+      type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
+      disabled: cb.publishBusy, 'aria-label': t('status.publishTitle'),
       onClick: () => { hideTip(); cb.onPublish() },
-    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')]) : null,
+    }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.publish')])) : null,
   ]
 
   return h('div', { key: 'statusbar', className: `gp-statusbar${cb.syncBusy ? ' gp-statusbar--busy' : ''}` }, [

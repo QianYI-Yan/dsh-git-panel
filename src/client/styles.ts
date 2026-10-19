@@ -89,6 +89,12 @@ const CSS = `
 .gp-btn--primary:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 85%,#000);color:#fff}
 .gp-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+/* Tip shell: carries the hover handlers so a disabled child still explains
+ * itself. Hit-testing must reach the wrapper — a disabled control swallows
+ * pointer events in browsers — and the shell itself is a tight flex box so the
+ * child's geometry (and the tip anchor) is unchanged. */
+.gp-tip-wrap{display:inline-flex;align-items:center;flex:none;min-width:0}
+.gp-tip-wrap>.gp-icon-btn:disabled,.gp-tip-wrap>.gp-btn:disabled{pointer-events:none}
 
 /* three-column overview — side columns shrink (with a min floor) instead of
  * staying fixed, and the middle keeps a guaranteed min so it never collapses to
@@ -333,6 +339,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * so hovering never changes the row's width — no wobble. */
 .gp-file-row__actions{margin-left:auto;display:flex;gap:4px;flex:none;visibility:hidden}
 .gp-file-row:hover .gp-file-row__actions{visibility:visible}
+/* The trash glyph sits in an aria-hidden span; without flex the span is a
+ * baseline inline box and the SVG rides above the "+" text's centre line. */
+.gp-file-row__actions .gp-icon-btn>span{display:inline-flex;align-items:center;justify-content:center}
 
 /* stats bar */
 .gp-stats{display:flex;align-items:center;gap:14px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
@@ -690,16 +699,24 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * own classes / viewport media queries instead.
  * =================================================================== */
 
-/* Tab bar: one row. The switcher drops its labels to icon-only and takes the
- * remaining width (the three icon cells stay equal and touch-sized), while the
- * font stepper rides the same row at the trailing edge. The version bar is not
- * mounted at all in compact (Panel.tsx), so the bar keeps a single row.
- * The label stays in the DOM — clipped, not display:none — so the tab keeps its
- * accessible name for screen readers. */
-.gp-panel[data-layout="compact"] .gp-tabbar__tabs{flex:1 1 auto}
+/* Tab bar: one row. Compact shows the short tab labels (Git / 变更 / 文件)
+ * and drops the font stepper + version cluster entirely (the font step lives
+ * on the plugin config page). The long labels are swapped for short ones in
+ * Panel.tsx; nothing is clipped.
+ * Keep the platform track's grey module background and sliding indicator (the
+ * animation is transform on the indicator); only tighten the paddings so the
+ * short labels get more of the row width. */
+.gp-panel[data-layout="compact"] .gp-tabbar__tabs{flex:1 1 auto;padding:2px;border-radius:8px}
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs--single{flex:0 0 auto}
+/* Indicator width is an inline calc((100% - 8px) / n) from the primitive.
+ * Platform DOM contract pinned here: the indicator is a DIRECT span child with
+ * aria-hidden and that inline width — if the primitive wraps it or changes the
+ * width formula, compact indicator geometry breaks silently (watch the e2e). */
+.gp-panel[data-layout="compact"] .gp-tabbar__tabs>span[aria-hidden="true"]{inset:2px auto 2px 2px;width:calc((100% - 4px) / 3) !important}
+.gp-panel[data-layout="compact"] .gp-tabbar__tabs--single>span[aria-hidden="true"]{width:calc(100% - 4px) !important}
+/* Slightly shorter cells + less side padding so "Overview" fits on a phone. */
+.gp-panel[data-layout="compact"] .gp-tabbar__tabs>[role="tab"]{height:30px;padding:0 8px;font-size:12px}
 .gp-panel[data-layout="compact"] .gp-tabbar__trailing{display:flex;flex:none;align-items:center;margin-left:auto}
-.gp-panel[data-layout="compact"] .gp-tab__label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 
 /* Shared drill-in back bar (overview detail / files preview). The Changes
  * diff and Files bar reuse just the .gp-subhead__back button inline. */

@@ -22,7 +22,7 @@ import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { changeKey, pathOfKey, pickDiscardTargets } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
-import { useHoverTip } from './tip.js'
+import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
 import { PushModal } from './PushModal.js'
 
@@ -711,23 +711,26 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
     h('span', { key: 'nm', className: 'gp-tree-name', title: c.path }, [name, dir ? h('span', { key: 'd', style: { color: 'var(--dsw-alias-label-tertiary)', marginLeft: 6, fontSize: 11 } }, dir) : null]),
     h('span', { key: 'act', className: 'gp-file-row__actions' }, [
       // Icon-only buttons carry their meaning in a fast hover tooltip + an
-      // aria-label, never a bare glyph (issue #40: the ↺ read as a mystery).
-      h('button', {
-        key: 'stg', type: 'button', className: 'gp-icon-btn',
+      // aria-label, never a bare glyph. Tip handlers live on a non-disabled
+      // wrapper so a busy (`disabled`) row still explains itself on hover.
+      h(TipWrapper, {
+        key: 'stg', tipProps: a.tipProps(c.staged ? a.t('changes.unstageTip') : a.t('changes.stageTip')),
+      }, h('button', {
+        type: 'button', className: 'gp-icon-btn',
         'aria-label': c.staged ? a.t('changes.unstage') : a.t('changes.stage'),
         disabled: a.busy,
-        ...a.tipProps(c.staged ? a.t('changes.unstageTip') : a.t('changes.stageTip')),
         onClick: (e: Event) => { e.stopPropagation(); a.hideTip(); a.onStage() },
-      }, c.staged ? '\u2212' : '+'),
+      }, c.staged ? '\u2212' : '+')),
       // Discard is a working-tree operation (`git restore --`), so it lives on
       // the working-tree side only: an index-side row has nothing to discard
       // (and a staged delete makes the command fail outright).
-      c.staged ? null : h('button', {
-        key: 'dis', type: 'button', className: 'gp-icon-btn',
+      c.staged ? null : h(TipWrapper, {
+        key: 'dis', tipProps: a.tipProps(a.armed ? a.t('changes.discardTipArmed') : a.t('changes.discardTip')),
+      }, h('button', {
+        type: 'button', className: 'gp-icon-btn',
         'aria-label': a.armed ? a.t('changes.discardConfirm') : a.t('changes.discard'),
         style: a.armed ? { color: 'var(--dsw-alias-state-error-primary)' } : {},
         disabled: a.busy,
-        ...a.tipProps(a.armed ? a.t('changes.discardTipArmed') : a.t('changes.discardTip')),
         // The first press only arms, so it raises the confirm wording itself
         // instead of waiting for another hover; the second press executes.
         onClick: (e: Event) => {
@@ -736,7 +739,7 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
           a.onDiscard()
           a.showTipNow(e.currentTarget as HTMLElement, a.t('changes.discardTipArmed'))
         },
-      }, '\u21ba'),
+      }, h('span', { 'aria-hidden': true }, h(TrashIcon, { size: 14 })))),
     ]),
   ])
 }

@@ -10,29 +10,19 @@
 import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
-import { resyncAll } from './registry.js'
+import { findNamespace, resyncAfterWrite } from './config-write.js'
 import { segButtons } from './seg.js'
 import { effortForModel, modelForProvider } from './model-route.js'
 import { selectTrigger } from './select-trigger.js'
 import { gitPanelRemoteOf, queryAs } from './rpc.js'
-import type { ClientCtx, ConfigFormsFace, SettingsNamespaceView } from './rpc.js'
-import type { GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
+import type { ClientCtx, ConfigFormsFace } from './rpc.js'
+import type { FontDelta, GraphStyle, ModelCatalogGroup, SuggestLanguage } from './types.js'
 import { SUGGEST_LANGUAGES, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LIMITS } from './types.js'
 import type { GitKey } from './locales.js'
 
 interface PillConfigProps {
   readonly ctx: ClientCtx
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
-}
-
-/** The settings namespace whose schema declares `showInputPill` (ours). */
-function findNamespace(namespaces: readonly SettingsNamespaceView[]): string | undefined {
-  for (const row of namespaces) {
-    const dict = (row.schema as { dict?: Record<string, unknown> } | undefined)?.dict
-    if (dict !== undefined && 'showInputPill' in dict) return row.ns
-    if (JSON.stringify(row.schema).includes('showInputPill')) return row.ns
-  }
-  return undefined
 }
 
 type DiffView = 'unified' | 'split'
@@ -71,6 +61,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pending, setPending] = useState<boolean | null>(null)
   const [pendingView, setPendingView] = useState<DiffView | null>(null)
   const [pendingGraph, setPendingGraph] = useState<GraphStyle | null>(null)
+  const [pendingFont, setPendingFont] = useState<FontDelta | null>(null)
   const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
   const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
@@ -121,6 +112,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const checked = pending ?? (typeof snap?.value?.showInputPill === 'boolean' ? (snap.value.showInputPill as boolean) : true)
   const diffView: DiffView = pendingView ?? (snap?.value?.defaultDiffView === 'split' ? 'split' : 'unified')
   const graphStyle: GraphStyle = pendingGraph ?? (snap?.value?.graphStyle === 'compact' ? 'compact' : 'parallel')
+  const fontDelta: FontDelta = pendingFont
+    ?? (snap?.value?.fontDelta === -1 || snap?.value?.fontDelta === 1 ? (snap.value.fontDelta as FontDelta) : 0)
   const suggestEnabled = pendingSuggest ?? (typeof snap?.value?.suggestEnabled === 'boolean' ? (snap.value.suggestEnabled as boolean) : true)
   const rawLang = snap?.value?.suggestLanguage
   const suggestLanguage: SuggestLanguage = pendingLang
@@ -192,7 +185,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       const ok = await form.set(field, next)
       clearPending()
       if (!ok) setFailed(true)
-      else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
+      else resyncAfterWrite()
     } catch {
       clearPending()
       setFailed(true)
@@ -216,6 +209,12 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     if (next === graphStyle) return Promise.resolve()
     setPendingGraph(next)
     return commitField('graphStyle', next, () => setPendingGraph(null))
+  }
+
+  const setFont = (next: FontDelta): Promise<void> => {
+    if (next === fontDelta) return Promise.resolve()
+    setPendingFont(next)
+    return commitField('fontDelta', next, () => setPendingFont(null))
   }
 
   const toggleSuggest = (next: boolean): Promise<void> => {
@@ -250,7 +249,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       const okE = await form.set('suggestReasoningEffort', effort)
       ok = okP && okM && okE
       if (!ok) setFailed(true)
-      else { resyncAll(); setTimeout(() => resyncAll(), 1000) }
+      else resyncAfterWrite()
     } catch {
       setFailed(true)
     } finally {
@@ -412,6 +411,15 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       segButtons<GraphStyle>(['parallel', 'compact'], graphStyle, (v) => { void setGraph(v) },
         (v) => t(v === 'parallel' ? 'cfg.graphParallel' : 'cfg.graphCompact'), busy || snap?.writable === false)),
     h('p', { key: 'graphhint', className: 'gp-cfg__hint' }, t('cfg.graphHint')),
+    h('h3', { key: 'fonttitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.fontTitle')),
+    h('div', { key: 'fontseg', className: 'gp-seg gp-cfg__seg' },
+      segButtons<'smaller' | 'default' | 'larger'>(
+        ['smaller', 'default', 'larger'],
+        fontDelta === -1 ? 'smaller' : fontDelta === 1 ? 'larger' : 'default',
+        (v) => { void setFont(v === 'smaller' ? -1 : v === 'larger' ? 1 : 0) },
+        (v) => t(v === 'smaller' ? 'cfg.fontSmaller' : v === 'larger' ? 'cfg.fontLarger' : 'cfg.fontDefault'),
+        busy || snap?.writable === false)),
+    h('p', { key: 'fonthint', className: 'gp-cfg__hint' }, t('cfg.fontHint')),
     h('h3', { key: 'sgtitle', className: 'gp-cfg__title', style: { marginTop: 6 } }, t('cfg.suggestTitle')),
     h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
       h('input', {

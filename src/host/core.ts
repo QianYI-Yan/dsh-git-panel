@@ -9,7 +9,7 @@ import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
 import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS } from './types.js'
-import type { DiffViewMode, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
+import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -23,6 +23,8 @@ export interface GitPanelConfig {
   readonly defaultDiffView: DiffViewMode
   /** Commit-graph line style (parallel = VSCode-like, compact = git log). */
   readonly graphStyle: GraphStyle
+  /** Panel font-size step: -1 / 0 / +1. */
+  readonly fontDelta: FontDelta
   /** Whether the "AI suggest" button shows in the commit box. */
   readonly suggestEnabled: boolean
   /** Language the generated message is written in; `auto` follows repo history. */
@@ -49,6 +51,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   showInputPill: true,
   defaultDiffView: 'unified',
   graphStyle: 'parallel',
+  fontDelta: 0,
   suggestEnabled: true,
   suggestLanguage: SUGGEST_LANGUAGE_DEFAULT,
   suggestMaxBytes: SUGGEST_LIMITS.maxBytes.default,
@@ -96,6 +99,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
     graphStyle: readGraphStyle(c.graphStyle, DEFAULT_CONFIG.graphStyle),
+    fontDelta: readFontDelta(c.fontDelta),
     suggestEnabled: readBool(c.suggestEnabled, DEFAULT_CONFIG.suggestEnabled),
     suggestLanguage: readSuggestLanguage(c.suggestLanguage, DEFAULT_CONFIG.suggestLanguage),
     suggestMaxBytes: clampLimit(c.suggestMaxBytes, SUGGEST_LIMITS.maxBytes),
@@ -123,6 +127,12 @@ export function readDiffView(value: unknown, fallback: DiffViewMode): DiffViewMo
 export function readGraphStyle(value: unknown, fallback: GraphStyle): GraphStyle {
   const raw = unwrapVolatile(value)
   return raw === 'parallel' || raw === 'compact' ? raw : fallback
+}
+
+/** Read the panel font-size step, unwrapping a schemastery volatile ref. */
+export function readFontDelta(value: unknown): FontDelta {
+  const raw = unwrapVolatile(value)
+  return raw === -1 || raw === 1 ? raw : 0
 }
 
 /**
@@ -553,6 +563,7 @@ export async function snapshotForSession(
     showInputPill: config.showInputPill,
     defaultDiffView: config.defaultDiffView,
     graphStyle: config.graphStyle,
+    fontDelta: config.fontDelta,
     suggestEnabled: config.suggestEnabled,
     checkedAt: Date.now(),
   }

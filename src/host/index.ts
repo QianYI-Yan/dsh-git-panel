@@ -80,6 +80,11 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const('parallel').description('平行线（VSCode 风格，分支各占一列）'),
       Schema.const('compact').description('紧凑（git log 风格，共享祖先合并为一列）'),
     ]).default('parallel').volatile().description('提交历史图线条样式'),
+    fontDelta: Schema.union([
+      Schema.const(-1).description('较小'),
+      Schema.const(0).description('默认'),
+      Schema.const(1).description('较大'),
+    ]).default(0).volatile().description('面板字号'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
     suggestLanguage: Schema.union([
       Schema.const('auto').description('自动跟随仓库历史提交的语言'),

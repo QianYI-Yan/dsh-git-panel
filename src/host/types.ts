@@ -14,6 +14,9 @@ export type DiffViewMode = 'unified' | 'split'
  * own lane, converging only at the ancestor (VSCode / GUI tools). */
 export type GraphStyle = 'compact' | 'parallel'
 
+/** Panel font-size step: -1 smaller, 0 default, +1 larger (CSS zoom on .gp-panel). */
+export type FontDelta = -1 | 0 | 1
+
 /**
  * Diff context (-U) values shared by both halves. `DEFAULT` matches git's own
  * default and is what the host applies when a request omits `context`.
@@ -120,6 +123,8 @@ export interface GitSnapshot {
   readonly defaultDiffView: DiffViewMode
   /** Commit-graph line style (user preference). */
   readonly graphStyle: GraphStyle
+  /** Panel font-size step (user preference). */
+  readonly fontDelta: FontDelta
   /** Whether the commit box shows the AI-suggest button (user preference). */
   readonly suggestEnabled: boolean
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
