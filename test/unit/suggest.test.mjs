@@ -713,6 +713,32 @@ test('falls back to the agent default when the session has no selection', async 
   assert.equal(llm.calls[0].model, 'agent-m')
 })
 
+test('only OpenCode routes carry the session id', async () => {
+  // pi-ai's OpenCode providers reject a request without the session header they
+  // derive from it; every other route treats the field as optional attribution,
+  // so a one-shot suggestion must not decorate it with session metadata.
+  const opencode = stubLlm(OK_CHUNKS)
+  await runSuggest(depsFor(repo, { getLlm: () => opencode }), { ...DEFAULT_CONFIG, suggestProvider: 'opencode-go', suggestModel: 'm' }, { sessionId: SID })
+  assert.equal(opencode.calls[0].sessionId, SID, 'an OpenCode route gets the session id')
+
+  const other = stubLlm(OK_CHUNKS)
+  await runSuggest(depsFor(repo, { getLlm: () => other }), { ...DEFAULT_CONFIG, suggestProvider: 'deepseek', suggestModel: 'm' }, { sessionId: SID })
+  assert.equal('sessionId' in other.calls[0], false, 'other routes get no session id')
+
+  // Substring match, case-insensitive: OpenCode ships more than one route id and
+  // forks name themselves, so the match must not be a fixed id list.
+  for (const provider of ['opencode', 'OpenCode', 'OPENCODE-GO', 'team-opencode-zen']) {
+    const face = stubLlm(OK_CHUNKS)
+    await runSuggest(depsFor(repo, { getLlm: () => face }), { ...DEFAULT_CONFIG, suggestProvider: provider, suggestModel: 'm' }, { sessionId: SID })
+    assert.equal(face.calls[0].sessionId, SID, `${provider} contains OpenCode`)
+  }
+  for (const provider of ['oc2dsh', 'deepseek', 'anthropic']) {
+    const face = stubLlm(OK_CHUNKS)
+    await runSuggest(depsFor(repo, { getLlm: () => face }), { ...DEFAULT_CONFIG, suggestProvider: provider, suggestModel: 'm' }, { sessionId: SID })
+    assert.equal('sessionId' in face.calls[0], false, `${provider} is not an OpenCode route`)
+  }
+})
+
 test('a fixed route with an effort sends reasoningEffort', async () => {
   const llm = stubLlm(OK_CHUNKS)
   const deps = depsFor(repo, { getLlm: () => llm, getAgentDefaultModel: () => defaultRoute() })
