@@ -386,6 +386,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-commitbar__open:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbar__ph,.gp-commitbar__draft{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-commitbar__ph{color:var(--dsw-alias-label-tertiary)}
+/* Generation entry in the folded bar: the icon plus the two letters only, so it
+ * fits beside Commit on a phone (its accessible name keeps the full wording). */
+.gp-commitbar__ai{flex:none;padding:0 8px;gap:5px}
 .gp-panel[data-layout="compact"] .gp-commitbar .gp-btn{height:30px}
 /* Compact commit row: AI suggest / Commit / fold all share the 30px height, so
  * the fold button lines up with its neighbours and the row loses vertical padding. */

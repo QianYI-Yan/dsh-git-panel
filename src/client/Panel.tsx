@@ -13,7 +13,7 @@ import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
 import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
-import { usePanelLayout } from './layout.js'
+import { useMobileViewport, usePanelLayout } from './layout.js'
 import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitVersionInfo } from './types.js'
@@ -48,6 +48,9 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // three-column tabs collapse to single-column drill-in. Width-driven, so it
   // recovers the full layout as soon as the panel widens.
   const compact = usePanelLayout(rootEl)
+  // A compact panel squeezed by a desktop sidebar is not a phone: height-saving
+  // folds that hide a control (the commit editor's AI entry) stay phone-only.
+  const mobile = useMobileViewport()
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
   // The font stepper writes through the settings form; without it the control
@@ -226,7 +229,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, t })
+        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, foldCommit: compact && mobile, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list

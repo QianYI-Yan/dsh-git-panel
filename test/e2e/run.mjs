@@ -291,104 +291,32 @@ const out = await page.evaluate(async (snap) => {
   result.hasStats = document.querySelector('.gp-stats') !== null
   result.hasCommitBox = document.querySelector('.gp-commitbox') !== null
   result.changeRows = document.querySelectorAll('.gp-file-row').length
-  // Compact commit box: folded into a one-row bar until tapped, so the change
-  // list keeps the height. Tapping opens the full editor with the caret in it;
-  // the fold button puts it back. The action row must never wrap its labels.
+  // A desktop panel squeezed by a sidebar is the compact layout but is not a
+  // phone: the commit editor stays docked and open, so its AI entry is never
+  // folded away (issue #66). Only the action row has to fit the 400px panel
+  // without wrapping its labels.
   panelHost.style.width = '400px'
   await new Promise((r) => setTimeout(r, 120))
-  const commitBar = document.querySelector('.gp-commitbar')
-  result.compactCommitFolded = commitBar !== null && document.querySelector('.gp-commitbox') === null
-  result.compactCommitBarHeight = Math.round(commitBar?.getBoundingClientRect().height ?? 0)
-  result.compactCommitBarPlaceholder = commitBar?.querySelector('.gp-commitbar__ph')?.textContent ?? null
-  commitBar?.querySelector('.gp-commitbar__open')?.click()
-  await new Promise((r) => setTimeout(r, 120))
-  result.compactCommitOpens = document.querySelector('.gp-commitbox') !== null && document.querySelector('.gp-commitbar') === null
-  result.compactCommitAutofocus = document.activeElement === document.querySelector('.gp-commitbox__msg')
+  result.squeezedLayout = panelRoot.getAttribute('data-layout')
+  result.squeezedKeepsEditor = document.querySelector('.gp-commitbox') !== null
+  result.squeezedNoCommitBar = document.querySelector('.gp-commitbar') === null
+  result.squeezedNoFoldControl = document.querySelector('.gp-commitbox__fold') === null
   const compactCommitBtn = document.querySelector('.gp-commitbox__actions .gp-btn--primary')
   const compactSuggestBtn = document.querySelector('.gp-commitbox__actions .gp-btn:not(.gp-btn--primary)')
   const amendLabel = document.querySelector('.gp-commitbox__amend')
+  result.squeezedShowsAi = compactSuggestBtn !== null
   result.commitActionsNowrap = [compactCommitBtn, compactSuggestBtn].every((b) => b !== null && getComputedStyle(b).whiteSpace === 'nowrap')
   result.commitActionsInsideRow = [compactCommitBtn, compactSuggestBtn].every((b) => b !== null
     && b.getBoundingClientRect().right <= panelRoot.getBoundingClientRect().right + 1)
   result.amendLabelSingleLine = amendLabel !== null
     && getComputedStyle(amendLabel).whiteSpace === 'nowrap'
     && amendLabel.getBoundingClientRect().height <= 28
-  // The fold control must read as a button, not a bare glyph. The harness has
-  // no theme, so resolve the two vars it needs on the panel just for this read.
-  const foldBtn = document.querySelector('.gp-commitbox__fold')
-  panelRoot.style.setProperty('--dsw-alias-border-l2', '#888888')
-  panelRoot.style.setProperty('--dsw-alias-bg-layer-2', '#f2f3f5')
-  // The button transitions its background, so let the colour settle first.
-  await new Promise((r) => setTimeout(r, 200))
-  const foldStyle = foldBtn === null ? null : getComputedStyle(foldBtn)
-  result.foldStyled = foldBtn !== null
-    && parseFloat(foldStyle.borderTopWidth) >= 1
-    && foldStyle.borderTopStyle === 'solid'
-    && foldStyle.backgroundColor !== 'rgba(0, 0, 0, 0)'
-  panelRoot.style.removeProperty('--dsw-alias-border-l2')
-  panelRoot.style.removeProperty('--dsw-alias-bg-layer-2')
-  // The fold control shares one height and one row centre with AI suggest / Commit.
-  const rowBtns = [compactCommitBtn, compactSuggestBtn, foldBtn].filter((b) => b !== null)
-  const rowCentres = rowBtns.map((b) => { const r = b.getBoundingClientRect(); return Math.round(r.top + r.height / 2) })
-  result.commitRowAligned = rowBtns.length === 3
-    && new Set(rowBtns.map((b) => Math.round(b.getBoundingClientRect().height))).size === 1
-    && new Set(rowCentres).size === 1
-  result.commitRowBtnHeight = rowBtns.length > 0 ? Math.round(rowBtns[0].getBoundingClientRect().height) : 0
-  // A press inside the editor keeps it open; a press on blank space folds it.
+  // A press inside or outside the always-open editor leaves it in place.
   document.querySelector('.gp-commitbox__msg')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
   await new Promise((r) => setTimeout(r, 80))
-  result.innerPressKeepsOpen = document.querySelector('.gp-commitbox') !== null
   document.querySelector('.gp-stats')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
   await new Promise((r) => setTimeout(r, 120))
-  result.outsidePressCollapses = document.querySelector('.gp-commitbar') !== null && document.querySelector('.gp-commitbox') === null
-  document.querySelector('.gp-commitbar__open')?.click()
-  await new Promise((r) => setTimeout(r, 80))
-  // Notices (and their close button) never fold the editor: pressing either must
-  // leave the editor open, only the explicit close dismisses the banner.
-  fixture.suggestTruncated = true
-  document.querySelector('.gp-commitbox__actions .gp-btn:not(.gp-btn--primary)')?.click()
-  await new Promise((r) => setTimeout(r, 80))
-  fixture.releaseSuggest?.()
-  await new Promise((r) => setTimeout(r, 160))
-  const commitNotice = document.querySelector('.gp-notice')
-  result.noticeShownInEditor = commitNotice !== null
-  commitNotice?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-  await new Promise((r) => setTimeout(r, 80))
-  result.noticePressKeepsEditor = document.querySelector('.gp-commitbox') !== null
-  document.querySelector('.gp-notice__close')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-  await new Promise((r) => setTimeout(r, 80))
-  result.noticeCloseKeepsEditor = document.querySelector('.gp-commitbox') !== null
-  document.querySelector('.gp-notice__close')?.click()
-  await new Promise((r) => setTimeout(r, 80))
-  result.noticeClosedFromEditor = document.querySelector('.gp-notice') === null
-  fixture.suggestTruncated = false
-  document.querySelector('.gp-commitbox__fold')?.click()
-  await new Promise((r) => setTimeout(r, 100))
-  result.compactCommitRefolds = document.querySelector('.gp-commitbar') !== null && document.querySelector('.gp-commitbox') === null
-  // A draft is summarised in the bar's first line and can be committed from it.
-  document.querySelector('.gp-commitbar__open')?.click()
-  await new Promise((r) => setTimeout(r, 100))
-  const msgEl = document.querySelector('.gp-commitbox__msg')
-  if (msgEl) {
-    // React's patched value setter would swallow a direct assignment; go
-    // through the prototype setter so the controlled input updates.
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(msgEl, 'feat: draft line\nbody line')
-    msgEl.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  document.querySelector('.gp-commitbox__fold')?.click()
-  await new Promise((r) => setTimeout(r, 100))
-  result.compactCommitDraftShown = document.querySelector('.gp-commitbar__draft')?.textContent === 'feat: draft line'
-  result.compactCommitDraftSubmittable = document.querySelector('.gp-commitbar__commit')?.disabled === false
-  // Clear the draft again so later assertions start from an empty box.
-  document.querySelector('.gp-commitbar__open')?.click()
-  await new Promise((r) => setTimeout(r, 100))
-  const msgClear = document.querySelector('.gp-commitbox__msg')
-  if (msgClear) {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(msgClear, '')
-    msgClear.dispatchEvent(new Event('input', { bubbles: true }))
-  }
-  document.querySelector('.gp-commitbox__fold')?.click()
-  await new Promise((r) => setTimeout(r, 100))
+  result.squeezedPressKeepsEditor = document.querySelector('.gp-commitbox') !== null
   // Compact stats bar: one count line; the change/commit timestamps are not
   // rendered at all (and there is no disclosure control any more).
   const statsEl = document.querySelector('.gp-stats')
