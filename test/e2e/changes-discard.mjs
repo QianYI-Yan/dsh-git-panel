@@ -29,6 +29,11 @@
  * (h) A snapshot poll that drops the checked row prunes the selection to empty:
  *     the dialog closes on its own, the entry returns to disabled, and a fresh
  *     pick does not resurrect the stale dialog.
+ * (i) Group select-all (issue #60): each group head carries a tri-state
+ *     checkbox. One press picks the whole group (enabling "discard selected"
+ *     for a 20-file batch in one step), the state reads `partial` for a
+ *     half-picked group, a second press clears just that group, and the press
+ *     must not also collapse the group.
  *
  * Unlike the older runners this harness binds the *real* zh dictionary, so the
  * assertions pin the user-visible copy (and the body's {count} interpolation)
@@ -611,6 +616,87 @@ async function touchScenario() {
   return { out, errors }
 }
 
+/**
+ * (i) Group select-all: the head checkbox picks a whole group in one press so a
+ *     full-batch discard needs no per-row clicks (issue #60). The tri-state
+ *     follows the picks, the second press clears only that group, and the press
+ *     never collapses the group. The whole-group pick then drives the existing
+ *     discard flow: entry enabled, dialog counts every working-tree file.
+ */
+async function groupSelectScenario() {
+  const { page, errors } = await openPanel(SNAP)
+  const out = await page.evaluate(async () => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const headOf = (label) => [...document.querySelectorAll('.gp-changes__vrow .gp-group-head')]
+      // The label rides in its own text node ("更改 (2)"), so a prefix match on
+      // that node rules out the substring hit on "已暂存的更改".
+      .find((n) => [...n.childNodes].some((c) => c.nodeType === 3 && (c.textContent ?? '').trim().startsWith(`${label} (`))) ?? null
+    const pickOf = (label) => headOf(label)?.querySelector('input.gp-check') ?? null
+    const rows = () => [...document.querySelectorAll('.gp-file-row')]
+    const checked = () => rows().filter((r) => r.querySelector('input.gp-check')?.checked === true).length
+    const picked = () => document.querySelector('.gp-changes__discard-picked')
+
+    // Fixture heads: 已暂存的更改 (4) / 更改 (2) / 未版本控制的文件 (1).
+    result.headCount = document.querySelectorAll('.gp-changes__vrow .gp-group-head input.gp-check').length
+    result.initial = {
+      staged: pickOf('已暂存的更改')?.checked, unstaged: pickOf('更改')?.checked,
+      untracked: pickOf('未版本控制的文件')?.checked,
+      discardDisabled: picked()?.disabled,
+      rowsExpanded: headOf('更改')?.closest('.gp-changes__vrow') !== null && rows().length,
+    }
+
+    // One press on the "更改" head picks both working-tree rows.
+    pickOf('更改')?.click()
+    await wait(60)
+    result.afterUnstagedPick = {
+      checkedRows: checked(),
+      stagedHead: pickOf('已暂存的更改')?.checked,
+      discardDisabled: picked()?.disabled,
+      groupNotCollapsed: rows().some((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === 'w1.txt'),
+    }
+
+    // A staged-side row picked alone leaves that head reading partial.
+    rows().find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === 's1.txt')
+      ?.querySelector('input.gp-check')?.click()
+    await wait(60)
+    result.partial = {
+      indeterminate: pickOf('已暂存的更改')?.indeterminate === true,
+      checked: pickOf('已暂存的更改')?.checked,
+    }
+
+    // Second press on the same head clears just that group; the other group's
+    // pick survives. Only the staged-side s1.txt remains picked, and a
+    // staged-only pick has nothing to discard — the entry stays disabled,
+    // which is also the proof that the staged pick was not swept away.
+    pickOf('更改')?.click()
+    await wait(60)
+    result.afterSecondPress = {
+      checkedRows: checked(),
+      discardDisabled: picked()?.disabled,
+    }
+
+    // Clear the leftover pick, then the full flow: pick the whole working-tree
+    // group → entry enabled → dialog counts both files.
+    rows().find((r) => (r.querySelector('.gp-tree-name')?.textContent ?? '') === 's1.txt')
+      ?.querySelector('input.gp-check')?.click()
+    await wait(60)
+    result.afterClearLeftover = checked()
+    pickOf('更改')?.click()
+    await wait(60)
+    picked()?.click()
+    await wait(150)
+    result.modalTexts = [...(document.querySelectorAll('.gp-modal--sm .gp-modal__confirmtext') ?? [])].map((n) => n.textContent)
+    const actionsBefore = window.__gpFixture.actions.length
+    ;[...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn--danger')][0]?.click()
+    await wait(250)
+    result.actions = window.__gpFixture.actions.slice(actionsBefore)
+    return result
+  })
+  await page.close()
+  return { out, errors }
+}
+
 /** The measured hover→tooltip delay, only meaningful when both entries exist. */
 function tipDelay(log) {
   const hover = [...log].reverse().find((e) => e.kind === 'hover')
@@ -725,6 +811,23 @@ try {
   assert.equal(trim.out.enabledAfterRepick, true, 'a fresh working-tree pick enables the entry again')
   assert.equal(trim.out.modalStayedClosed, true, 're-picking does not resurrect the stale dialog')
 
+  // Group select-all: one press on a head checkbox picks the whole group.
+  const group = await groupSelectScenario()
+  assert.equal(group.errors.length, 0, 'no console errors: ' + JSON.stringify(group.errors))
+  assert.equal(group.out.headCount, 3, 'every visible group head carries a select-all checkbox')
+  assert.deepEqual(group.out.initial, {
+    staged: false, unstaged: false, untracked: false,
+    discardDisabled: true, rowsExpanded: 7,
+  }, 'all heads start unchecked and the entry disabled; the fixture renders 7 rows')
+  assert.deepEqual(group.out.afterUnstagedPick, {
+    checkedRows: 2, stagedHead: false, discardDisabled: false, groupNotCollapsed: true,
+  }, 'one press picks both working-tree rows, enables the entry, and leaves the group expanded')
+  assert.deepEqual(group.out.partial, { indeterminate: true, checked: false }, 'a half-picked group head reads partial')
+  assert.deepEqual(group.out.afterSecondPress, { checkedRows: 1, discardDisabled: true }, 'the second press clears just that group; the staged-side pick survives and keeps the entry disabled')
+  assert.equal(group.out.afterClearLeftover, 0, 'clearing the leftover staged pick empties the selection again')
+  assert.deepEqual(group.out.modalTexts, ['将放弃 2 个文件在工作区的未提交更改，此操作不可恢复。'], 'a whole-group pick drives the existing discard dialog with the full count')
+  assert.deepEqual(group.out.actions, [{ kind: 'discard', paths: ['dup.txt', 'w1.txt'] }], 'one discard with every working-tree path of the picked group')
+
   const tips = await tipsScenario()
   assert.equal(tips.errors.length, 0, 'no console errors: ' + JSON.stringify(tips.errors))
   assert.equal(tips.out.stageGlyph, '+', 'the working-tree row shows the stage glyph')
@@ -787,6 +890,7 @@ try {
 
   console.log('e2e changes-discard.mjs: PASS', JSON.stringify({
     discard: batch.out.actions, stagedOnly: stagedOnly.out.actions,
+    groupSelect: { pick: group.out.afterUnstagedPick, actions: group.out.actions },
     stageDelay: tipDelay(tips.out.stageLog), armedDelay: tipDelay(tips.out.armedLog),
     tips: [tips.out.stageTip?.text, tips.out.discardTip?.text, tips.out.armedTip?.text, tips.out.unstageTip?.text],
     refusals: [refused.out.feedback, partial.out.feedback],

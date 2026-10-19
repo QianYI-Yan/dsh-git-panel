@@ -20,7 +20,7 @@ import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell }
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-import { changeKey, pathOfKey, pickDiscardTargets } from './selection-keys.js'
+import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, toggleGroupKeys } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -52,7 +52,7 @@ const VOVERSCAN = 8
 const VIEWPORT_FALLBACK = 600
 
 type ListItem =
-  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean } }
+  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
   | { readonly kind: 'row'; readonly c: GitChange }
 
 export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, compact, t }: ChangesTabProps): JSX.Element {
@@ -130,7 +130,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     const items: ListItem[] = []
     for (const g of groups) {
       const count = snapshot.truncated ? counts[g.key] : g.items.length
-      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count, collapsible: g.items.length > 0 } })
+      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count, collapsible: g.items.length > 0 }, items: g.items })
       if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
     }
     const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
@@ -238,6 +238,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
+  }
+
+  // Group head checkbox: one press picks the whole group (or clears it when
+  // every row is already picked). The pure split lives in selection-keys.
+  const toggleGroupPick = (items: readonly GitChange[]): void => {
+    setSelected((prev) => toggleGroupKeys(prev, items))
   }
 
   const run = async (action: GitAction): Promise<boolean> => {
@@ -482,6 +488,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
               // A group kept only for its full count (every row fell past the cap)
               // has nothing to toggle: render a static head instead of a chevron
               // that silently does nothing.
+              // The head checkbox picks the whole group (or clears it when all
+              // rows are already picked); its press must not also collapse the
+              // group, so it stops propagation.
+              const pick = groupPickState(selected, it.items)
               return h('div', {
                 key: `h:${g.key}`, className: 'gp-changes__vrow', style: { top: tops[idx], height: VHEAD_H },
               }, h('div', {
@@ -491,6 +501,21 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
                 g.collapsible
                   ? h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) })
                   : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
+                it.items.length > 0
+                  ? h('span', {
+                    key: 'pick', className: 'gp-group-head__pick',
+                    onClick: (e: Event) => e.stopPropagation(),
+                  }, h('input', {
+                    type: 'checkbox', className: 'gp-check',
+                    checked: pick === 'all',
+                    // `indeterminate` is a DOM property React does not reliably
+                    // re-apply on update; the ref pins it to the tri-state.
+                    ref: (el: HTMLInputElement | null) => { if (el !== null) el.indeterminate = pick === 'partial' },
+                    disabled: busy,
+                    'aria-label': t('changes.selectAllGroup'),
+                    onChange: () => toggleGroupPick(it.items),
+                  }))
+                  : null,
                 `${t(g.labelKey)} (${g.count})`,
               ]))
             }

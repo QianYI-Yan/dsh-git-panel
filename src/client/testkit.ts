@@ -21,7 +21,7 @@ export { normalizeWheel, wheelZoomFactor, clampScale, anchoredScroll, isDragGest
 export { activateGitTab, isGitTabActive, returnToConversation, stashSubTab, recentSubTab } from './jump.js'
 export { splitRemoteRef, buildBranchOptions, isSelectable } from './branch-options.js'
 export { modelForProvider, effortForModel } from './model-route.js'
-export { changeKey, sideOf, pathOfKey, pickDiscardTargets } from './selection-keys.js'
+export { changeKey, sideOf, pathOfKey, pickDiscardTargets, groupPickState, toggleGroupKeys } from './selection-keys.js'
 export { formatBytes } from './bytes.js'
 export { langLabel } from './lang-label.js'
 export { isUntrackedPath } from './status.js'
