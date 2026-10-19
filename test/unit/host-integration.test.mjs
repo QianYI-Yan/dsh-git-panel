@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
-import { snapshotForSession, runAction, runQuery, createGitRunner, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
+import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
 import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
 
@@ -1828,6 +1828,79 @@ test('truncatedReason reports the list cap when the change set overflows maxChan
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('fullChanges lifts the list cap so an expanded snapshot carries every change', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-full-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const { writeFileSync } = await import('node:fs')
+    for (let i = 0; i < 5; i++) writeFileSync(join(dir, `f${i}.txt`), 'a\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'base'])
+    for (let i = 0; i < 5; i++) writeFileSync(join(dir, `f${i}.txt`), 'b\n')
+    const config = { ...DEFAULT_CONFIG, maxChanges: 2 }
+    const capped = await snapshotForSession(depsAt(dir), config, SID)
+    assert.equal(capped.ok, true)
+    assert.equal(capped.value.truncated, true, 'the default cap truncates the list')
+    assert.equal(capped.value.changes.length, 2, 'the capped list carries only the prefix')
+    const full = await snapshotForSession(depsAt(dir), config, SID, { fullChanges: true })
+    assert.equal(full.ok, true)
+    assert.equal(full.value.truncated, false, 'the expanded snapshot is complete')
+    assert.equal(full.value.changes.length, 5, 'every change arrives past the normal cap')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard-all clears the working tree but keeps the index and never lies about a lossy status', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discall-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const { writeFileSync, existsSync, readFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'tracked.txt'), 'original\n')
+    writeFileSync(join(dir, 'staged.txt'), 'staged-base\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'base'])
+    // Working-tree modification (unstaged) + a new untracked file + a staged
+    // edit: discard-all must take the first two and leave the index alone.
+    writeFileSync(join(dir, 'tracked.txt'), 'dirty\n')
+    writeFileSync(join(dir, 'staged.txt'), 'staged-edit\n')
+    await runGit(dir, ['add', 'staged.txt'])
+    writeFileSync(join(dir, 'new.txt'), 'untracked\n')
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard-all' } })
+    assert.equal(res.ok, true, JSON.stringify(res))
+    assert.equal(readFileSync(join(dir, 'tracked.txt'), 'utf8'), 'original\n', 'the working-tree edit was restored')
+    assert.equal(existsSync(join(dir, 'new.txt')), false, 'the untracked file was deleted')
+    assert.equal(readFileSync(join(dir, 'staged.txt'), 'utf8'), 'staged-edit\n', 'the staged edit survives — discard-all never touches the index')
+    assert.deepEqual(res.snapshot.changes.map((c) => [c.path, c.staged]), [['staged.txt', true]], 'only the staged row remains')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('discard-all on a clean working tree is a no-op success', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-discall0-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'discard-all' } })
+    assert.equal(res.ok, true, 'nothing to discard is still a success')
+    assert.equal(res.snapshot.changes.length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('planAction refuses a raw discard-all instead of planning a bare restore', () => {
+  const plan = planAction({ kind: 'discard-all' }, false)
+  assert.ok('error' in plan, 'discard-all never reaches the planner from runAction')
 })
 
 test('diff of a clean tracked file is empty, not an all-new file (N4)', async () => {

@@ -329,6 +329,15 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* A group kept only for its count has nothing to collapse: no chevron, no hand. */
 .gp-group-head--static{cursor:default}
 .gp-group-head__chev-spacer{display:inline-block;width:12px;flex:none}
+/* Group select-all checkbox (issue #60): sits between the chevron and the
+ * label; a padded wrapper keeps the tap target ≥24px without changing the
+ * 14px box itself. */
+.gp-group-head__pick{margin:0 2px;padding:6px;box-sizing:content-box;display:inline-flex;align-items:center;flex:none;cursor:pointer}
+.gp-group-head__pick .gp-check{margin:0}
+/* Truncation bar under the change list: expand lifts the host list cap,
+ * collapse returns to the capped poll. Sits between list and stash section. */
+.gp-changes__expandbar{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l2)}
+.gp-changes__expandbar__text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-file-row{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 20px;cursor:pointer;font-size:12px;border-radius:4px}
 .gp-file-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 /* Selected change row: identical accent to the Git overview commit list

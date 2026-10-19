@@ -10,9 +10,11 @@
  * once, in `sideOf` — `pathOfKey` derives from it instead of re-spelling it, so
  * a new side cannot update one without the other.
  *
- * Besides the codec this module holds exactly one policy that consumes keys:
- * `pickDiscardTargets`, the batch-discard split. It is defined on the same sides,
- * so it lives next to them rather than re-deriving them at the call site.
+ * Besides the codec this module holds the policies that consume keys:
+ * `pickDiscardTargets`, the batch-discard split, and the group select-all
+ * state (`groupPickState` / `toggleGroupKeys`). They are defined on the
+ * same sides, so they live next to them rather than re-deriving them at the
+ * call site.
  */
 import type { GitChange } from './types.js'
 
@@ -69,4 +71,35 @@ export function pickDiscardTargets(keys: Iterable<string>): DiscardTargets {
     paths: [...worktree].sort(),
     stagedOnly: [...staged].filter((p) => !worktree.has(p)).sort(),
   }
+}
+
+/** Tri-state of one group's rows against the current selection. */
+export type GroupPickState = 'none' | 'partial' | 'all'
+
+/**
+ * Group select-all state: `all` when every row in the group is picked, `partial`
+ * when some are, `none` when none are. An empty group is `none` — the head has
+ * nothing to toggle and the checkbox reads unchecked.
+ */
+export function groupPickState(selected: ReadonlySet<string>, changes: readonly Pick<GitChange, 'path' | 'staged'>[]): GroupPickState {
+  if (changes.length === 0) return 'none'
+  let picked = 0
+  for (const c of changes) if (selected.has(changeKey(c))) picked++
+  if (picked === 0) return 'none'
+  return picked === changes.length ? 'all' : 'partial'
+}
+
+/**
+ * Toggle one group: every row picked → clear just those keys; otherwise pick
+ * all of them. Keys outside the group are left untouched, so a mixed selection
+ * spanning groups survives a group toggle.
+ */
+export function toggleGroupKeys(selected: ReadonlySet<string>, changes: readonly Pick<GitChange, 'path' | 'staged'>[]): Set<string> {
+  const next = new Set(selected)
+  const allPicked = changes.length > 0 && changes.every((c) => next.has(changeKey(c)))
+  for (const c of changes) {
+    const key = changeKey(c)
+    if (allPicked) next.delete(key); else next.add(key)
+  }
+  return next
 }

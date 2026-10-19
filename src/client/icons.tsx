@@ -116,6 +116,17 @@ export function TrashIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M3 4.5h10' }), h('path', { key: 'b', d: 'M5.5 4.5V3h5v1.5' }), h('path', { key: 'c', d: 'M4.5 4.5l.7 9h5.6l.7-9' })], size)
 }
 
+/** Trash glyph with motion lines: "discard every change" (toolbar bulk entry). */
+export function TrashAllIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M3 4.5h10' }),
+    h('path', { key: 'b', d: 'M5.5 4.5V3h5v1.5' }),
+    h('path', { key: 'c', d: 'M4.5 4.5l.7 9h5.6l.7-9' }),
+    h('path', { key: 'd', d: 'M1.5 6.5h1.2' }),
+    h('path', { key: 'e', d: 'M13.3 6.5h1.2' }),
+  ], size)
+}
+
 /** Curved undo arrow for revert (append a reverse commit). */
 export function RevertIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M3 7a5 5 0 1 1 1.3 3.4' }), h('path', { key: 'b', d: 'M3 3.5V7h3.5' })], size)

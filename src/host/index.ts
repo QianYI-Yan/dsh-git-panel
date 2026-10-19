@@ -177,7 +177,7 @@ export class GitPanelService extends TypertRemoteService {
 
   @Remote('snapshot')
   async snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult> {
-    return snapshotForSession(this.withSignal(signal), this.liveConfig(), request.sessionId)
+    return snapshotForSession(this.withSignal(signal), this.liveConfig(), request.sessionId, { fullChanges: request.fullChanges === true })
   }
 
   @Remote('run')

@@ -20,7 +20,7 @@ import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell }
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-import { changeKey, pathOfKey, pickDiscardTargets } from './selection-keys.js'
+import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, toggleGroupKeys } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -33,6 +33,8 @@ interface ChangesTabProps {
   readonly snapshot: GitSnapshot
   readonly onAction: (action: GitAction) => Promise<{ ok: boolean; error?: string }>
   readonly onRefresh: () => Promise<void>
+  /** Toggle the controller's "expand all" mode (lifts the host list cap). */
+  readonly onSetFullChanges: (full: boolean) => Promise<void>
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -52,10 +54,10 @@ const VOVERSCAN = 8
 const VIEWPORT_FALLBACK = 600
 
 type ListItem =
-  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean } }
+  | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
   | { readonly kind: 'row'; readonly c: GitChange }
 
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, compact, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -63,11 +65,19 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [actionBusy, setBusy] = useState(false)
   const [pushOpen, setPushOpen] = useState(false)
   const [pushBusy, setPushBusy] = useState(false)
-  const busy = actionBusy || pushBusy
+  // Expanding a truncated list is itself a snapshot flight: it locks the same
+  // controls `busy` does so a pick cannot race the incoming full list.
+  const [expanding, setExpanding] = useState(false)
+  const busy = actionBusy || pushBusy || expanding
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
   const [discardPickedOpen, setDiscardPickedOpen] = useState(false)
+  const [discardAllOpen, setDiscardAllOpen] = useState(false)
+  // Whether the user has expanded the list past the host cap in this mount.
+  // Drives the expand-bar wording ("已展开" + collapse); a fresh mount starts
+  // capped even if the controller kept its fullChanges mode.
+  const [listExpanded, setListExpanded] = useState(false)
   const { stashes, diffPath, diffData, expanded, showDiff } = useChangesData(
     remote, sessionId, snapshot, queryVisible, () => setError(t('error.generic')), queryKey,
   )
@@ -130,7 +140,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     const items: ListItem[] = []
     for (const g of groups) {
       const count = snapshot.truncated ? counts[g.key] : g.items.length
-      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count, collapsible: g.items.length > 0 } })
+      items.push({ kind: 'head', g: { key: g.key, labelKey: g.labelKey, count, collapsible: g.items.length > 0 }, items: g.items })
       if (!closed.has(g.key)) for (const c of g.items) items.push({ kind: 'row', c })
     }
     const tops = buildTops(items.map((it) => (it.kind === 'head' ? VHEAD_H : VROW_H)))
@@ -240,6 +250,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     })
   }
 
+  // Group head checkbox: one press picks the whole group (or clears it when
+  // every row is already picked). The pure toggle lives in selection-keys.
+  const toggleGroupPick = (items: readonly GitChange[]): void => {
+    setSelected((prev) => toggleGroupKeys(prev, items))
+  }
+
   const run = async (action: GitAction): Promise<boolean> => {
     if (busy) return false
     setBusy(true)
@@ -286,6 +302,32 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     if (paths.length === 0) { setDiscardPickedOpen(false); return }
     const ok = await run({ kind: 'discard', paths })
     if (ok) setDiscardPickedOpen(false)
+  }
+
+  // "Expand all": ask the controller to lift the host list cap and re-sample.
+  // `expanding` locks the list the same way `busy` does, so no pick can race
+  // the incoming full list (which would prune it on arrival).
+  const expandList = async (): Promise<void> => {
+    if (expanding) return
+    setExpanding(true)
+    setError(null)
+    try { await onSetFullChanges(true) }
+    finally { setExpanding(false) }
+  }
+  // Collapse back to the capped view: the next poll carries the cap again and
+  // the selection prunes to the loaded rows.
+  const collapseList = async (): Promise<void> => {
+    if (expanding) return
+    setExpanding(true)
+    try { await onSetFullChanges(false) }
+    finally { setExpanding(false) }
+  }
+
+  // "Discard all" (confirmed): one host-side action — it re-resolves the full
+  // change set itself, so it stays correct even while the list is truncated.
+  const discardAllConfirmed = async (): Promise<void> => {
+    const ok = await run({ kind: 'discard-all' })
+    if (ok) setDiscardAllOpen(false)
   }
 
   /** Map a suggest-endpoint failure to display text; the provider detail rides along. */
@@ -454,6 +496,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onStageAll: () => void run({ kind: 'stage-all' }),
       onUnstageAll: () => void run({ kind: 'unstage-all' }),
       onDiscard: () => { setError(null); setDiscardPickedOpen(true) },
+      onDiscardAll: () => { setError(null); setDiscardAllOpen(true) },
       onStash: () => { setError(null); setStashPushOpen(true) },
       onPush: () => { hideTip(); setPushOpen(true) },
       onRefresh, t,
@@ -482,6 +525,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
               // A group kept only for its full count (every row fell past the cap)
               // has nothing to toggle: render a static head instead of a chevron
               // that silently does nothing.
+              // The head checkbox picks the whole group (or clears it when all
+              // rows are already picked); its press must not also collapse the
+              // group, so it stops propagation.
+              const pick = groupPickState(selected, it.items)
               return h('div', {
                 key: `h:${g.key}`, className: 'gp-changes__vrow', style: { top: tops[idx], height: VHEAD_H },
               }, h('div', {
@@ -491,6 +538,29 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
                 g.collapsible
                   ? h(ChevronIcon, { key: 'chev', size: 12, open: !closed.has(g.key) })
                   : h('span', { key: 'chev', className: 'gp-group-head__chev-spacer' }),
+                // Hidden while the group is truncated past the list cap: the
+                // head count comes from the full stats but only the prefix is
+                // loaded, so a select-all would read as checked while covering
+                // just those rows. Expanding the list restores the checkbox.
+                it.items.length > 0 && it.items.length >= g.count
+                  ? h('span', {
+                    key: 'pick', className: 'gp-group-head__pick',
+                    onClick: (e: Event) => e.stopPropagation(),
+                  }, h('input', {
+                    type: 'checkbox', className: 'gp-check',
+                    checked: pick === 'all',
+                    // `indeterminate` is not in React's DOM property table — a
+                    // JSX prop would land as a content attribute, which never
+                    // sets the IDL property. The ref sets it directly; the
+                    // inline identity is load-bearing (React re-runs a callback
+                    // ref only when the function identity changes), so do not
+                    // wrap it in useCallback.
+                    ref: (el: HTMLInputElement | null) => { if (el !== null) el.indeterminate = pick === 'partial' },
+                    disabled: busy,
+                    'aria-label': t('changes.selectAllGroup', { group: t(g.labelKey) }),
+                    onChange: () => toggleGroupPick(it.items),
+                  }))
+                  : null,
                 `${t(g.labelKey)} (${g.count})`,
               ]))
             }
@@ -522,6 +592,30 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
               t,
             }))
           }))),
+    // Truncation control: expand lifts the host list cap (fullChanges mode,
+    // kept for the controller's lifetime so the next poll does not re-truncate
+    // and prune the selection); collapse returns to the capped poll. While
+    // `expanding` the label reads as loading and `busy` already locks picks.
+    snapshot.truncated || listExpanded
+      ? h('div', { key: 'expandbar', className: 'gp-changes__expandbar' }, [
+        h('span', { key: 'txt', className: 'gp-changes__expandbar__text' },
+          expanding
+            ? t('changes.expanding')
+            : listExpanded
+              ? t('changes.expandedAll', { n: snapshot.changes.length })
+              : t('changes.truncatedCap', { n: snapshot.changes.length })),
+        expanding
+          ? null
+          : h('button', {
+            key: 'btn', type: 'button', className: 'gp-btn gp-btn--sm',
+            disabled: busy,
+            onClick: () => {
+              const next = !listExpanded
+              void (next ? expandList() : collapseList()).then(() => setListExpanded(next))
+            },
+          }, t(listExpanded ? 'changes.collapseList' : 'changes.expandAll')),
+      ])
+      : null,
     // stash list (collapsible)
     stashes.length > 0 ? h('div', { key: 'stashes', className: 'gp-stash' }, [
       h('div', { key: 'head', className: 'gp-group-head', onClick: () => setStashClosed((v) => !v) }, [
@@ -602,6 +696,32 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         error,
         onConfirm: () => void discardPicked(),
         onClose: () => setDiscardPickedOpen(false),
+        t,
+      })
+      : null,
+    // "Discard all": counts come from the snapshot's full stats (honest even
+    // while the list is truncated); the host re-resolves the paths itself.
+    discardAllOpen
+      ? renderConfirmModal({
+        title: t('changes.discardAllTitle'),
+        body: t('changes.discardAllBody', { count: snapshot.stats.modified + snapshot.stats.untracked }),
+        extra: (() => {
+          const notes: JSX.Element[] = []
+          if (snapshot.stats.untracked > 0) {
+            notes.push(h('div', { key: 'untracked', className: 'gp-modal__confirmtext' }, t('changes.discardAllUntracked', { count: snapshot.stats.untracked })))
+          }
+          if (snapshot.stats.staged > 0) {
+            notes.push(h('div', { key: 'staged', className: 'gp-modal__confirmtext' }, t('changes.discardAllStaged', { count: snapshot.stats.staged })))
+          }
+          return notes.length > 0 ? h('div', { key: 'notes' }, notes) : null
+        })(),
+        confirmLabel: t('changes.discard'),
+        danger: true,
+        error,
+        confirmBusy: busy,
+        busyLabel: t('changes.discarding'),
+        onConfirm: () => void discardAllConfirmed(),
+        onClose: () => setDiscardAllOpen(false),
         t,
       })
       : null,
@@ -706,7 +826,7 @@ function renderFileRow(c: GitChange, a: RowActions): JSX.Element {
   const name = c.path.split('/').pop() ?? c.path
   const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
   return h('div', { key: changeKey(c), className: `gp-file-row${a.active ? ' gp-file-row--active' : ''}`, onClick: a.onOpen }, [
-    h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: a.selected, onClick: (e: Event) => e.stopPropagation(), onChange: a.onToggle }),
+    h('input', { key: 'cb', type: 'checkbox', className: 'gp-check', checked: a.selected, disabled: a.busy, onClick: (e: Event) => e.stopPropagation(), onChange: a.onToggle }),
     h('span', { key: 'st', className: `gp-status-badge ${statusClass(c.status)}` }, statusChar[c.status] ?? '?'),
     h('span', { key: 'nm', className: 'gp-tree-name', title: c.path }, [name, dir ? h('span', { key: 'd', style: { color: 'var(--dsw-alias-label-tertiary)', marginLeft: 6, fontSize: 11 } }, dir) : null]),
     h('span', { key: 'act', className: 'gp-file-row__actions' }, [

@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { changeKey, sideOf, pathOfKey, pickDiscardTargets } from '../../lib/testkit.mjs'
+import { changeKey, sideOf, pathOfKey, pickDiscardTargets, groupPickState, toggleGroupKeys } from '../../lib/testkit.mjs'
 
 // The two spellings that used to live at the call sites, kept verbatim so the
 // refactor stays pinned to the behaviour it replaced. They are a lock on the
@@ -218,4 +218,54 @@ test('pickDiscardTargets ignores keys with no known side', () => {
 
 test('pickDiscardTargets only strips the trailing side suffix', () => {
   assert.deepEqual(pickDiscardTargets(['a:b.txt:w']), { paths: ['a:b.txt'], stagedOnly: [] })
+})
+
+// Group select-all (issue #60): the head checkbox's tri-state and its toggle.
+// A group is a list of rows (path+staged pairs); the same path on both sides
+// is two independent rows, exactly like the change list renders it.
+const G_MIXED = [
+  { path: 'a.txt', staged: true }, { path: 'a.txt', staged: false },
+  { path: 'b.txt', staged: false }, { path: 'c.txt', staged: false },
+]
+const keysOf = (changes) => changes.map(changeKey)
+
+test('groupPickState is none for an empty group or an empty selection', () => {
+  assert.equal(groupPickState(new Set(), []), 'none')
+  assert.equal(groupPickState(new Set(['a.txt:w']), []), 'none')
+  assert.equal(groupPickState(new Set(), G_MIXED), 'none')
+})
+
+test('groupPickState is all only when every row of the group is picked', () => {
+  const all = new Set(keysOf(G_MIXED))
+  assert.equal(groupPickState(all, G_MIXED), 'all')
+  // A pick of the same path on the other side is not this group's row.
+  assert.equal(groupPickState(new Set(['a.txt:w', 'b.txt:w', 'c.txt:w']), [{ path: 'a.txt', staged: true }, { path: 'b.txt', staged: true }]), 'none')
+})
+
+test('groupPickState is partial when some but not all rows are picked', () => {
+  assert.equal(groupPickState(new Set(['a.txt:s']), G_MIXED), 'partial')
+  assert.equal(groupPickState(new Set(['a.txt:s', 'a.txt:w', 'b.txt:w']), G_MIXED), 'partial')
+})
+
+test('toggleGroupKeys picks every row of the group when not all are picked', () => {
+  const next = toggleGroupKeys(new Set(['z.txt:w']), G_MIXED)
+  assert.deepEqual([...next].sort(), ['a.txt:s', 'a.txt:w', 'b.txt:w', 'c.txt:w', 'z.txt:w'].sort())
+})
+
+test('toggleGroupKeys clears just the group when every row is already picked', () => {
+  const picked = new Set([...keysOf(G_MIXED), 'z.txt:w'])
+  const next = toggleGroupKeys(picked, G_MIXED)
+  assert.deepEqual([...next], ['z.txt:w'], 'picks outside the group survive the toggle')
+})
+
+test('toggleGroupKeys round-trips all→none on the group alone', () => {
+  const once = toggleGroupKeys(new Set(), G_MIXED)
+  assert.equal(groupPickState(once, G_MIXED), 'all')
+  const twice = toggleGroupKeys(once, G_MIXED)
+  assert.equal(twice.size, 0)
+})
+
+test('toggleGroupKeys is empty-safe', () => {
+  const next = toggleGroupKeys(new Set(['z.txt:w']), [])
+  assert.deepEqual([...next], ['z.txt:w'], 'an empty group changes nothing')
 })

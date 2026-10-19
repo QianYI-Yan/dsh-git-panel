@@ -41,6 +41,10 @@ export class GitController {
   private requestGeneration = 0
   private querySignal: GitQuerySignal = { tick: 0, sampledAt: 0, ready: false, root: null }
   private readonly queryListeners = new Set<() => void>()
+  // "Expand all" mode: while set, every snapshot request asks the host to lift
+  // the maxChanges slice, so the polled list stays complete (a one-shot expand
+  // would be re-truncated by the next poll and the selection pruned away).
+  private fullChanges = false
 
   constructor(
     private readonly remote: GitPanelRemote,
@@ -97,7 +101,7 @@ export class GitController {
     const generation = this.visibilityGeneration
     const requestGeneration = this.requestGeneration
     if (this.view.state === 'cold') this.setView({ state: 'loading' })
-    this.inflight = this.remote.snapshot({ sessionId: this.sessionId })
+    this.inflight = this.remote.snapshot({ sessionId: this.sessionId, ...(this.fullChanges ? { fullChanges: true } : {}) })
       .then((result) => {
         if (this.disposed || requestGeneration !== this.requestGeneration) return
         if (result.ok) {
@@ -139,6 +143,17 @@ export class GitController {
     if (this.disposed) return
     this.requestGeneration += 1
     void this.refresh()
+  }
+
+  /** Toggle "expand all" mode and immediately re-sample. The mode sticks for
+   * this controller's lifetime (per session): a one-shot expand would be
+   * re-truncated by the next poll and the selection pruned away. Disposal
+   * (panel release) drops it with the controller. */
+  setFullChanges(full: boolean): Promise<void> {
+    if (this.disposed) return Promise.resolve()
+    this.fullChanges = full
+    this.requestGeneration += 1
+    return this.refresh()
   }
 
   /** Publish a snapshot the caller already has (e.g. an action's fresh

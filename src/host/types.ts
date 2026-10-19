@@ -39,9 +39,17 @@ export const DIFF_EXPAND_CONTEXT = 2000
  */
 export const DIFF_COUNT_READ_MAX = 8 * 1024 * 1024
 
-/** Wire request: the browser sends only session identity, never a path. */
+/** Hard ceiling for a `fullChanges` snapshot (the client's "expand all"):
+ * well above the default `maxChanges` (1000) so a big-but-sane change set
+ * expands completely, while an absurd one stays bounded on the wire. */
+export const FULL_CHANGES_MAX = 10_000
+
+/** Wire request: the browser sends only session identity, never a path.
+ * `fullChanges` asks the host to skip the `maxChanges` slice (still bounded
+ * by `FULL_CHANGES_MAX`) so the client can expand a truncated list once. */
 export interface GitSnapshotRequest {
   readonly sessionId: string
+  readonly fullChanges?: boolean
 }
 
 export type GitSnapshotResult =
@@ -191,6 +199,11 @@ export type GitAction =
   | { readonly kind: 'unstage'; readonly paths: readonly string[] }
   | { readonly kind: 'unstage-all' }
   | { readonly kind: 'discard'; readonly paths: readonly string[] }
+  // Discard every working-tree change in one action, with no path list on the
+  // wire: the host re-runs status itself and refuses when the status stream was
+  // lossy (it cannot honestly claim "all" over an incomplete read). The
+  // confirmation UI shows the counts the snapshot already carries.
+  | { readonly kind: 'discard-all' }
   | {
     readonly kind: 'commit'
     readonly message: string
@@ -296,6 +309,10 @@ export type GitErrorCode =
   // after the batch pre-flight and paths earlier in the batch were already
   // deleted, so the copy must say so instead of implying nothing happened.
   | 'nested-repo-partial'
+  // `discard-all` re-runs status itself; a lossy read (the status stream was
+  // clipped) means "every change" cannot be proven, so the action is refused
+  // instead of silently discarding a prefix.
+  | 'status-lossy'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'
