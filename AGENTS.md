@@ -12,7 +12,7 @@
   - **文件浏览**：工作区目录树 + 文件预览（语法高亮、Markdown/HTML 渲染、图片缩放、属性）。非 Git 目录或系统未安装 git 时只显示此页，以 cwd 为根。
 - 输入框左侧 zsh 风格标记 `<仓库名> (<分支>)`：绿=已同步、橙=有待提交，点击跳转面板。插件详情页可隐藏标记，隐藏时改在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），两者互斥。
 - 插件详情页配置表单（`PillConfig.tsx`）：标记开关、diff 默认视图、提交图线条样式、AI 生成提交信息（开关、语言、模型级联 provider→model→推理强度、输入预算 / 输出上限 / 超时）。写入被接受后立即 `resyncAll()`。
-- 面板宽度 ≤620px（`layout.ts` 的 `COMPACT_BP`）进入 compact 单栏「钻取」布局。提交编辑器只在**手机视口**（窗口宽度 ≤620，`useMobileViewport`）折叠成单行条：PC 上被侧边栏压窄的面板照样是 compact 布局，但保留完整编辑器（折叠会把 AI 入口一起收走，issue #66）；折叠条上带「AI」入口（图标 + `AI` 两个字母，点击展开编辑器并立即生成）。
+- 面板布局判据都在容器上量，不看视口（`layout.ts` 测量 + `panel-fit.ts` 的纯策略）：宽度 ≤620px（`COMPACT_BP`）进入 compact 单栏「钻取」布局；高度 ≤520px（`SHORT_BP`）记为矮。**藏东西只发生在「窄且矮」（`isCramped` = compact 且 short）**——提交编辑器折叠成单行条、统计条丢弃变更/提交时间，都只认这个组合判据。打开右侧边栏把面板压窄、或大屏手机上，只要高度够就保留完整编辑器与时间；折叠条上带「AI」入口（图标 + `AI` 两个字母，点击展开编辑器并立即生成）。
 
 ## 架构总览
 
@@ -55,7 +55,7 @@ Host 半 (Cordis + typert, lib/host)
 - 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
 - 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
 - 页面：`Panel.tsx`（子 tab 路由、字号、版本条）、`OverviewTab.tsx` + `overview-hooks.ts` / `overview-statusbar.tsx` / `overview-modals.tsx`、`ChangesTab.tsx` + `changes-hooks.ts` / `ChangesToolbar.tsx` / `ChangeStats.tsx`、`DiffView.tsx` + `image-diff-hook.ts` / `ImageCompare.tsx`、`FilesTab.tsx`、`GitPill.tsx`、`PillConfig.tsx`。
-- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`、`path-images.ts`（Markdown 本地图片 → `api/file` 路由，镜像官方解析）、`mermaid-blocks.ts`（mermaid 围栏分段 + `<kbd>`→行内代码——MarkdownText 刻意转义内联 HTML，kbd 只能在送入前文本替换，围栏与行内代码内不替换）、`html-pack.ts`（HTML 预览相对 css/js 打包：引用过滤、文档相对路径解析、全有或全无的限额读取、bootstrap srcdoc——镜像官方 packHtml，ADR-0020）。
+- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`、`panel-fit.ts`（面板断点与 `isCramped` 组合判据——测量在 `layout.ts`，策略纯函数，故可单测）、`path-images.ts`（Markdown 本地图片 → `api/file` 路由，镜像官方解析）、`mermaid-blocks.ts`（mermaid 围栏分段 + `<kbd>`→行内代码——MarkdownText 刻意转义内联 HTML，kbd 只能在送入前文本替换，围栏与行内代码内不替换）、`html-pack.ts`（HTML 预览相对 css/js 打包：引用过滤、文档相对路径解析、全有或全无的限额读取、bootstrap srcdoc——镜像官方 packHtml，ADR-0020）。
 - 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`（悬浮提示）、`notice.tsx`（可关闭提示条）、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（经 `require.async` 懒加载 `client.mermaid.js` chunk 渲染 mermaid，失败回退代码块）。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 

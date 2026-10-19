@@ -361,12 +361,17 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
 /* "simplified" marker on a huge change set: muted + help cursor + dotted hint. */
 .gp-stats__partial{color:var(--dsw-alias-label-tertiary);cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
-/* Compact stats bar: the counts on one clipped, never-wrapping line. The
- * timestamps are not rendered at all at this width (ChangeStats) — the bar must
- * not cost a second row above the change list on a phone. */
+/* Compact stats bar: the counts on one clipped, never-wrapping line. A cramped
+ * panel (narrow and short) drops the timestamps entirely so the bar never costs
+ * a second row above the change list; a narrow-but-tall panel keeps them and
+ * spends that row, since it has the height to spare. */
 .gp-stats--compact{padding:6px 8px 6px 12px;gap:4px 8px;align-items:center}
 .gp-stats--compact .gp-stats__main{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:14px;overflow:hidden;white-space:nowrap}
 .gp-stats--compact .gp-stats__main>.gp-stats__item{flex:none}
+/* Timed compact: the timestamps take a full row of their own under the counts. */
+.gp-stats--timed{flex-wrap:wrap}
+.gp-stats--timed>.gp-stats__main{flex:1 1 100%}
+.gp-stats--timed>.gp-stats__times{flex:1 1 100%;padding-top:2px}
 
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}

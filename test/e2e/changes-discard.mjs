@@ -100,8 +100,9 @@ async function openPanel(snap, opts = {}) {
   await page.goto(harness)
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-  await page.evaluate(async ({ snapshot, width }) => {
+  await page.evaluate(async ({ snapshot, width, height }) => {
     if (width !== null) document.getElementById('panel').style.width = `${width}px`
+    if (height !== null) document.getElementById('panel').style.height = `${height}px`
     const { fixture, connection } = window.createGitPanelMock(snapshot)
     window.__gpFixture = fixture
     const registered = {}
@@ -128,7 +129,7 @@ async function openPanel(snap, opts = {}) {
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(document.getElementById('panel')).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
     await new Promise((r) => setTimeout(r, 500))
-  }, { snapshot: snap, width: opts.width ?? null })
+  }, { snapshot: snap, width: opts.width ?? null, height: opts.height ?? null })
   await page.waitForSelector('.gp-changes__discard-picked', { timeout: 5000 })
   return { page, errors }
 }
@@ -603,7 +604,9 @@ async function tipsScenario() {
  */
 async function touchScenario() {
   const page = await browser.newPage({ hasTouch: true, viewport: { width: 390, height: 844 } })
-  const { errors } = await openPanel(SNAP, { page, width: 390 })
+  // A cramped panel (narrow *and* short) is what folds the editor into the bar;
+  // the 30px rule only applies there, so the panel must actually be short.
+  const { errors } = await openPanel(SNAP, { page, width: 390, height: 420 })
   const out = await page.evaluate(() => {
     const height = (sel) => {
       const el = document.querySelector(sel)

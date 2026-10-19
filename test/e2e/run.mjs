@@ -317,12 +317,26 @@ const out = await page.evaluate(async (snap) => {
   document.querySelector('.gp-stats')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
   await new Promise((r) => setTimeout(r, 120))
   result.squeezedPressKeepsEditor = document.querySelector('.gp-commitbox') !== null
-  // Compact stats bar: one count line; the change/commit timestamps are not
-  // rendered at all (and there is no disclosure control any more).
-  const statsEl = document.querySelector('.gp-stats')
-  result.compactStatsOneLine = statsEl !== null && statsEl.getBoundingClientRect().height <= 40
-  result.compactStatsNoTimes = document.querySelector('.gp-stats .gp-stats__times') === null
+  // Compact stats bar: the panel is narrow but tall (600px), so it keeps the
+  // timestamps on a row of their own — a squeezed column must not cost content
+  // the screen can afford (issue #66 follow-up). Narrow width alone never hides
+  // them; only a panel that is narrow *and* short does.
+  result.compactStatsShowsTimes = document.querySelector('.gp-stats .gp-stats__times') !== null
+  result.compactKeepsEditorWhenTall = document.querySelector('.gp-commitbox') !== null
   result.compactStatsNoToggle = document.querySelector('.gp-stats__toggle') === null
+  // Shrinking the height alone flips the panel to cramped: the timestamps drop
+  // and the commit editor folds into its one-row bar.
+  panelHost.style.height = '420px'
+  await new Promise((r) => setTimeout(r, 150))
+  const crampedStats = document.querySelector('.gp-stats')
+  result.crampedStatsOneLine = crampedStats !== null && crampedStats.getBoundingClientRect().height <= 40
+  result.crampedStatsNoTimes = document.querySelector('.gp-stats .gp-stats__times') === null
+  result.crampedCommitBar = document.querySelector('.gp-commitbar') !== null
+  // Restoring the height brings both back without touching the width.
+  panelHost.style.height = '600px'
+  await new Promise((r) => setTimeout(r, 150))
+  result.restoredStatsTimes = document.querySelector('.gp-stats .gp-stats__times') !== null
+  result.restoredCommitEditor = document.querySelector('.gp-commitbox') !== null
   panelHost.style.width = '1000px'
   await new Promise((r) => setTimeout(r, 120))
   result.wideStatsShowsTimes = document.querySelector('.gp-stats .gp-stats__times') !== null

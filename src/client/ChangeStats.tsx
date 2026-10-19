@@ -9,12 +9,18 @@ import { useHoverTip } from './tip.js'
 interface StatsProps {
   /** Stats ride the snapshot (single git source); no separate query. */
   readonly stats: WorktreeStats
-  /** Phone / narrow panel: the counts on one line, timestamps omitted. */
+  /** Narrow panel: the counts lead one line instead of a wrapping bar. */
   readonly compact?: boolean
+  /**
+   * Render the change / commit timestamps. The caller drops them only when the
+   * panel is cramped (narrow *and* short) and the row is genuine cost; a
+   * squeezed-but-tall panel keeps them on their own line.
+   */
+  readonly showTimes?: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export function ChangeStats({ stats, compact = false, t }: StatsProps): JSX.Element {
+export function ChangeStats({ stats, compact = false, showTimes = true, t }: StatsProps): JSX.Element {
   const now = Date.now()
   // Snappy shared tip for the partial-stats marker (a native `title` waits
   // half a second and feels unresponsive on a frequently rescanned bar).
@@ -54,17 +60,19 @@ export function ChangeStats({ stats, compact = false, t }: StatsProps): JSX.Elem
     ? h('span', { key: 'times', className: 'gp-stats__times' }, times)
     : null
 
-  // Wide: everything rides one wrapping bar. Compact: only the counts, on a
-  // single clipped line — the timestamps (and any disclosure control) are
-  // dropped so the bar never costs a second row above the change list.
+  // Wide: everything rides one wrapping bar. Narrow: the counts lead a clipped
+  // line; the timestamps join on a second line unless the caller dropped them
+  // (a cramped panel cannot spare the row).
   if (!compact) {
     return h('div', { className: 'gp-stats' }, [
       ...(timesBlock === null ? items : [...items, timesBlock]),
       tipNode,
     ])
   }
-  return h('div', { className: 'gp-stats gp-stats--compact' }, [
+  const timed = showTimes && timesBlock !== null
+  return h('div', { className: `gp-stats gp-stats--compact${timed ? ' gp-stats--timed' : ''}` }, [
     h('div', { key: 'main', className: 'gp-stats__main' }, items),
+    timed ? timesBlock : null,
     tipNode,
   ])
 }
