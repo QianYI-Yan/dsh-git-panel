@@ -4,7 +4,9 @@
 
 - Release 标题 = tag 名 = `v<package.json version>`；tag 必须与 manifest 的 version 一致。
 - 正文**必须中英双语**：中文段在前，`---` 分隔，英文段在后；两段内容一一对应，不是摘要。
-- 两段都以 compare 链接收尾：`https://github.com/xbzbing/dsh-git-panel/compare/<PREV>...<TAG>`，`<PREV>` 是上一个 tag。
+- 两段都以 compare 链接收尾：`https://github.com/xbzbing/dsh-git-panel/compare/<PREV>...<TAG>`。
+  - **正式版**：`<PREV>` 是上一个**正式版** tag，跳过中间的 rc / alpha（`v1.8.0` 配 `v1.7.0`，不是配 `v1.8.0-rc.1`）——正式版的完整变更记录必须覆盖「上一次稳定版之后」的全部内容。
+  - **预发布**：`<PREV>` 是上一个 tag（通常就是上一个预发布），便于对照相邻的候选版本。
 - 不要保留 GitHub 自动生成的 `## What's Changed` 段落，它和这里的结构冲突。
 - 历史 release 只读不改；格式统一从现在这版开始。
 
@@ -25,8 +27,9 @@
 
 **安装**
 
-- 两个示例都给：正式版走 npm，预发布走 GitHub Release 附件 URL（URL 里的 tag 用本版真实 tag）。
-- 命令必须带 `--profile <profile>`，示例统一用 `web`。
+- **正式版**：两条都给——npm 一条（`@xbzbing/dsh-git-panel@latest`）+ 同版本 GitHub Release 附件一条。
+- **预发布**：**只给 GitHub Release 附件一条，绝不要写 npm**。rc / alpha 从不发布到 npm，抄上 npm 命令的用户会拿到旧版本或 404。
+- URL 里的 tag 用本版真实 tag；命令必须带 `--profile <profile>`，示例统一用 `web`。
 
 **篇幅**
 
@@ -49,11 +52,13 @@
 
 ## 安装
 
+<!-- 正式版：保留 npm 与附件两条；预发布：删掉 npm 那条，只留附件 -->
+
 ```bash
 # 正式版（npm）
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
-# 预发布（GitHub Release 附件，不发 npm）
+# 同一版本的 GitHub Release 附件
 dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
 ```
 
@@ -75,11 +80,13 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 ## Install
 
+<!-- Stable: keep both lines. Pre-release: drop the npm line, keep only the asset -->
+
 ```bash
 # Stable (npm)
 dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
 
-# Pre-release (GitHub Release asset, never published to npm)
+# The same version as a GitHub Release asset
 dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
 ```
 
@@ -97,6 +104,9 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 ```bash
 # 上一个 tag 到 HEAD 的提交（合并提交已排除，release 里不列）
 git log --oneline --no-merges "$(git describe --tags --abbrev=0 HEAD^)"..HEAD
+
+# 上一个正式版 tag（compare 链接的 <PREV> 用它；预发布才用上一个 tag）
+git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1
 
 # 当次门禁的真实数字
 npm run check

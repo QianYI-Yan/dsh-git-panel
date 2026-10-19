@@ -107,6 +107,10 @@ src/
     diff.ts         unified diff → side-by-side rows + inline rows + stats
 ```
 
+## Acknowledgements
+
+Thanks to [@ivanant](https://github.com/ivanant) for the many optimization suggestions and iteration requests filed against this project. Mobile layout, batch selection in the changes page, AI commit messages, commit-graph and icon polish, and publishing a branch that has no upstream all came mostly from his real-world usage reports — feedback that moved the panel well past "it works".
+
 ## License
 
 [MIT License](LICENSE).
