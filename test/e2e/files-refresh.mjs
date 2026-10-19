@@ -173,8 +173,9 @@ const layout = await page.evaluate(() => {
   }
 })
 assert.equal(layout.position, 'absolute', 'the refresh control floats instead of taking a row of its own')
-assert.ok(layout.rightInset !== null && layout.rightInset <= 20, `control sits at the tree's right edge (inset ${layout.rightInset})`)
+assert.ok(layout.rightInset !== null && layout.rightInset <= 8, `control sits at the tree's right edge (inset ${layout.rightInset})`)
 assert.ok(layout.topInset !== null && layout.topInset <= 8, `control sits at the tree's top edge (inset ${layout.topInset})`)
+assert.ok(Math.abs(layout.topInset - layout.rightInset) <= 1, `top and right insets match (${layout.topInset} vs ${layout.rightInset})`)
 // A header row of its own would push the first entry down; the wrap's padding is 4px.
 assert.ok(layout.firstRowOffset !== null && layout.firstRowOffset <= 8, `no header row above the entries (offset ${layout.firstRowOffset})`)
 assert.equal(layout.overlapsFirstRow, true, 'the floating control overlays the entries')
