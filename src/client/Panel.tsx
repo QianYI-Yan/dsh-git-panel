@@ -13,7 +13,8 @@ import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
 import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
-import { useMobileViewport, usePanelLayout } from './layout.js'
+import { usePanelLayout } from './layout.js'
+import { isCramped } from './panel-fit.js'
 import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
 import type { FontDelta, GitAction, GitVersionInfo } from './types.js'
@@ -47,10 +48,12 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   // Compact layout kicks in on a narrow panel (phone / squeezed split): the
   // three-column tabs collapse to single-column drill-in. Width-driven, so it
   // recovers the full layout as soon as the panel widens.
-  const compact = usePanelLayout(rootEl)
-  // A compact panel squeezed by a desktop sidebar is not a phone: height-saving
-  // folds that hide a control (the commit editor's AI entry) stay phone-only.
-  const mobile = useMobileViewport()
+  const layout = usePanelLayout(rootEl)
+  const compact = layout.compact
+  // Narrow AND short is the only case that trades content away for room (the
+  // commit editor's fold, the change timestamps): a big screen whose column a
+  // sidebar narrowed keeps them, because it has the height to spare.
+  const cramped = isCramped(layout)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
   // The font stepper writes through the settings form; without it the control
@@ -229,7 +232,7 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
     }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, foldCommit: compact && mobile, t })
+        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, cramped, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list

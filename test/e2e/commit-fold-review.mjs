@@ -39,11 +39,18 @@ const CLEAN = {
 
 const PHONE = { width: 390, height: 844 }
 const DESKTOP = { width: 1280, height: 720 }
+/** Panel heights (the box, not the viewport): 764 is roomy, 420 is cramped. */
+const ROOMY_PANEL = 764
+const CRAMPED_PANEL = 420
 
 const browser = await chromium.launch()
 
-/** Mount the panel against the mock connection with the real zh dictionary. */
-async function openPanel(snapshot, { viewport, width }) {
+/**
+ * Mount the panel against the mock connection with the real zh dictionary.
+ * `height` is the panel box (not the viewport): the fold is decided by the
+ * panel's own width and height together, so the tests drive those directly.
+ */
+async function openPanel(snapshot, { viewport, width, height = 764 }) {
   const page = await browser.newPage({ viewport })
   const errors = []
   page.on('console', (msg) => { if (msg.type() === 'error') errors.push(msg.text()) })
@@ -51,10 +58,10 @@ async function openPanel(snapshot, { viewport, width }) {
   await page.goto(harness)
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
-  await page.evaluate(async ({ snapshot, width }) => {
+  await page.evaluate(async ({ snapshot, width, height }) => {
     const panel = document.getElementById('panel')
     panel.style.width = `${width}px`
-    panel.style.height = '764px'
+    panel.style.height = `${height}px`
     const { fixture, connection } = window.createGitPanelMock(snapshot)
     window.__gpFixture = fixture
     const registered = {}
@@ -79,7 +86,7 @@ async function openPanel(snapshot, { viewport, width }) {
     window.__getLoaded().apply(ctx)
     window.ReactDOM.createRoot(panel).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
     await new Promise((r) => setTimeout(r, 500))
-  }, { snapshot, width })
+  }, { snapshot, width, height })
   // A clean snapshot opens on the overview tab; the commit box lives on Changes.
   await page.evaluate(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -117,11 +124,11 @@ async function squeezedDesktopScenario() {
 
 /**
  * A phone: the bar stands in for the editor, its AI entry opens the editor and
- * generates, the fold control puts the bar back, and a viewport change re-lays
+ * generates, the fold control puts the bar back, and a height change re-lays
  * the editor out live.
  */
 async function phoneScenario() {
-  const { page, errors } = await openPanel(SNAP, { viewport: PHONE, width: PHONE.width })
+  const { page, errors } = await openPanel(SNAP, { viewport: PHONE, width: PHONE.width, height: CRAMPED_PANEL })
   const out = await page.evaluate(async () => {
     const result = {}
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -227,29 +234,30 @@ async function phoneScenario() {
     return result
   })
 
-  // Viewport changes re-decide the fold live, without a remount.
-  await page.setViewportSize(DESKTOP)
+  // Height changes re-decide the fold live, without a remount: regaining room
+  // unfolds the editor even though the panel stays narrow.
+  await page.evaluate((h) => { document.getElementById('panel').style.height = `${h}px` }, ROOMY_PANEL)
   await page.waitForTimeout(250)
-  const wide = await page.evaluate(() => ({
+  const roomy = await page.evaluate(() => ({
     bar: document.querySelector('.gp-commitbar') !== null,
     editor: document.querySelector('.gp-commitbox') !== null,
     foldControl: document.querySelector('.gp-commitbox__fold') !== null,
     draft: document.querySelector('.gp-commitbox__msg')?.value ?? null,
   }))
-  await page.setViewportSize(PHONE)
+  await page.evaluate((h) => { document.getElementById('panel').style.height = `${h}px` }, CRAMPED_PANEL)
   await page.waitForTimeout(250)
-  const backToPhone = await page.evaluate(() => ({
+  const backToCramped = await page.evaluate(() => ({
     bar: document.querySelector('.gp-commitbar') !== null,
     editor: document.querySelector('.gp-commitbox') !== null,
     draft: document.querySelector('.gp-commitbar__draft')?.textContent ?? null,
   }))
   await page.close()
-  return { out, wide, backToPhone, errors }
+  return { out, roomy, backToCramped, errors }
 }
 
 /** The AI entries follow the setting on both layouts. */
 async function aiSettingScenario() {
-  const off = await openPanel({ ...SNAP, suggestEnabled: false }, { viewport: PHONE, width: PHONE.width })
+  const off = await openPanel({ ...SNAP, suggestEnabled: false }, { viewport: PHONE, width: PHONE.width, height: CRAMPED_PANEL })
   const offOut = await off.page.evaluate(() => ({
     bar: document.querySelector('.gp-commitbar') !== null,
     ai: document.querySelector('.gp-commitbar__ai') !== null,
@@ -257,7 +265,7 @@ async function aiSettingScenario() {
   }))
   await off.page.close()
 
-  const clean = await openPanel(CLEAN, { viewport: PHONE, width: PHONE.width })
+  const clean = await openPanel(CLEAN, { viewport: PHONE, width: PHONE.width, height: CRAMPED_PANEL })
   const cleanOut = await clean.page.evaluate(() => ({
     bar: document.querySelector('.gp-commitbar') !== null,
     aiDisabled: document.querySelector('.gp-commitbar__ai')?.disabled ?? null,
@@ -277,7 +285,7 @@ try {
   assert.equal(squeezed.errors.length, 0, 'no console errors: ' + JSON.stringify(squeezed.errors))
   assert.equal(squeezed.out.layout, 'compact', 'a 400px desktop panel is the compact layout')
   assert.equal(squeezed.out.editor, true, 'a squeezed desktop panel keeps the full commit editor')
-  assert.equal(squeezed.out.bar, false, 'no folded commit bar on a desktop viewport')
+  assert.equal(squeezed.out.bar, false, 'no folded commit bar while the panel is tall')
   assert.equal(squeezed.out.foldControl, false, 'no fold control when the editor cannot fold')
   assert.equal(squeezed.out.aiLabel, 'AI 生成', 'the AI entry stays visible in a squeezed desktop panel')
   assert.equal(squeezed.out.pressKeepsEditor, true, 'a press outside the editor leaves it open when it cannot fold')
@@ -285,7 +293,7 @@ try {
   assert.equal(phone.errors.length, 0, 'no console errors: ' + JSON.stringify(phone.errors))
   const p = phone.out
   assert.equal(p.layout, 'compact', 'a phone viewport mounts the compact layout')
-  assert.equal(p.folded, true, 'the phone commit editor starts folded into one bar')
+  assert.equal(p.folded, true, 'a narrow and short panel starts the editor folded into one bar')
   assert.ok(p.barHeight <= 48, `the folded bar stays one row (${p.barHeight}px)`)
   assert.equal(p.placeholder, '提交信息', 'the folded bar shows the empty placeholder')
   assert.equal(p.aiShown, true, 'the folded bar carries an AI entry')
@@ -315,16 +323,16 @@ try {
   assert.equal(p.refolded, true, 'the fold control folds the editor back')
   assert.equal(p.draftShown, true, 'the folded bar summarises the draft first line')
   assert.equal(p.draftSubmittable, true, 'a draft can be committed from the folded bar')
-  assert.deepEqual(phone.wide, { bar: false, editor: true, foldControl: false, draft: 'feat: suggested' },
-    'widening past the phone breakpoint unfolds the editor without a remount')
-  assert.deepEqual(phone.backToPhone, { bar: true, editor: false, draft: 'feat: suggested' },
-    'narrowing again folds it back with the draft intact')
+  assert.deepEqual(phone.roomy, { bar: false, editor: true, foldControl: false, draft: 'feat: suggested' },
+    'regaining height unfolds the editor without a remount, however narrow the panel stays')
+  assert.deepEqual(phone.backToCramped, { bar: true, editor: false, draft: 'feat: suggested' },
+    'losing height again folds it back with the draft intact')
 
   assert.equal(setting.off.errors.length, 0, 'no console errors: ' + JSON.stringify(setting.off.errors))
   assert.deepEqual(setting.off.out, { bar: true, ai: false, commit: true },
     'the folded bar drops the AI entry when generation is off, keeping Commit')
   assert.equal(setting.clean.errors.length, 0, 'no console errors: ' + JSON.stringify(setting.clean.errors))
-  assert.equal(setting.clean.out.bar, true, 'a clean repo still folds the editor on a phone')
+  assert.equal(setting.clean.out.bar, true, 'a clean repo still folds the editor when the panel is cramped')
   assert.equal(setting.clean.out.aiDisabled, true, 'the AI entry is disabled with nothing to read')
   assert.equal(setting.clean.out.commitDisabled, true, 'Commit stays disabled with an empty message box')
   assert.equal(setting.clean.out.empty, '没有未提交的变更', 'the clean fixture really has no changes')

@@ -1,60 +1,56 @@
 /**
- * Panel layout mode: observe the panel's own width and report whether it should
- * switch to the compact (single-column, drill-in) layout used on phones and
- * narrow splits. Width-driven via ResizeObserver (the GitPill.useCompactMarker
- * pattern), so the panel expands back to the three-column layout as soon as it
- * widens — a phone turned landscape, or a sidebar closing, recovers the full UI.
+ * Panel layout hook: observe the panel's own box and report the two container
+ * facts the UI adapts to. The breakpoints and how they combine live in
+ * `panel-fit.ts`; this module is only the measurement adapter.
  *
- * The breakpoint is a container width, not the viewport, so a right sidebar that
- * squeezes the panel benefits too, and an iPad in portrait (768) keeps the wide
- * layout. 620 matches GitPill's COMPACT_WIDTH value (the two observe different
- * elements, so only the threshold — not the exact boundary pixel — is shared).
+ * Width drives the layout mode: at or below COMPACT_BP the three-column layout
+ * collapses to the single-column, drill-in one used on phones and narrow
+ * splits, and it recovers as soon as the panel widens (a phone turned
+ * landscape, a sidebar closing).
+ *
+ * Height drives nothing on its own — it only becomes interesting together with
+ * width (see `isCramped`). A desktop panel squeezed by a sidebar, or a large
+ * phone, is narrow yet tall: it keeps the full commit editor and the change
+ * timestamps, because squeezing the column must not cost content the screen can
+ * afford.
+ *
+ * The breakpoints are container measures, not viewport ones, so a right sidebar
+ * that squeezes the panel benefits too. 620 matches GitPill's COMPACT_WIDTH
+ * value (the two observe different elements, so only the threshold — not the
+ * exact boundary pixel — is shared).
  *
  * Uses useLayoutEffect so the first measurement commits before the first paint:
  * a phone mounting at 390px never flashes the three-column layout for a frame.
- * If ResizeObserver is unavailable the panel stays wide (single-column drill-in
- * is lost, but nothing breaks) — all modern engines ship it.
- *
- * `useMobileViewport` is the other half of the phone story: a squeezed desktop
- * panel is compact too, but it is not a phone, and features that trade a
- * control away for scarce height (the commit editor's fold) key off this
- * instead of the container width.
+ * If ResizeObserver is unavailable the panel stays wide and unsqueezed
+ * (single-column drill-in and the height-saving folds are lost, but nothing
+ * breaks) — all modern engines ship it.
  */
 import { useLayoutEffect, useState } from 'react'
+import { COMPACT_BP, SHORT_BP, type PanelLayout } from './panel-fit.js'
 
-/** Panel width (px) at or below which the compact single-column layout kicks in. */
-export const COMPACT_BP = 620
+const UNSQUEEZED: PanelLayout = { compact: false, short: false }
 
-/** True once the observed element is measured and at or below COMPACT_BP wide. */
-export function usePanelLayout(el: HTMLElement | null): boolean {
-  const [compact, setCompact] = useState(false)
+/** Measure the panel box; both flags stay false until it is measured. */
+export function usePanelLayout(el: HTMLElement | null): PanelLayout {
+  const [layout, setLayout] = useState<PanelLayout>(UNSQUEEZED)
   useLayoutEffect(() => {
     if (el === null || typeof ResizeObserver === 'undefined') return
-    const measure = (): void => setCompact(el.clientWidth > 0 && el.clientWidth <= COMPACT_BP)
+    // A collapsed panel (0 wide or tall) has no room in that axis and reports
+    // unsqueezed, so a transient 0 during mount cannot fold the editor before
+    // the first real layout.
+    const measure = (): void => setLayout((prev) => {
+      const width = el.clientWidth
+      const height = el.clientHeight
+      const next: PanelLayout = {
+        compact: width > 0 && width <= COMPACT_BP,
+        short: height > 0 && height <= SHORT_BP,
+      }
+      return prev.compact === next.compact && prev.short === next.short ? prev : next
+    })
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [el])
-  return compact
-}
-
-/**
- * True while the window viewport itself is phone-narrow (at or below
- * COMPACT_BP). Container width cannot tell a phone from a desktop panel
- * squeezed by a sidebar — both measure narrow — so height-saving layouts ask
- * this question instead. Tracks live resizes (a rotated phone, a split view)
- * through the media-query change event.
- */
-export function useMobileViewport(): boolean {
-  const [mobile, setMobile] = useState(false)
-  useLayoutEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const query = window.matchMedia(`(max-width: ${COMPACT_BP}px)`)
-    const update = (): void => setMobile(query.matches)
-    update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
-  return mobile
+  return layout
 }
