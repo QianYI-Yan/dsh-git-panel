@@ -155,6 +155,22 @@ test('defaultDiffView config normalizes, unwraps volatile refs, and flows into t
   assert.equal(split.value.defaultDiffView, 'split')
 })
 
+test('fontDelta config normalizes, unwraps volatile refs, and flows into the snapshot', async () => {
+  // Default 0; explicit 1 honored; unknown falls back; volatile ref unwrapped.
+  assert.equal(normalizeConfig({}).fontDelta, 0)
+  assert.equal(normalizeConfig({ fontDelta: 1 }).fontDelta, 1)
+  assert.equal(normalizeConfig({ fontDelta: -1 }).fontDelta, -1)
+  assert.equal(normalizeConfig({ fontDelta: 2 }).fontDelta, 0)
+  assert.equal(normalizeConfig({ fontDelta: 'bogus' }).fontDelta, 0)
+  assert.equal(normalizeConfig({ fontDelta: { get: () => -1 } }).fontDelta, -1)
+  const def = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  assert.equal(def.ok, true)
+  assert.equal(def.value.fontDelta, 0, 'snapshot carries the default step')
+  const larger = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, fontDelta: 1 }, SID)
+  assert.equal(larger.ok, true)
+  assert.equal(larger.value.fontDelta, 1)
+})
+
 test('worktree-stats totals files and +/- lines, plus times', async () => {
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'worktree-stats' } })
   assert.equal(res.ok, true)

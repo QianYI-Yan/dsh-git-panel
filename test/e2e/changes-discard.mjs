@@ -78,7 +78,6 @@ const SNAP = {
 
 const STAGE_GLYPH = '+'
 const UNSTAGE_GLYPH = '\u2212'
-const DISCARD_GLYPH = '\u21ba'
 
 const browser = await chromium.launch()
 
@@ -159,7 +158,9 @@ async function batchScenario() {
       row: `${r.querySelector('.gp-tree-name')?.textContent}:${r.querySelector('.gp-file-row__actions .gp-icon-btn')?.textContent}`,
       labels: [...r.querySelectorAll('.gp-file-row__actions .gp-icon-btn')].map((b) => b.getAttribute('aria-label')),
     }))
-    const toolbar = [...document.querySelector('.gp-toolbar').children]
+    // Toolbar entries are tip-wrapped: each shell holds one button with the
+    // accessible name (issue #61).
+    const toolbar = [...document.querySelectorAll('.gp-toolbar button')]
     result.toolbar = toolbar.map((b) => b.getAttribute('aria-label'))
     // The icon entry retains its accessible name and position between these actions.
     result.entryAfterUnstageAll = toolbar[2] === picked() && toolbar[1].getAttribute('aria-label') === '全部取消暂存'
@@ -493,12 +494,12 @@ async function tipsScenario() {
   result.discardTip = await tip()
   result.discardAria = await discard.getAttribute('aria-label')
   result.discardTitle = await discard.getAttribute('title')
-  result.discardGlyph = await discard.textContent()
+  result.discardIcon = await discard.locator('svg').count()
   const actionsBefore = await page.evaluate(() => window.__gpFixture.actions.length)
   await discard.click()
   await page.waitForTimeout(150)
   result.armedAria = await discard.getAttribute('aria-label')
-  result.armedGlyph = await discard.textContent()
+  result.armedIcon = await discard.locator('svg').count()
   result.armedTipOnClick = await tip()
   result.firstClickRunsNothing = await page.evaluate((n) => window.__gpFixture.actions.length === n, actionsBefore)
   // The armed hint stays pinned until a press outside (a move no longer hides
@@ -733,12 +734,12 @@ try {
   assert.equal(tips.out.stageAria, '暂存', 'the aria-label keeps the short name')
   assert.equal(tips.out.stageTitle, null, 'no native title is left behind')
   assert.equal(tips.out.stageTipGone, true, 'leaving the button dismisses the hint')
-  assert.equal(tips.out.discardGlyph, DISCARD_GLYPH, 'the discard button keeps its glyph')
+  assert.equal(tips.out.discardIcon, 1, 'the discard button shows the trash icon (not a refresh-like glyph)')
   assert.equal(tips.out.discardTip?.text, '放弃此文件在工作区的改动（不可恢复）；再点一次确认', 'discard hover hint copy')
   assert.equal(tips.out.discardAria, '放弃更改', 'the discard aria-label keeps the short name')
   assert.equal(tips.out.discardTitle, null, 'no native title is left behind')
   assert.equal(tips.out.armedAria, '再次点击以确认放弃', 'the armed button announces the confirm step')
-  assert.equal(tips.out.armedGlyph, DISCARD_GLYPH, 'arming keeps the glyph (only the wording/color changes)')
+  assert.equal(tips.out.armedIcon, 1, 'arming keeps the trash icon (only the wording/color changes)')
   assert.equal(tips.out.armedTipOnClick?.text, '再点一次即放弃此文件的改动，不可恢复', 'arming raises the confirm wording on the spot')
   assert.equal(tips.out.noTipBeforePress, true, 'no hint is up before the arming press (nothing hovered)')
   assert.equal(tips.out.armedTipOnPress?.text, '再点一次即放弃此文件的改动，不可恢复', 'the press alone raises the confirm hint (no hover needed)')

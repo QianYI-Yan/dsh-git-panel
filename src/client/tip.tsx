@@ -11,6 +11,10 @@
  * instead of waiting for another hover, and that hint stays until the next press
  * anywhere else.
  *
+ * Any visible hint — hover or press-pinned — dismisses on a press outside it
+ * (or Escape). Touch has no reliable mouseleave, so without that the bubble
+ * would stick after a tap until the next hover.
+ *
  * In the compact (phone) layout the bubble is centred on its control — the row
  * icons sit at the panel's right edge, where a left-anchored bubble reads as
  * belonging to the wrong row — while the wide layout keeps the familiar left
@@ -44,22 +48,15 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
   const delayMs = opts?.delayMs ?? DEFAULT_DELAY_MS
   const maxWidth = opts?.maxWidth ?? DEFAULT_MAX_W
   const [tip, setTip] = useState<TipState | null>(null)
-  /** A press-driven hint outlives the pointer; a hover hint does not. */
-  const [pinned, setPinned] = useState(false)
-  /** Mirrors `pinned` for handlers that must not be rebuilt on every arm. */
+  /** True while a press-driven hint owns the bubble (outlives the pointer). */
   const pinnedRef = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  const flagPinned = useCallback((next: boolean) => {
-    pinnedRef.current = next
-    setPinned(next)
-  }, [])
-
   const hideTip = useCallback(() => {
     if (timer.current !== undefined) { clearTimeout(timer.current); timer.current = undefined }
-    flagPinned(false)
+    pinnedRef.current = false
     setTip(null)
-  }, [flagPinned])
+  }, [])
 
   const placeTip = useCallback((el: HTMLElement, text: string) => {
     const r = el.getBoundingClientRect()
@@ -83,15 +80,15 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     // hovering another control must not replace the confirmation.
     if (pinnedRef.current) return
     if (timer.current !== undefined) clearTimeout(timer.current)
-    flagPinned(false)
+    pinnedRef.current = false
     timer.current = setTimeout(() => placeTip(el, text), delayMs)
-  }, [placeTip, delayMs, flagPinned])
+  }, [placeTip, delayMs])
 
   const showTipNow = useCallback((el: HTMLElement, text: string) => {
     if (timer.current !== undefined) { clearTimeout(timer.current); timer.current = undefined }
-    flagPinned(true)
+    pinnedRef.current = true
     placeTip(el, text)
-  }, [placeTip, flagPinned])
+  }, [placeTip])
 
   // A bubble on a control near an edge would hang outside the viewport; measure
   // it once it is in the DOM and clamp both axes to absolute values. The clamp
@@ -124,11 +121,13 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     })
   }, [tip])
 
-  // The pinned hint follows the control it explains, not the pointer: a press
-  // outside the bubble (or Escape) dismisses it, including the press that acts
-  // on the control again, since that press is handled after this listener runs.
+  // Any visible bubble dismisses on a press outside it (or Escape). Touch has
+  // no reliable mouseleave, so a hover tip that appeared on tap would otherwise
+  // stick until the next hover — the pinned press-hint keeps the same contract.
+  // The press that acts on the control itself is handled after this listener
+  // runs, so it still reaches the control.
   useEffect(() => {
-    if (!pinned) return undefined
+    if (tip === null) return undefined
     const onDown = (e: PointerEvent): void => {
       const target = e.target
       if (target instanceof Element && target.closest('.gp-tip') !== null) return
@@ -141,7 +140,7 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
       document.removeEventListener('pointerdown', onDown, true)
       document.removeEventListener('keydown', onKey, true)
     }
-  }, [pinned, hideTip])
+  }, [tip, hideTip])
 
   const tipProps = useCallback((text: string): Record<string, unknown> => ({
     onMouseEnter: (e: { currentTarget: HTMLElement }) => showTip(e.currentTarget, text),
@@ -163,4 +162,19 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     : null
 
   return { tipProps, tipNode, hideTip, showTipNow }
+}
+
+/**
+ * Shell around a control whose hover tip must keep working while the control
+ * is `disabled`. Browsers do not dispatch mouse events to disabled form
+ * controls, so tip handlers live on this non-disabled wrapper; focus on an
+ * enabled child still bubbles into the same handlers (React `onFocus` ≈
+ * `focusin`). The wrapper is a tight `inline-flex` so the control's box — and
+ * therefore the tip anchor — is unchanged.
+ */
+export function TipWrapper(props: {
+  readonly tipProps: Record<string, unknown>
+  readonly children?: JSX.Element | JSX.Element[]
+}): JSX.Element {
+  return h('span', { className: 'gp-tip-wrap', ...props.tipProps }, props.children)
 }

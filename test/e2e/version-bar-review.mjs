@@ -55,8 +55,21 @@ await page.evaluate(async (snap) => {
   }
   const registered = {}
   const dictionaries = {}
+  // Minimal configForms so the wide font stepper mounts (it is hidden without
+  // the settings write face).
   const ctx = {
-    get: (k) => ({ connection })[k],
+    get: (k) => k === 'connection' ? connection : k === 'configForms' ? {
+      describe: () => ({
+        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
+        subscribe: () => () => {},
+        ensure: async () => {},
+      }),
+      get: () => ({
+        getSnapshot: () => ({ status: 'ready', value: { fontDelta: 0, showInputPill: true }, revision: 0, writable: true }),
+        subscribe: () => () => {},
+        set: async () => true,
+      }),
+    } : undefined,
     effect: (cb) => { try { cb() } catch { /* ignore */ } },
     on: () => () => {},
     inject: (_d, cb) => cb(ctx),

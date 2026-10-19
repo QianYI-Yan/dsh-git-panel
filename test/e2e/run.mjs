@@ -70,7 +70,35 @@ const out = await page.evaluate(async (snap) => {
   if (!entry || typeof entry.apply !== 'function') return { error: 'plugin did not load' }
 
   const registered = {}
-  const services = { connection }
+  // Minimal configForms face so the wide font stepper can write fontDelta
+  // (issue: font moved from localStorage to the host volatile config).
+  const configState = { fontDelta: 0, showInputPill: true }
+  // One-shot write failure so the panel's optimistic font step can be pinned
+  // to roll back (review O7).
+  let failFontWrite = false
+  const services = {
+    connection,
+    configForms: {
+      describe: () => ({
+        getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
+        subscribe: () => () => {},
+        ensure: async () => {},
+      }),
+      get: () => ({
+        getSnapshot: () => ({ status: 'ready', value: { ...configState }, revision: 0, writable: true }),
+        subscribe: () => () => {},
+        set: async (field, value) => {
+          if (field === 'fontDelta' && failFontWrite) {
+            failFontWrite = false
+            return false
+          }
+          configState[field] = value
+          if (field === 'fontDelta') fixture.snapshot = { ...fixture.snapshot, fontDelta: value }
+          return true
+        },
+      }),
+    },
+  }
   const ctx = {
     get: (k) => services[k],
     effect: (cb) => { try { cb() } catch (e) { /* ignore */ } },
@@ -163,14 +191,22 @@ const out = await page.evaluate(async (snap) => {
   const pressedState = () => ['decrease', 'reset', 'increase'].map((k) => fontBtn(k)?.getAttribute('aria-pressed')).join(',')
   result.fontPressedDefault = pressedState() === 'false,true,false'
   document.querySelector('.gp-font__increase')?.click()
-  await new Promise((r) => setTimeout(r, 60))
+  await new Promise((r) => setTimeout(r, 400))
   result.fontIncreased = getComputedStyle(panelRoot).fontSize
-  result.fontStored = localStorage.getItem('gp.panel.fontDelta')
+  result.fontStored = String(configState.fontDelta)
   result.fontPressedIncreased = pressedState() === 'false,false,true'
   document.querySelector('.gp-font__reset')?.click()
-  await new Promise((r) => setTimeout(r, 60))
+  await new Promise((r) => setTimeout(r, 400))
   result.fontReset = getComputedStyle(panelRoot).fontSize
   result.fontPressedReset = pressedState() === 'false,true,false'
+  // A failed config write must roll the optimistic step back to the snapshot.
+  failFontWrite = true
+  document.querySelector('.gp-font__increase')?.click()
+  await new Promise((r) => setTimeout(r, 400))
+  result.fontWriteFailRolledBack = getComputedStyle(panelRoot).fontSize === '13px'
+    && pressedState() === 'false,true,false'
+    && panelRoot.getAttribute('data-font-delta') === '0'
+    && String(configState.fontDelta) === '0'
   // The active cell is a neutral (module-platform) fill with the primary label
   // in bold; the harness only carries the variables we set, so pin them.
   panelRoot.style.setProperty('--dsw-alias-bg-module-platform', '#e6e6e6')
@@ -183,9 +219,9 @@ const out = await page.evaluate(async (snap) => {
   panelRoot.style.removeProperty('--dsw-alias-label-primary')
   // Responsive tab bar: a wide panel is the three-column 'wide' layout with the
   // trailing controls inline; narrowing to a phone width switches to the
-  // 'compact' layout, which drops the tab labels to icon-only, keeps the font
-  // stepper on the SAME row as the switcher, and does not mount the version
-  // cluster (version tag / update check / repo star) at all.
+  // 'compact' layout, which shows the short tab labels, drops the font stepper
+  // (it lives on the plugin config page), and does not mount the version
+  // cluster at all.
   const panelHost = document.getElementById('panel')
   const fontCluster = panelRoot.querySelector('.gp-font')
   const firstLabel = panelRoot.querySelector('.gp-tab__label')
@@ -203,6 +239,7 @@ const out = await page.evaluate(async (snap) => {
   result.wideShowsControls = getComputedStyle(fontCluster).display !== 'none'
   result.wideShowsLabel = labelVisible(firstLabel)
   result.wideShowsVersion = verbar() !== null
+  result.wideLabelFull = firstLabel?.textContent ?? null
   // The update-check pill centres its refresh glyph on the label's line: the
   // 12px svg used to sit at the top of the 15px icon slot, 1.5px above the text.
   const verBtn = panelRoot.querySelector('.gp-verbar__btn')
@@ -221,29 +258,34 @@ const out = await page.evaluate(async (snap) => {
   panelHost.style.width = '400px'
   await new Promise((r) => setTimeout(r, 120))
   result.narrowLayout = panelRoot.getAttribute('data-layout')
-  result.narrowShowsControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display !== 'none'
-  result.narrowHidesLabel = !labelVisible(panelRoot.querySelector('.gp-tab__label'))
-  // Icon-only must not mean nameless: the label is clipped (1×1, absolute), not
-  // display:none, and the tab still carries it as its accessible text.
+  result.narrowFontUnmounted = panelRoot.querySelector('.gp-font') === null
   const narrowLabel = panelRoot.querySelector('.gp-tab__label')
-  const firstNarrowTab = panelRoot.querySelector('.gp-tabbar__tabs [role="tab"]')
-  result.narrowLabelKept = narrowLabel !== null && getComputedStyle(narrowLabel).display !== 'none'
-    && (firstNarrowTab?.textContent ?? '').includes(narrowLabel.textContent ?? '\u0000')
+  result.narrowShowsLabel = labelVisible(narrowLabel)
+  result.narrowShortLabel = narrowLabel?.textContent ?? null
   result.narrowKeepsIcon = getComputedStyle(panelRoot.querySelector('.gp-tab__icon')).display !== 'none'
   result.narrowHidesVersion = verbar() === null
-  result.narrowSameRow = sameRow()
   result.narrowTabBarRows = Math.round(panelRoot.querySelector('.gp-tabbar').getBoundingClientRect().height)
+  // Compact indicator geometry: the platform slides a direct aria-hidden span
+  // whose width must track the selected column (pinned DOM contract).
+  {
+    const tabs = [...panelRoot.querySelectorAll('.gp-tabbar__tabs [role="tab"]')]
+    const indicator = panelRoot.querySelector('.gp-tabbar__tabs > span[aria-hidden="true"]')
+    const selected = tabs.find((tb) => tb.getAttribute('aria-selected') === 'true')
+    result.narrowIndicatorTracksTab = indicator !== null && selected !== null && tabs.length === 3
+      && Math.abs(indicator.getBoundingClientRect().width - selected.getBoundingClientRect().width) <= 2
+      && Math.abs(indicator.getBoundingClientRect().left - selected.getBoundingClientRect().left) <= 2
+  }
   panelHost.style.width = '260px'
   await new Promise((r) => setTimeout(r, 80))
-  result.tinyHidesLabel = !labelVisible(panelRoot.querySelector('.gp-tab__label'))
+  result.tinyShowsLabel = labelVisible(panelRoot.querySelector('.gp-tab__label'))
   result.tinyKeepsIcon = getComputedStyle(panelRoot.querySelector('.gp-tab__icon')).display !== 'none'
-  result.tinyShowsControls = getComputedStyle(panelRoot.querySelector('.gp-font')).display !== 'none'
-  result.tinySameRow = sameRow()
+  result.tinyFontUnmounted = panelRoot.querySelector('.gp-font') === null
   panelHost.style.width = '1000px'
   await new Promise((r) => setTimeout(r, 120))
   result.restoresLayout = panelRoot.getAttribute('data-layout')
   result.restoresLabel = labelVisible(panelRoot.querySelector('.gp-tab__label'))
   result.restoresVersion = verbar() !== null
+  result.restoresFont = panelRoot.querySelector('.gp-font') !== null
   const changesTab = [...document.querySelectorAll('.gp-panel [role="tab"]')].find((t) => (t.textContent || '').includes('tab.changes'))
   if (changesTab) { changesTab.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.hasStats = document.querySelector('.gp-stats') !== null

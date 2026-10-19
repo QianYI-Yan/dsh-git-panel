@@ -98,7 +98,7 @@ await page.evaluate(async ({ snap, tree }) => {
   window.ReactDOM.createRoot(panelHost).render(registered['conversation.view'].component({ sessionId: 'sess-1' }))
   await new Promise((r) => setTimeout(r, 700))
   window.__panelHost = panelHost
-  const tab = [...document.querySelectorAll('.gp-tabbar [role="tab"]')].find((t) => (t.textContent || '').includes('文件浏览'))
+  const tab = [...document.querySelectorAll('.gp-tabbar [role="tab"]')].find((t) => (t.textContent || '').includes('文件') || (t.textContent || '').includes('tab.files'))
   tab?.click()
   await new Promise((r) => setTimeout(r, 600))
   window.__expand = async (name) => {

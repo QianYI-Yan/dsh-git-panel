@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import type { WorktreeStats } from './types.js'
 import type { GitKey } from './locales.js'
 import { absoluteTime, timeAgo } from './time.js'
+import { useHoverTip } from './tip.js'
 
 interface StatsProps {
   /** Stats ride the snapshot (single git source); no separate query. */
@@ -15,6 +16,9 @@ interface StatsProps {
 
 export function ChangeStats({ stats, compact = false, t }: StatsProps): JSX.Element {
   const now = Date.now()
+  // Snappy shared tip for the partial-stats marker (a native `title` waits
+  // half a second and feels unresponsive on a frequently rescanned bar).
+  const { tipProps, tipNode } = useHoverTip({ placement: 'below', maxWidth: 280 })
 
   const items: JSX.Element[] = [
     h('span', { key: 'files', className: 'gp-stats__item' }, t('stats.files', { n: stats.fileCount })),
@@ -29,11 +33,16 @@ export function ChangeStats({ stats, compact = false, t }: StatsProps): JSX.Elem
   if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item' }, t('stats.untracked', { n: stats.untracked })))
   // On a very large change set the host skips the per-file line/mtime fan-outs
   // (issue #16); flag that the "+/-" count omits untracked lines so it isn't
-  // read as exact.
-  if (stats.partial) items.push(h('span', { key: 'partial', className: 'gp-stats__item gp-stats__partial', title: t('stats.partialHint') }, t('stats.partial')))
+  // read as exact. The hint rides the shared fast tip, not a native title.
+  if (stats.partial) items.push(h('span', {
+    key: 'partial', className: 'gp-stats__item gp-stats__partial',
+    'aria-label': t('stats.partial'),
+    ...tipProps(t('stats.partialHint')),
+  }, t('stats.partial')))
 
   // The two timestamps live in one wrap-together group so they always share a
-  // line instead of the last-commit time dropping to its own row.
+  // line instead of the last-commit time dropping to its own row. Absolute
+  // times are secondary detail on hover — the native title delay is fine here.
   const times: JSX.Element[] = []
   if (stats.lastChangeAt !== null) {
     times.push(h('span', { key: 'lc', className: 'gp-stats__item', title: absoluteTime(stats.lastChangeAt) }, t('stats.lastChange', { time: timeAgo(stats.lastChangeAt, now, t) })))
@@ -49,7 +58,13 @@ export function ChangeStats({ stats, compact = false, t }: StatsProps): JSX.Elem
   // single clipped line — the timestamps (and any disclosure control) are
   // dropped so the bar never costs a second row above the change list.
   if (!compact) {
-    return h('div', { className: 'gp-stats' }, timesBlock === null ? items : [...items, timesBlock])
+    return h('div', { className: 'gp-stats' }, [
+      ...(timesBlock === null ? items : [...items, timesBlock]),
+      tipNode,
+    ])
   }
-  return h('div', { className: 'gp-stats gp-stats--compact' }, h('div', { key: 'main', className: 'gp-stats__main' }, items))
+  return h('div', { className: 'gp-stats gp-stats--compact' }, [
+    h('div', { key: 'main', className: 'gp-stats__main' }, items),
+    tipNode,
+  ])
 }

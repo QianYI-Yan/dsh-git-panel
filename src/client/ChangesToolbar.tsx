@@ -4,7 +4,7 @@ import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
 import type { GitSnapshot } from './types.js'
 import { RefreshIcon, StageAllIcon, StashIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
-import { useHoverTip } from './tip.js'
+import { TipWrapper, useHoverTip } from './tip.js'
 import { canPush } from './push-policy.js'
 
 interface ChangesToolbarProps {
@@ -34,12 +34,16 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     finally { refreshFlight.current = false; setRefreshing(false) }
   }
   const disabled = busy || refreshing
-  const button = (key: string, label: GitKey, icon: JSX.Element, unavailable: boolean, onClick: () => void, extraClass = ''): JSX.Element => h('button', {
-    key, type: 'button', className: `gp-icon-btn gp-changes__${key}${extraClass}`,
+  // Tip handlers live on a non-disabled wrapper: a `disabled` button swallows
+  // mouse events, so hover would never reach the button itself (issue #61).
+  const button = (key: string, label: GitKey, icon: JSX.Element, unavailable: boolean, onClick: () => void, extraClass = ''): JSX.Element => h(TipWrapper, {
+    key, tipProps: tipProps(t(label)),
+  }, h('button', {
+    type: 'button', className: `gp-icon-btn gp-changes__${key}${extraClass}`,
     'aria-label': t(label), disabled: disabled || unavailable,
     ...(key === 'refresh' ? { 'aria-busy': refreshing } : {}),
-    ...tipProps(t(label)), onClick: () => { hideTip(); onClick() },
-  }, h('span', { 'aria-hidden': true }, icon))
+    onClick: () => { hideTip(); onClick() },
+  }, h('span', { 'aria-hidden': true }, icon)))
   return h('div', { className: 'gp-toolbar gp-changes__toolbar', role: 'group', 'aria-label': t('changes.actions') }, [
     button('stage-all', 'changes.stageAll', h(StageAllIcon, { size: 16 }), snapshot.changes.length === 0, props.onStageAll),
     button('unstage-all', 'changes.unstageAll', h(UnstageAllIcon, { size: 16 }), snapshot.staged === 0, props.onUnstageAll),

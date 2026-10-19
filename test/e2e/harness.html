@@ -1,5 +1,14 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>gp-e2e</title></head>
+<html><head><meta charset="utf-8"><title>gp-e2e</title>
+<style>
+  /* Mirror the platform SegmentedTabs.module.css geometry the plugin's compact
+     overrides depend on: relative track, absolutely positioned indicator. */
+  [role="tablist"]{position:relative;display:grid;padding:4px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,#e9eaec)}
+  [role="tablist"]>.dsh-segmented-indicator{position:absolute;inset:4px auto 4px 4px;box-sizing:border-box;border:0.5px solid var(--dsw-alias-border-l3,#ccc);border-radius:6px;background:var(--dsw-alias-bg-layer-3,#fff);transition:transform 180ms ease;pointer-events:none}
+  [role="tablist"]>.dsh-segmented-tab{position:relative;justify-content:center;height:34px;padding:0 12px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#666);font:inherit;font-size:14px;cursor:pointer}
+  [role="tablist"]>.dsh-segmented-tab[aria-selected="true"]{color:var(--dsw-alias-label-primary,#111);font-weight:600}
+</style>
+</head>
 <body>
 <div id="tabbar"></div>
 <div id="panel" style="width:1000px;height:600px;border:1px solid #333"></div>

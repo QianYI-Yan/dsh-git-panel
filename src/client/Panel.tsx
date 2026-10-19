@@ -15,21 +15,20 @@ import { FilesTab } from './FilesTab.js'
 import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { useHoverTip } from './tip.js'
-import type { GitAction, GitVersionInfo } from './types.js'
+import { hasConfigForms, writePanelConfigField } from './config-write.js'
+import type { FontDelta, GitAction, GitVersionInfo } from './types.js'
 import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
 
-const FONT_DELTA_KEY = 'gp.panel.fontDelta'
-
-type FontDelta = -1 | 0 | 1
-
-function readFontDelta(): FontDelta {
-  if (typeof localStorage === 'undefined') return 0
-  const value = Number(localStorage.getItem(FONT_DELTA_KEY))
+function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
 }
+
+/** Pre-migration localStorage key for the panel font step (removed from the
+ * write path when fontDelta moved into the host config). */
+const LEGACY_FONT_KEY = 'gp.panel.fontDelta'
 
 interface PanelProps {
   readonly ctx: ClientCtx
@@ -39,7 +38,10 @@ interface PanelProps {
 
 export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const pageVisible = usePageVisibility()
-  const [fontDelta, setFontDelta] = useState<FontDelta>(readFontDelta)
+  const [fontPending, setFontPending] = useState<FontDelta | null>(null)
+  // Monotonic token for the latest font write: a slow host set for an older
+  // click must not clear (or race) a newer pending step.
+  const fontWriteGen = useRef(0)
   const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(null)
   const [rootEl, setRootEl] = useState<HTMLElement | null>(null)
   // Compact layout kicks in on a narrow panel (phone / squeezed split): the
@@ -48,6 +50,9 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   const compact = usePanelLayout(rootEl)
   const view = useGitView(sessionId)
   const remote = gitPanelRemoteOf(ctx)
+  // The font stepper writes through the settings form; without it the control
+  // would silently no-op, so it is not rendered at all.
+  const fontWritable = hasConfigForms(ctx)
   // git not installed degrades to the file browser too; inside a repo we add a
   // notice, outside one it is a silent fallback (same as not-a-git-repo).
   const gitUnavailable = view.state === 'error' && view.error.code === 'git-unavailable'
@@ -123,14 +128,53 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
   }
 
   const adjustFont = (delta: FontDelta): void => {
-    setFontDelta(delta)
-    if (typeof localStorage !== 'undefined') localStorage.setItem(FONT_DELTA_KEY, String(delta))
+    if (delta === fontDelta) return
+    const gen = ++fontWriteGen.current
+    setFontPending(delta)
+    void writePanelConfigField(ctx, 'fontDelta', delta).then((ok) => {
+      // Ignore a write that lost the race to a newer click. A failed write
+      // drops the optimistic step; a successful one keeps it until the
+      // resynced snapshot catches up (effect below).
+      if (fontWriteGen.current !== gen) return
+      if (!ok) setFontPending(null)
+    })
   }
 
+  // Font step lives in the host config and rides every snapshot; a pending
+  // write shows optimistically until the resync lands.
+  const snapFont = view.state === 'ready' ? coerceFontDelta(view.snapshot.fontDelta) : 0
+  const fontDelta = fontPending ?? snapFont
+  useEffect(() => {
+    if (fontPending !== null && snapFont === fontPending) setFontPending(null)
+  }, [snapFont, fontPending])
+
+  // One-shot bootstrap: a pre-migration localStorage step is written into the
+  // host config (only while the config still reads the default) and the key is
+  // dropped so a later reset is not resurrected from storage.
+  const fontMigrated = useRef(false)
+  useEffect(() => {
+    if (fontMigrated.current || view.state !== 'ready' || snapFont !== 0) return
+    if (typeof localStorage === 'undefined') return
+    const raw = localStorage.getItem(LEGACY_FONT_KEY)
+    if (raw === null) return
+    const legacy = coerceFontDelta(Number(raw))
+    localStorage.removeItem(LEGACY_FONT_KEY)
+    if (legacy === 0) return
+    fontMigrated.current = true
+    void writePanelConfigField(ctx, 'fontDelta', legacy)
+  }, [ctx, view, snapFont])
+
+  // Wide keeps the long labels; compact (phone / squeezed) shows a short pair
+  // so the three cells still read as words next to the trailing controls.
+  const tabLabelKeys: Record<SubTab, { full: GitKey; short: GitKey }> = {
+    overview: { full: 'tab.overview', short: 'tab.overviewShort' },
+    changes: { full: 'tab.changes', short: 'tab.changesShort' },
+    files: { full: 'tab.files', short: 'tab.filesShort' },
+  }
   const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
-    { key: 'overview', label: t('tab.overview'), icon: h(CommitIcon, { size: 14 }) },
-    { key: 'changes', label: t('tab.changes'), icon: h(DiffIcon, { size: 14 }) },
-    { key: 'files', label: t('tab.files'), icon: h(FilesIcon, { size: 14 }) },
+    { key: 'overview', label: t(compact ? tabLabelKeys.overview.short : tabLabelKeys.overview.full), icon: h(CommitIcon, { size: 14 }) },
+    { key: 'changes', label: t(compact ? tabLabelKeys.changes.short : tabLabelKeys.changes.full), icon: h(DiffIcon, { size: 14 }) },
+    { key: 'files', label: t(compact ? tabLabelKeys.files.short : tabLabelKeys.files.full), icon: h(FilesIcon, { size: 14 }) },
   ]
   // A non-git directory exposes only the Files tab.
   const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
@@ -227,16 +271,18 @@ export function Panel({ ctx, sessionId, t }: PanelProps): JSX.Element {
       }),
       // Trailing cluster (font stepper + version bar). `display:contents` in the
       // wide layout keeps it transparent to the tab-bar flex (identical to the
-      // flat layout); in compact the stepper rides the switcher's single row.
+      // flat layout). Compact drops both: the font step lives on the plugin
+      // config page, and the version cluster would cost a second tab-bar row.
+      // The stepper also requires the settings form (configForms) to write
+      // back; without it the control would silently no-op.
       h('div', { key: 'trailing', className: 'gp-tabbar__trailing' }, [
-        h('div', { key: 'font', className: 'gp-font', role: 'group', 'aria-label': t('panel.fontSize') }, [
-          h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', 'aria-pressed': fontDelta === -1, onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
-          h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', 'aria-pressed': fontDelta === 0, onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
-          h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', 'aria-pressed': fontDelta === 1, onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
-        ]),
-        // Version tag / update check / repo star are desktop chrome: on a phone
-        // they would cost a second tab-bar row (and one version RPC), so compact
-        // does not mount them at all.
+        compact || !fontWritable
+          ? null
+          : h('div', { key: 'font', className: 'gp-font', role: 'group', 'aria-label': t('panel.fontSize') }, [
+            h('button', { key: 'dec', type: 'button', className: 'gp-font__decrease', 'aria-pressed': fontDelta === -1, onClick: () => adjustFont(-1), 'aria-label': t('panel.fontDecrease') }, 'A−'),
+            h('button', { key: 'reset', type: 'button', className: 'gp-font__reset', 'aria-pressed': fontDelta === 0, onClick: () => adjustFont(0), 'aria-label': t('panel.fontReset') }, 'A'),
+            h('button', { key: 'inc', type: 'button', className: 'gp-font__increase', 'aria-pressed': fontDelta === 1, onClick: () => adjustFont(1), 'aria-label': t('panel.fontIncrease') }, 'A+'),
+          ]),
         compact ? null : h(VersionBar, { key: 'ver', remote, t }),
       ]),
     ]),

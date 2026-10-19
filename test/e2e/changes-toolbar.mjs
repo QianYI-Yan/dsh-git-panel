@@ -63,7 +63,6 @@ async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewpor
     panel.style.width = panelWidth + 'px'
     panel.style.height = '764px'
     localStorage.setItem('gp.changes.left', String(leftWidth))
-    localStorage.setItem('gp.panel.fontDelta', '0')
     const { fixture, connection } = window.createGitPanelMock(snapshot)
     fixture.fingerprints = true
     fixture.pushCalls = 0
@@ -98,8 +97,25 @@ async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewpor
     }
     const registered = {}
     const dictionaries = {}
+    // Minimal configForms so the wide font stepper can write fontDelta.
+    const configState = { fontDelta: 0 }
     const ctx = {
-      get: (key) => key === 'connection' ? connection : undefined,
+      get: (key) => key === 'connection' ? connection : key === 'configForms' ? {
+        describe: () => ({
+          getSnapshot: () => ({ status: 'ready', view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {} } } }] }, revision: 0, writable: true }),
+          subscribe: () => () => {},
+          ensure: async () => {},
+        }),
+        get: () => ({
+          getSnapshot: () => ({ status: 'ready', value: { ...configState }, revision: 0, writable: true }),
+          subscribe: () => () => {},
+          set: async (field, value) => {
+            configState[field] = value
+            if (field === 'fontDelta') fixture.snapshot = { ...fixture.snapshot, fontDelta: value }
+            return true
+          },
+        }),
+      } : undefined,
       effect: (cb) => cb(),
       on: (event, cb) => { if (event === 'connection/reset') fixture.resetConnection = cb; return () => {} },
       inject: (_deps, cb) => cb(ctx),
@@ -204,16 +220,26 @@ async function geometryScenario() {
         assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, false], 'clean repo keeps refresh enabled')
         assert.equal(await page.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
       }
-      await page.locator('.gp-font__increase').click()
-      await flush(page)
-      assert.equal(await page.locator('.gp-panel').getAttribute('data-font-delta'), '1')
-      await geometry(page, `${state}, ${label}, font +1`)
-      if (state === 'clean' && label === 'wide left 380') {
-        await page.locator('.gp-font__reset').click()
+      // Compact unmounts the font stepper (it lives on the config page).
+      if (label !== 'compact 320') {
+        await page.locator('.gp-font__increase').click()
         await flush(page)
+        assert.equal(await page.locator('.gp-panel').getAttribute('data-font-delta'), '1')
+        await geometry(page, `${state}, ${label}, font +1`)
+        if (state === 'clean' && label === 'wide left 380') {
+          await page.locator('.gp-font__reset').click()
+          await flush(page)
+          const left = await page.locator('.gp-changes__left').boundingBox()
+          mkdirSync(dirname(SCREENSHOT), { recursive: true })
+          await page.screenshot({ path: SCREENSHOT, clip: { x: left.x, y: left.y, width: left.width, height: Math.min(left.height, 320) } })
+        }
+      } else {
+        assert.equal(await page.locator('.gp-font').count(), 0, 'compact layout has no font stepper')
         const left = await page.locator('.gp-changes__left').boundingBox()
-        mkdirSync(dirname(SCREENSHOT), { recursive: true })
-        await page.screenshot({ path: SCREENSHOT, clip: { x: left.x, y: left.y, width: left.width, height: Math.min(left.height, 320) } })
+        if (state === 'clean') {
+          mkdirSync(dirname(SCREENSHOT), { recursive: true })
+          await page.screenshot({ path: SCREENSHOT, clip: { x: left.x, y: left.y, width: left.width, height: Math.min(left.height, 320) } })
+        }
       }
       await page.close()
     }
@@ -439,9 +465,28 @@ async function pushFailureAndStaleScenario() {
   }
 }
 
+/** A disabled control must still explain itself on hover (issue #61). */
+async function disabledTipScenario() {
+  const page = await openPanel(CLEAN)
+  // Clean repo: the first five entries are disabled, refresh stays enabled.
+  // A disabled button is pointer-events:none so the tip shell takes the hover.
+  const shell = page.locator('.gp-tip-wrap', { has: page.locator('.gp-changes__stage-all') })
+  assert.equal(await page.locator('.gp-changes__stage-all').isDisabled(), true, 'stage-all is disabled on a clean repo')
+  await shell.hover()
+  await page.waitForFunction(() => document.querySelector('.gp-tip')?.textContent === '全部暂存')
+  assert.equal(await page.locator('.gp-tip').evaluate((tip) => tip.parentElement === document.body), true, 'disabled hover hint is portaled')
+  await page.mouse.move(1430, 750)
+  await page.waitForFunction(() => document.querySelector('.gp-tip') === null)
+  // The tip shell must not change the button box (geometry suite still pins it).
+  const box = await page.locator('.gp-changes__stage-all').boundingBox()
+  assert.ok(box !== null && box.width >= 24 && box.height >= 24, 'disabled button keeps its geometry')
+  await page.close()
+}
+
 try {
   await geometryScenario()
   await tipsAndStageScenario()
+  await disabledTipScenario()
   await refreshScenario()
   await pushScenario()
   await pushFailureAndStaleScenario()
