@@ -84,7 +84,8 @@ jobs:
           V="${{ steps.state.outputs.version }}"
           if [ "${{ steps.state.outputs.prerelease }}" = "true" ]; then
             FILE="$RUNNER_TEMP/prerelease-notes.md"
-            sed -e "s|<TAG>|v$V|g" -e "s|<VERSION>|$V|g" .github/PRERELEASE_BODY.md > "$FILE"
+            # Drop the authoring comments: the body is published verbatim.
+            sed -e '/^<!--/,/-->/d' -e "s|<TAG>|v$V|g" -e "s|<VERSION>|$V|g" .github/PRERELEASE_BODY.md > "$FILE"
           else
             FILE="docs/releases/v$V.md"
             # The body ships with the release commit; a missing file must fail
