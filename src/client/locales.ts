@@ -154,6 +154,7 @@ export const zh = {
   'changes.truncatedCap': '变更过多，列表仅显示前 {n} 项；计数仍为全部变更的统计',
   'changes.truncatedLossy': 'Git 输出超出上限，列表可能缺少开头部分',
   'changes.truncatedUnknown': '列表不完整，可能缺少部分变更',
+  'changes.noRemoteTarget': '当前分支没有可推送或可发布的提交（已同步、已落后或已分叉，或没有可用的远程）',
   // stash（贮藏；apply=应用、pop=弹出、drop=丢弃，对齐 Git 操作语义）
   'stash.title': '贮藏当前更改',
   'stash.messagePlaceholder': '贮藏说明（可选）',
@@ -254,6 +255,10 @@ export const zh = {
   'commit.suggesting': '生成中…',
   'commit.suggestOverwrite': '再次点击「AI 生成」以覆盖当前提交信息',
   'commit.suggestTruncated': 'diff 过长已截断，生成的建议可能不完整',
+  // Publish entry beside the commit box: the branch exists only locally, so the
+  // remote write is "create it there" (push -u) rather than a plain push.
+  'commit.publish': '发布分支',
+  'commit.publishTitle': '远程还没有这个分支：创建同名远程分支并设为上游（git push -u）',
   // diff
   'diff.unified': '统一',
   'diff.split': '对照',
@@ -302,6 +307,7 @@ export const zh = {
   'error.notFastForward': '本地与远程分支已分叉，无法快进拉取，请手动合并或变基',
   'error.pushRejected': '推送被拒绝：远程已有新提交，请先「检查同步」并拉取后再推送',
   'error.authFailed': '认证失败：没有可用的 git 凭据（HTTPS 需凭据助手、SSH 需密钥）。请先在命令行完成一次推送以缓存凭据',
+  'error.noBranch': '当前不在任何分支上（游离 HEAD 或尚无提交），无法发布分支：请先切到分支并完成一次提交',
   // left-column status bar (repo link + branch sync)
   'status.openRepo': '在浏览器打开仓库主页',
   'status.openRepoOn': '在 {host} 打开仓库主页',
@@ -529,6 +535,7 @@ export const en: Record<GitKey, string> = {
   'changes.truncatedCap': 'Too many changes — showing the first {n}; counts still cover all changes',
   'changes.truncatedLossy': 'Git output exceeded the limit; the list may be missing its opening entries',
   'changes.truncatedUnknown': 'The list is incomplete; some changes may be missing',
+  'changes.noRemoteTarget': 'This branch has nothing to push or publish (already in sync, behind, diverged, or no usable remote)',
   'stash.title': 'Stash current changes',
   'stash.messagePlaceholder': 'Stash message (optional)',
   'stash.save': 'Stash',
@@ -625,6 +632,8 @@ export const en: Record<GitKey, string> = {
   'commit.suggesting': 'Generating…',
   'commit.suggestOverwrite': 'Click "AI suggest" again to replace the current message',
   'commit.suggestTruncated': 'The diff was truncated; the suggestion may be incomplete',
+  'commit.publish': 'Publish Branch',
+  'commit.publishTitle': 'The remote has no such branch yet: create a same-named remote branch and set it as upstream (git push -u)',
   'diff.unified': 'Unified',
   'diff.split': 'Split',
   'diff.before': 'Before',
@@ -670,6 +679,7 @@ export const en: Record<GitKey, string> = {
   'error.notFastForward': 'Local and remote have diverged — a fast-forward pull is not possible; merge or rebase manually',
   'error.pushRejected': 'Push rejected: the remote has new commits — run “Check sync” and pull first, then push',
   'error.authFailed': 'Authentication failed: no usable git credentials (HTTPS needs a credential helper, SSH needs a key). Push once from the command line first to cache them',
+  'error.noBranch': 'HEAD is not on a branch (detached, or no commits yet), so there is no branch to publish: switch to a branch and commit first',
   'status.openRepo': 'Open the repository home in the browser',
   'status.openRepoOn': 'Open the repository home on {host}',
   'status.synced': 'Up to date with remote',

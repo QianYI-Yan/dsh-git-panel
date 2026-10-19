@@ -32,6 +32,7 @@ import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
 import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
 import { PushModal } from './PushModal.js'
+import { PublishModal } from './PublishModal.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
@@ -406,16 +407,6 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       else setOpError(res.error ?? t('error.generic'))
     } finally { setPullBusy(false) }
   }
-  const runPublish = async (): Promise<void> => {
-    if (publishBusy || snapshot.remote === null) return
-    setOpError(null)
-    setPublishBusy(true)
-    try {
-      const res = await onAction({ kind: 'publish', remote: snapshot.remote.name })
-      if (res.ok) setPublishConfirm(false)
-      else setOpError(res.error ?? t('error.generic'))
-    } finally { setPublishBusy(false) }
-  }
   // One status-bar callback set, shared by the wide and compact placements.
   const statusCbs = {
     syncBusy, syncError, pullBusy, pushBusy, publishBusy,
@@ -512,16 +503,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onBusyChange: setPushBusy,
       t,
     }) : null,
-    publishConfirm ? renderConfirmModal({
-      title: t('status.publishConfirmTitle'),
-      body: t('status.publishConfirmBody', { branch: snapshot.branch ?? 'HEAD', remote: snapshot.remote?.name ?? 'origin' }),
-      confirmLabel: t('status.publishConfirm'),
-      danger: false,
-      error: opError,
-      confirmBusy: publishBusy,
-      busyLabel: t('status.publishing'),
-      onConfirm: () => void runPublish(),
+    publishConfirm ? h(PublishModal, {
+      key: 'publish',
+      snapshot,
+      onAction,
       onClose: () => setPublishConfirm(false),
+      onBusyChange: setPublishBusy,
       t,
     }) : null,
     switchTarget !== null ? renderBranchSwitchConfirm(switchTarget, {

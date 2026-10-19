@@ -43,6 +43,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     // The cause varies (branch in use, missing ref, conflict), so the raw git
     // message rides along — the localized text alone would not say why.
     case 'stash-switch-failed': return t('error.stashSwitchFailed', { reason: message ?? '' })
+    // Publishing needs a branch to name the remote side after: a detached HEAD
+    // or a repository without commits has none.
+    case 'no-branch': return t('error.noBranch')
     case 'invalid-name':
     case 'invalid-index': return t('error.invalidName')
     default: return message ?? t('error.generic')

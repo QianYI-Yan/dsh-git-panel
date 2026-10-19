@@ -2483,3 +2483,51 @@ test('publish rejects a hostile remote name before spawning git', async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('publish refuses a detached HEAD instead of leaking a git refspec hint', async () => {
+  const dir = await freshRepo('gp-publish-detached-')
+  try {
+    await runGit(dir, ['checkout', '-q', '--detach'])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'publish', remote: 'origin' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'no-branch')
+    assert.ok(!/refspec|full refname/i.test(res.error.message ?? ''), 'no raw git hint reaches the client')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('publish reports a branch probe that never ran as itself, not as a detached HEAD', async () => {
+  const dir = await freshRepo('gp-publish-probe-')
+  // Fail only the publish branch probe; workspace resolution and the unborn
+  // check still run for real against the temp repo.
+  const failing = {
+    spawn(spec) {
+      if (spec.argv.includes('symbolic-ref') && spec.argv.includes('--short')) throw new Error('spawn git ENOENT')
+      return subprocess.spawn(spec)
+    },
+  }
+  try {
+    const deps = { ...depsAt(dir), run: createGitRunner(failing, DEFAULT_CONFIG.timeoutMs, DEFAULT_CONFIG.maxBytes) }
+    const res = await runAction(deps, DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'publish', remote: 'origin' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'git-unavailable', 'a probe that never ran says nothing about the branch')
+    assert.match(res.error.message ?? '', /ENOENT/, 'the underlying spawn failure rides along')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('publish refuses a repository with no commits to send', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-publish-unborn-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    const res = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'publish', remote: 'origin' } })
+    assert.equal(res.ok, false)
+    assert.equal(res.error.code, 'no-branch')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

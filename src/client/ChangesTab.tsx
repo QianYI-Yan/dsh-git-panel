@@ -11,8 +11,9 @@ import { useGitQuerySignal } from './registry.js'
 import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from './types.js'
 import type { GitKey } from './locales.js'
 import { ChangeStats } from './ChangeStats.js'
+import { canPublish } from './push-policy.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
-import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon } from './icons.js'
+import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
 import { statusChar, statusClass } from './status.js'
 import { useResizableColumn } from './resizable.js'
 import { segButtons } from './seg.js'
@@ -25,6 +26,7 @@ import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
 import { PushModal } from './PushModal.js'
+import { PublishModal } from './PublishModal.js'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -71,10 +73,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [actionBusy, setBusy] = useState(false)
   const [pushOpen, setPushOpen] = useState(false)
   const [pushBusy, setPushBusy] = useState(false)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [publishBusy, setPublishBusy] = useState(false)
   // Expanding a truncated list is itself a snapshot flight: it locks the same
   // controls `busy` does so a pick cannot race the incoming full list.
   const [expanding, setExpanding] = useState(false)
-  const busy = actionBusy || pushBusy || expanding
+  const busy = actionBusy || pushBusy || publishBusy || expanding
   const [error, setError] = useState<string | null>(null)
   const [closed, setClosed] = useState<ReadonlySet<GroupKey>>(new Set())
   const [armedDiscard, setArmedDiscard] = useState<string | null>(null)
@@ -503,6 +507,19 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       }, t('commit.commit')),
     ])
 
+  // VSCode-style "Publish Branch" strip: the branch exists only locally, so
+  // there is no upstream to push to yet. Rendered above the commit editor where
+  // the eye lands right after committing, and kept out of the way whenever the
+  // branch can be pushed normally (or has nowhere to go).
+  const publishBar = canPublish(snapshot)
+    ? h('div', { key: 'publishbar', className: 'gp-publishbar' }, h('button', {
+      type: 'button', className: 'gp-btn gp-btn--primary gp-publishbar__btn',
+      disabled: busy,
+      title: t('commit.publishTitle'),
+      onClick: () => { hideTip(); setPublishOpen(true) },
+    }, [h(UploadIcon, { key: 'ic', size: 13 }), t('commit.publish')]))
+    : null
+
   const collapsedNotice = t('changes.untrackedCollapsed')
   const truncatedNotice = t(
     snapshot.truncatedReason === 'lossy'
@@ -521,6 +538,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onDiscardAll: () => { setError(null); setDiscardAllOpen(true) },
       onStash: () => { setError(null); setStashPushOpen(true) },
       onPush: () => { hideTip(); setPushOpen(true) },
+      onPublish: () => { hideTip(); setPublishOpen(true) },
       onRefresh, t,
     }),
     error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
@@ -652,6 +670,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         t,
       }))),
     ]) : null,
+    publishBar,
     commitBox,
   ]
 
@@ -697,6 +716,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // rendered by both layouts.
   const modals: (JSX.Element | null)[] = [
     pushOpen ? h(PushModal, { key: 'remote-push', remote, sessionId, snapshot, onAction, onClose: () => setPushOpen(false), onBusyChange: setPushBusy, t }) : null,
+    publishOpen ? h(PublishModal, { key: 'remote-publish', snapshot, onAction, onClose: () => setPublishOpen(false), onBusyChange: setPublishBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
     stashDrop !== null ? renderConfirmModal({
       title: t('stash.dropTitle'),
