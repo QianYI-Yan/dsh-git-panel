@@ -153,11 +153,14 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
   // Manual refresh from the tree's floating button: re-lists the open
   // directories and re-reads the selected file. `refreshFlight` keeps one
-  // refresh at a time (the button is disabled while it runs); `dirGen` drops
-  // listings that a branch switch made stale while they were in flight.
+  // refresh at a time (the button is disabled while it runs). `dirGen` drops
+  // every listing a branch switch made stale; `dirSeq` keeps the newest request
+  // per directory, so an older listing that lands last cannot overwrite a
+  // refresh that already arrived.
   const [refreshing, setRefreshing] = useState(false)
   const refreshFlight = useRef(false)
   const dirGen = useRef(0)
+  const dirSeq = useRef(new Map<string, number>())
   // Instance-scoped ids for the official source/render SegmentedControl: its
   // tabs name `<id>-<value>-panel`, so compact keeps one panel per mode.
   const modeId = useId()
@@ -218,9 +221,14 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   // Listing of one directory. `force` re-reads a directory that is already
   // listed, keeping its current entries mounted until the new listing lands;
   // the normal path only starts a listing that is missing or failed. A
-  // response from before a branch switch is dropped by `dirGen`.
+  // response from before a branch switch is dropped by `dirGen`; a response
+  // superseded by a newer request for the same directory is dropped by
+  // `dirSeq`, whichever order they arrive in.
   const loadDir = useCallback((path: string, force = false): Promise<void> => {
     const gen = dirGen.current
+    const seq = (dirSeq.current.get(path) ?? 0) + 1
+    dirSeq.current.set(path, seq)
+    const current = (): boolean => gen === dirGen.current && dirSeq.current.get(path) === seq
     setDirs((prev) => {
       const cur = prev.get(path)
       if (cur !== undefined && (force ? cur.status === 'ready' : cur.status !== 'error')) return prev
@@ -229,7 +237,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       return next
     })
     return remote.query({ sessionId, query: { kind: 'dir-list', path } }).then((res) => {
-      if (gen !== dirGen.current) return
+      if (!current()) return
       const dl = queryAs(res, 'dir-list')
       setDirs((prev) => {
         const next = new Map(prev)
@@ -237,7 +245,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
         return next
       })
     }).catch(() => {
-      if (gen !== dirGen.current) return
+      if (!current()) return
       setDirs((prev) => { const next = new Map(prev); next.set(path, { status: 'error' }); return next })
     })
   }, [remote, sessionId])
@@ -254,6 +262,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     if (genRef.current === worktreeGen) return
     genRef.current = worktreeGen
     dirGen.current += 1
+    dirSeq.current.clear()
     fileSeq.current += 1
     filesCache.delete(sessionId)
     setDirs(new Map())
