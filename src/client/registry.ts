@@ -103,7 +103,7 @@ export function useGitView(sessionId: string | undefined): GitView {
     // A snapshot may publish between render and effect subscription.
     // `view` is the render-time baseline of that race check, not a data
     // source: depending on it would tear down and rebuild the subscription on
-    // every publish, since each snapshot is a fresh object.
+    // every view change; later publishes already reach the live subscription.
     if (controller.getSnapshot() !== view) forceRender((n) => n + 1)
     controller.ensure()
     return () => { unsub(); release(sessionId, controller) }

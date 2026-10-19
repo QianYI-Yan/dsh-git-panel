@@ -1,7 +1,7 @@
 // Flat config for the architecture guardrails (see docs/adr/0017 + the plan's
 // T0.2). Scope is deliberately narrow: the two classic hooks rules that the
-// four pre-existing `eslint-disable-next-line react-hooks/exhaustive-deps`
-// comments were suppressing, plus typescript-eslint's recommended set.
+// project's `eslint-disable-next-line react-hooks/exhaustive-deps` comments
+// were suppressing, plus typescript-eslint's recommended set.
 //
 // `eslint-plugin-react-hooks@7` also ships React-Compiler rules
 // (set-state-in-effect / refs / immutability / static-components …). They are
@@ -53,8 +53,8 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
-      // Warn, not error: the project already suppresses 4 of these, and the
-      // data-flow contract (AGENTS.md「数据流铁律」) requires some deps stay
+      // Warn, not error: the project already suppresses a number of these, and
+      // the data-flow contract (AGENTS.md「数据流铁律」) requires some deps stay
       // out on purpose. Turning it into an error would push people to add
       // snapshot/checkedAt to dep arrays, which breaks the refresh contract.
       'react-hooks/exhaustive-deps': 'warn',

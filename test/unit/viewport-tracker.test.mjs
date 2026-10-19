@@ -48,21 +48,32 @@ test('attaching an element adopts its current scroll position and height', () =>
   d.unmount()
 })
 
-test('an identical scroll position does not schedule a re-render', () => {
-  const el = { scrollTop: 40, clientHeight: 200, addEventListener() {}, removeEventListener() {} }
-  const hook = () => useViewportTracker()
-  const d = mount(hook)
-  d.value.setEl(el)
-  d.rerender()
-  // Drive the listener path: scrollTop unchanged → the hook returns `prev`, so
-  // the shallow-equal state value keeps the slot (and any dependent memo) put.
+const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve))
+
+test('an identical scroll position does not schedule a re-render', async () => {
   let rendered = 0
   const counting = () => { rendered++; return useViewportTracker() }
-  const c = mount(counting)
+  const c = mount(counting, { autoRender: true })
+  let onScroll = null
+  const el = {
+    scrollTop: 40,
+    clientHeight: 200,
+    addEventListener(type, fn) { if (type === 'scroll') onScroll = fn },
+    removeEventListener() {},
+  }
   c.value.setEl(el)
-  c.rerender()
+  await flushMicrotasks()
+  assert.equal(c.value.viewport.top, 40, 'attach adopts the current scroll position')
+  assert.ok(onScroll, 'the tracker registers a scroll listener')
   const before = rendered
-  c.settle()
+  // Unchanged rect → the setter returns `prev`, so the state slot (and any
+  // dependent memo) stays put and no render is scheduled.
+  onScroll()
+  await flushMicrotasks()
   assert.equal(rendered, before, 'no extra render when the rect is unchanged')
+  el.scrollTop = 99
+  onScroll()
+  await flushMicrotasks()
+  assert.equal(rendered, before + 1, 'a moved rect schedules exactly one render')
   c.unmount()
 })
