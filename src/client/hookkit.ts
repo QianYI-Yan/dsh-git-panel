@@ -2,6 +2,7 @@
 export { useBranchTree, useHistory, useCommitDetail } from './overview-hooks.js'
 export { useChangesData } from './changes-hooks.js'
 export { usePageVisibility } from './use-page-visibility.js'
+export { useViewportTracker } from './use-viewport.js'
 export { pageVisibility } from './visibility.js'
 export { GitController } from './controller.js'
 export { useImageDiff } from './image-diff-hook.js'

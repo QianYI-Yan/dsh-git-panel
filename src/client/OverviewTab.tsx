@@ -219,7 +219,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       remote: buildBranchTree(pinPrimaryFirst(remote, remotePrimary)),
       tags: buildBranchTree(tree?.tags ?? []),
     }
-  }, [tree?.local, tree?.remote, tree?.tags, tree?.current, tree?.defaultBranch, remoteName])
+  }, [tree, remoteName])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
   const { commits, topology, appliedFilter, loading, listError, hasMore, listRef, loadMore } = useHistory(
@@ -256,6 +256,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (compact) setPane('detail')
   }
 
+  // Relative-time baseline: `commits` (a fresh array per history query) and
+  // `querySignal.sampledAt` are deliberate triggers — neither is read in the
+  // body — so every poll re-stamps `now` and the displayed relative times
+  // never drift behind the row refresh that follows the same query.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [commits, querySignal.sampledAt])
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected

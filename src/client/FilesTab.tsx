@@ -709,7 +709,7 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [])
+  }, [containerRef])
 
   // Virtualization: mount only the rows in (or near) the viewport. Uniform row
   // height, so the window math reuses the shared prefix-sum helpers. Wrap mode

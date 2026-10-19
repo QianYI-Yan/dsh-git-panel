@@ -232,6 +232,9 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
       out[i] = measured !== undefined && measured > 0 ? measured : estimateAt(i)
     }
     return out
+  // `heights` stays a dep because a mode/rows change replaces the array;
+  // `measureTick` adds the in-place measurement updates on top.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [count, heights, estimateAt, measureTick])
   const tops = useMemo(() => buildTops(allHeights), [allHeights])
 
@@ -248,6 +251,13 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
   // taller than its estimate, and the prefix sums have to follow so the
   // scrollbar and the window stay honest. Corrections are applied only when
   // they differ by more than a sub-pixel, so this settles after one pass.
+  // Deliberately dependency-free: this re-measures the DOM after *every*
+  // commit. Scoping it to [scrollerRef, bodyOffset, heights] would skip the
+  // commits where the layout reflows but those identities stay put — a width
+  // or font change re-wraps rows without touching heights — and scroll
+  // commits after a resize (viewport isn't in that list either), leaving
+  // stale heights in the window math.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const body = bodyRef.current
     const scroller = scrollerRef.current
