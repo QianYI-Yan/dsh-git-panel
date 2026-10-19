@@ -37,6 +37,12 @@ interface ChangesTabProps {
   readonly onSetFullChanges: (full: boolean) => Promise<void>
   /** Compact (single-column drill-in) layout for a narrow panel. */
   readonly compact: boolean
+  /**
+   * Fold the commit editor into a one-row bar until tapped. Set on a phone-wide
+   * viewport only: a desktop panel squeezed by a sidebar keeps the full editor,
+   * so its AI entry never disappears.
+   */
+  readonly foldCommit: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -57,7 +63,7 @@ type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
   | { readonly kind: 'row'; readonly c: GitChange }
 
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, foldCommit, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -93,6 +99,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [pane, setPane] = useState<'list' | 'diff'>('list')
   // Compact: the commit editor starts folded into a one-row bar so the change
   // list keeps the panel's scarce height; tapping the bar opens it in place.
+  // Phone-only: a squeezed desktop panel gets the compact column but keeps the
+  // full editor (the fold costs the AI entry).
   const [commitOpen, setCommitOpen] = useState(false)
   // Stash stack (queried on demand), its collapse state, the push dialog, and
   // the drop-confirm target index.
@@ -101,12 +109,12 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const [stashDrop, setStashDrop] = useState<StashEntry | null>(null)
   const msgRef = useRef<HTMLTextAreaElement | null>(null)
   const commitBoxRef = useRef<HTMLDivElement | null>(null)
-  // Focus on mount when the compact bar is expanded from a tap: a callback ref
+  // Focus on mount when the folded bar is expanded from a tap: a callback ref
   // fires inside the click's own commit, so the iOS keyboard still opens.
   const setMsgEl = useCallback((el: HTMLTextAreaElement | null) => {
     msgRef.current = el
-    if (el !== null && compact && commitOpen) el.focus()
-  }, [compact, commitOpen])
+    if (el !== null && foldCommit && commitOpen) el.focus()
+  }, [foldCommit, commitOpen])
   // Virtualized change-list viewport, tracked by the shared hook (re-attaches
   // across the compact list↔diff remount).
   const { setEl: setListEl, viewport } = useViewportTracker()
@@ -194,11 +202,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Drilling into a diff hides the list pane; fold the editor so coming back
   // to the list does not land on a half-screen editor.
   useEffect(() => { if (pane === 'diff') setCommitOpen(false) }, [pane])
-  // Compact editor: pressing anywhere outside it folds it back (blank list
+  // Folded editor: pressing anywhere outside it folds it back (blank list
   // space, the toolbar, another row). The draft stays in state, so folding
   // loses nothing; pointerdown keeps it ahead of the click a row still needs.
   useEffect(() => {
-    if (!compact || !commitOpen || typeof document === 'undefined') return
+    if (!foldCommit || !commitOpen || typeof document === 'undefined') return
     const onOutside = (e: PointerEvent): void => {
       // A generation in flight owns the editor: folding it would expose a Commit
       // for the pre-generation draft while the suggestion is still on its way.
@@ -212,16 +220,16 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     }
     document.addEventListener('pointerdown', onOutside)
     return () => document.removeEventListener('pointerdown', onOutside)
-  }, [compact, commitOpen, suggesting])
+  }, [foldCommit, commitOpen, suggesting])
   // Returning from the editor (fold button or a successful commit) must not drop
   // focus to <body>; ring the collapsed bar's open control instead.
   const barOpenRef = useRef<HTMLButtonElement | null>(null)
   const wasCommitOpen = useRef(false)
   useEffect(() => {
     const was = wasCommitOpen.current
-    wasCommitOpen.current = compact && commitOpen
-    if (compact && was && !commitOpen) barOpenRef.current?.focus({ preventScroll: true })
-  }, [compact, commitOpen])
+    wasCommitOpen.current = foldCommit && commitOpen
+    if (foldCommit && was && !commitOpen) barOpenRef.current?.focus({ preventScroll: true })
+  }, [foldCommit, commitOpen])
 
   // Disarm a pending discard confirmation when the snapshot changes (the row
   // may be gone) so the destructive "click again" state can't linger.
@@ -402,14 +410,17 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   const diffModes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effDiffMode: DiffMode = compact && diffMode === 'split' ? 'unified' : diffMode
 
-  // Commit box. Wide: always the full editor. Compact: folded into one bar
-  // (placeholder or the draft's first line + commit) until tapped, which opens
-  // the editor in place — the change list gets the height back.
+  // Commit box. Everywhere but a phone: the full editor. On a phone the editor
+  // folds into one bar (placeholder or the draft's first line, the AI entry,
+  // commit) until tapped, which opens the editor in place — the change list
+  // gets the height back.
   const draft = message.trim()
   const draftLine = draft.split('\n')[0] ?? ''
   // One guard for both layouts: folding the editor must never expose a Commit
   // that the full editor would have disabled (a suggestion is in flight).
   const commitDisabled = busy || suggesting || draft === ''
+  // Generating needs changes to read; both AI entries share the rule.
+  const suggestDisabled = busy || suggesting || snapshot.changes.length === 0
   const commitEditor = h('div', { key: 'box', className: 'gp-commitbox', ref: commitBoxRef }, [
     h('div', {
       key: 'msg',
@@ -442,13 +453,13 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         snapshot.suggestEnabled !== false
           ? h('button', {
             key: 'suggest', type: 'button', className: 'gp-btn',
-            disabled: busy || suggesting || snapshot.changes.length === 0,
+            disabled: suggestDisabled,
             onClick: () => void suggest(),
             title: t('commit.suggest'),
           }, [h(SparkleIcon, { key: 'ic', size: 13 }), suggesting ? t('commit.suggesting') : t('commit.suggest')])
           : null,
         h('button', { key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary', disabled: commitDisabled, onClick: () => void commit() }, t('commit.commit')),
-        compact
+        foldCommit
           ? h('button', {
             key: 'fold', type: 'button', className: 'gp-icon-btn gp-commitbox__fold',
             disabled: suggesting,
@@ -460,7 +471,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       ]),
     ]),
   ])
-  const commitBox = !compact || commitOpen
+  const commitBox = !foldCommit || commitOpen
     ? commitEditor
     : h('div', { key: 'box', className: 'gp-commitbar' }, [
       h('button', {
@@ -474,6 +485,17 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       }, draft === ''
         ? h('span', { key: 'ph', className: 'gp-commitbar__ph' }, t('commit.placeholder'))
         : h('span', { key: 'draft', className: 'gp-commitbar__draft' }, draftLine)),
+      // The folded bar keeps the generation entry: one tap opens the editor and
+      // starts generating, so the AI button is never lost to the fold.
+      snapshot.suggestEnabled !== false
+        ? h('button', {
+          key: 'ai', type: 'button', className: 'gp-btn gp-commitbar__ai',
+          disabled: suggestDisabled,
+          title: t('commit.suggest'),
+          'aria-label': t('commit.suggest'),
+          onClick: () => { setCommitOpen(true); void suggest() },
+        }, [h(SparkleIcon, { key: 'ic', size: 13 }), t('commit.ai')])
+        : null,
       h('button', {
         key: 'commit', type: 'button', className: 'gp-btn gp-btn--primary gp-commitbar__commit',
         disabled: commitDisabled,
