@@ -276,6 +276,11 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.htmlRenderShown, true, 'switching HTML to render mounts the preview iframe')
   assert.equal(out.htmlFrameSandbox, 'allow-scripts', 'the HTML iframe runs scripts but stays a unique opaque origin (no allow-same-origin)')
   assert.equal(out.htmlFrameHasSrcdoc, true, 'the HTML iframe carries the page bytes via srcdoc (no extra fetch)')
+  assert.equal(out.htmlAssetPacked, true, 'a relative stylesheet turns the srcdoc into the asset-pack bootstrap document')
+  assert.equal(out.htmlAssetCssRead, true, 'the stylesheet is read through the host file-content route, not the network')
+  assert.equal(out.htmlAssetSandbox, 'allow-scripts', 'the packed HTML iframe keeps the opaque-origin sandbox')
+  assert.equal(out.htmlAssetBundleHasCss, true, 'the bootstrap payload carries the stylesheet text for the in-iframe blob rewrite')
+  assert.equal(out.htmlAssetFallback, true, 'a missing asset abandons the pack and the plain page bytes render')
   assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
   assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
   assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
@@ -381,5 +386,9 @@ export function assertPanelResults(out, realInput, errors) {
   assert.ok(realInput !== null && realInput.after.left > realInput.before.left && realInput.after.top > realInput.before.top, `real input: a mouse drag pans the zoomed image (${JSON.stringify(realInput?.before)} -> ${JSON.stringify(realInput?.after)})`)
   assert.equal(realInput?.after.pct, realInput?.before.pct, 'real input: a drag leaves the zoom level untouched')
   assert.equal(realInput?.after.lightbox, false, 'real input: a drag never opens the lightbox')
-  assert.equal(errors.length, 0, 'no console errors: ' + JSON.stringify(errors))
+  // The unpacked.html fixture's abandoned pack leaves its relative
+  // `missing.css` reference exactly as authored, so the iframe still asks
+  // for it and file:// refuses — that one failed load IS the fall-back
+  // under test. Every other console error stays fatal.
+  assert.deepEqual(errors.filter((message) => !/missing\.css/.test(message)), [], 'no console errors: ' + JSON.stringify(errors))
 }

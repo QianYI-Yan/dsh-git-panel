@@ -35,6 +35,7 @@
 | [ADR-0017](0017-test-and-gate-strategy.md) | 测试与门禁策略 | 工程 |
 | [ADR-0018](0018-distribution-channels.md) | 分发渠道与产物来源（正式版 npm + Release 附件；预发布只走 GitHub） | 分发 |
 | [ADR-0019](0019-release-process.md) | 发布流程与发布说明 | 分发 |
+| [ADR-0020](0020-html-preview-asset-packing.md) | HTML 预览的相对资源打包（镜像官方 packHtml） | 安全 |
 
 ## 有效期
 

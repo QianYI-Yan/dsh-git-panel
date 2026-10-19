@@ -1233,6 +1233,42 @@ const out = await page.evaluate(async (snap) => {
   result.htmlRenderShown = htmlFrame !== null && document.querySelector('.gp-files__code') === null
   result.htmlFrameSandbox = htmlFrame?.getAttribute('sandbox') ?? null
   result.htmlFrameHasSrcdoc = (htmlFrame?.getAttribute('srcdoc') || '').includes('Hello HTML')
+  // HTML asset pack (ADR-0020): a page with a relative stylesheet is read
+  // through the host file-content route and handed to the iframe as the
+  // bootstrap document; a missing asset abandons the pack and the plain
+  // bytes render instead.
+  const contentQueriesBeforeHtml = fixture.contentQueries.length
+  const styledRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('styled.html'))
+  if (styledRow) { styledRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const styledRenderBtn = modeTab('files.render')
+  if (styledRenderBtn) { styledRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const styledFrame = document.querySelector('.gp-files__html')
+  const styledSrcdoc = styledFrame?.getAttribute('srcdoc') || ''
+  result.htmlAssetPacked = styledSrcdoc.startsWith('<!doctype html><meta charset="utf-8"><script>')
+    && styledSrcdoc.includes('createObjectURL')
+  result.htmlAssetCssRead = fixture.contentQueries.slice(contentQueriesBeforeHtml).includes('styled.css')
+  result.htmlAssetSandbox = styledFrame?.getAttribute('sandbox') ?? null
+  // Decode the bootstrap payload to prove the stylesheet text travelled
+  // inside the srcdoc (no network fetch of the css).
+  result.htmlAssetBundleHasCss = (() => {
+    const payload = styledSrcdoc.match(/JSON\.parse\(text\("([^"]+)"\)\)/)
+    if (payload === null) return false
+    try {
+      const bytes = Uint8Array.from(atob(payload[1]), (c) => c.charCodeAt(0))
+      const bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+      return bundle.assets.length === 1
+        && bundle.assets[0].kind === 'stylesheet'
+        && bundle.assets[0].reference === 'styled.css'
+        && bundle.assets[0].text.includes('rgb(1, 2, 3)')
+    } catch { return false }
+  })()
+  const unpackedRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('unpacked.html'))
+  if (unpackedRow) { unpackedRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const unpackedRenderBtn = modeTab('files.render')
+  if (unpackedRenderBtn) { unpackedRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const unpackedSrcdoc = document.querySelector('.gp-files__html')?.getAttribute('srcdoc') || ''
+  result.htmlAssetFallback = unpackedSrcdoc.includes('Unpacked HTML')
+    && !unpackedSrcdoc.includes('createObjectURL')
   // Large-file source guards: highlighting is skipped (a notice shows, no
   // syntax spans) and the over-long line is truncated with a marker.
   const bigRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.js'))

@@ -11,6 +11,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     suggestCalls: 0, releaseSuggest: null,
     defaultStashes: [{ index: 0, sha: 'abcdef1234', message: 'wip on main', branch: 'main', relTime: '1 hour ago' }],
     fileQueries: [],
+    // Paths served through the file-content query (the HTML asset packer's
+    // reads land here); the styled.html assertion checks the css was read
+    // through this route rather than the network.
+    contentQueries: [],
     // Branch-switch probes: every `run` action lands here, and `branchQueries`
     // counts the branch-list reloads a landed checkout must trigger.
     // `runFailure` forces a wire error once: `{kind, code, message}` for exactly
@@ -113,7 +117,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           if (q.kind === 'dir-list') {
             fixture.fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'styled.html', dir: false, size: 90 }, { name: 'styled.css', dir: false, size: 22 }, { name: 'unpacked.html', dir: false, size: 88 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -127,6 +131,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
           }
           if (q.kind === 'file-content') {
+            fixture.contentQueries.push(q.path)
             // Binary and over-envelope fixtures: neither may show the
             // copy-content button in the preview toolbar.
             if (q.path.endsWith('.bin')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary', size: 5, mtimeMs: MOCK_MTIME } } }
@@ -136,6 +141,15 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             if (q.path.endsWith('diagram.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'Intro para\n\n```mermaid\ngraph TD; A-->B\n```\n\nOutro para\n', lines: 7, size: 48, mtimeMs: MOCK_MTIME, absolutePath: '/mock/diagram.md' } } }
             if (q.path.endsWith('broken.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '```mermaid\nbroken diagram\n```\n', lines: 3, size: 24, mtimeMs: MOCK_MTIME, absolutePath: '/mock/broken.md' } } }
             if (q.path.endsWith('.md')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '# Hello Markdown\n', lines: 1, size: 1536, mtimeMs: MOCK_MTIME, absolutePath: '/mock/README.md' } } }
+            // HTML asset-pack fixtures (before the generic .html branch): one
+            // page references a packable stylesheet, one a missing asset so
+            // the pack must fall back to the plain bytes.
+            if (q.path.endsWith('styled.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><link rel="stylesheet" href="styled.css"><p id="hi">Styled HTML</p>', lines: 1 } } }
+            if (q.path.endsWith('unpacked.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><link rel="stylesheet" href="missing.css"><p id="hi">Unpacked HTML</p>', lines: 1 } } }
+            if (q.path.endsWith('styled.css')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'body { color: rgb(1, 2, 3); }\n', lines: 1, size: 22, mtimeMs: MOCK_MTIME } } }
+            // The unpacked.html fixture references this; a business failure
+            // (not the default success fall-through) so the pack must abort.
+            if (q.path.endsWith('missing.css')) return { ok: true, value: { ok: false, error: { code: 'file-not-found', message: q.path } } }
             if (q.path.endsWith('.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><p id="hi">Hello HTML</p>', lines: 1 } } }
             // A big text file exercises both source-view guards: >5000 lines
             // (highlight off) with one >5000-char line (truncation).
