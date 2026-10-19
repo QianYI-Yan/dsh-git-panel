@@ -8,7 +8,7 @@ import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
-import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS } from './types.js'
+import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
 import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
@@ -398,7 +398,12 @@ export async function snapshotForSession(
   deps: SnapshotDeps,
   config: GitPanelConfig,
   sessionId: string,
+  opts?: { readonly fullChanges?: boolean },
 ): Promise<GitSnapshotResult> {
+  // A `fullChanges` request (the client's "expand all") lifts the list cap to
+  // FULL_CHANGES_MAX so a big-but-sane change set arrives complete; everything
+  // else (counts, stats fan-out, status fallback) keeps its normal bounds.
+  const changeLimit = opts?.fullChanges === true ? Math.max(config.maxChanges, FULL_CHANGES_MAX) : config.maxChanges
   const workspace = await resolveWorkspace(deps, sessionId)
   if (!workspace.ok) {
     // Surface the pill preference even on the not-a-git-repo path, where the
@@ -454,7 +459,7 @@ export async function snapshotForSession(
   // root-level files cannot collapse, so the count branch skips the extra status
   // run unless some untracked path could belong to such a directory.
   const collapseCandidate = untrackedEntries.some((c) => c.path.includes('/'))
-  if (statusLossy || (untrackedEntries.length > config.maxChanges && collapseCandidate)) {
+  if (statusLossy || (untrackedEntries.length > changeLimit && collapseCandidate)) {
     const collapsed = await runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], root, 'status-collapsed', deps.signal)
     if ('run' in collapsed && !collapsed.run.timedOut && collapsed.run.exitCode === 0) {
       const list = parseStatus(collapsed.run.stdout)
@@ -466,11 +471,11 @@ export async function snapshotForSession(
   // Truncated either because the list exceeded the cap or because the status
   // stream itself was clipped (a lossy read drops the head, so the leading
   // entries are the ones that go missing). The reason drives the UI wording.
-  const truncated = allChanges.length > config.maxChanges || statusLossy
+  const truncated = allChanges.length > changeLimit || statusLossy
   const truncatedReason: TruncationReason | undefined = statusLossy
     ? 'lossy'
-    : allChanges.length > config.maxChanges ? 'cap' : undefined
-  const changes = allChanges.length > config.maxChanges ? allChanges.slice(0, config.maxChanges) : allChanges
+    : allChanges.length > changeLimit ? 'cap' : undefined
+  const changes = allChanges.length > changeLimit ? allChanges.slice(0, changeLimit) : allChanges
 
   // Counts and `dirty` reflect the full change set; only the `changes` list is
   // bounded. Counting the truncated slice would under-report on large repos.

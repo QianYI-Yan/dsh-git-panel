@@ -169,7 +169,7 @@ async function batchScenario() {
     result.toolbar = toolbar.map((b) => b.getAttribute('aria-label'))
     // The icon entry retains its accessible name and position between these actions.
     result.entryAfterUnstageAll = toolbar[2] === picked() && toolbar[1].getAttribute('aria-label') === '全部取消暂存'
-    result.entryBeforeStash = (toolbar[3].getAttribute('aria-label') ?? '').includes('贮藏')
+    result.entryBeforeStash = (toolbar[4].getAttribute('aria-label') ?? '').includes('贮藏')
     result.entryLabel = picked().getAttribute('aria-label')
     result.disabledEmpty = picked().disabled === true
 
@@ -332,6 +332,10 @@ async function discardFailureScenario() {
     result.inflightActions = actions().slice(beforeFirst)
     result.inflightConfirmDisabled = confirmBtn()?.disabled === true
     result.inflightOverlay = overlay()?.textContent ?? null
+    // N1: while a write is in flight the whole pick surface freezes — row
+    // checkboxes and the group-head select-all alike (same `busy` gate).
+    result.inflightRowChecksDisabled = [...document.querySelectorAll('.gp-file-row input.gp-check')].every((c) => c.disabled === true)
+    result.inflightGroupChecksDisabled = [...document.querySelectorAll('.gp-group-head input.gp-check')].every((c) => c.disabled === true)
     // A press while the first discard is still in flight must not queue another.
     // It holds because the key is `disabled` (the busy latch), not because of
     // `run()`'s `if (busy) return false`: React suppresses clicks on a button
@@ -697,6 +701,136 @@ async function groupSelectScenario() {
   return { out, errors }
 }
 
+/**
+ * (j) Expand-all on a truncated list: the bar offers "展开全部", the request
+ *     carries `fullChanges`, the mock serves the full snapshot, the group-head
+ *     select-all checkbox reappears (it was hidden while truncated), and a
+ *     whole-group pick then covers every loaded row.
+ */
+async function expandAllScenario() {
+  // Truncated fixture: stats count 50 but only 2 rows arrive.
+  const truncated = {
+    ...SNAP,
+    staged: 0, modified: 50, untracked: 0,
+    changes: [
+      { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
+      { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
+    ],
+    stats: { fileCount: 50, staged: 0, modified: 50, untracked: 0, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
+    truncated: true, truncatedReason: 'cap',
+  }
+  // Full snapshot the mock swaps in once the client asks for it.
+  const fullChanges = Array.from({ length: 50 }, (_, i) => ({ path: `f${String(i).padStart(2, '0')}.txt`, status: 'modified', staged: false, isDirectory: false }))
+  const full = {
+    ...truncated,
+    changes: fullChanges,
+    truncated: false, truncatedReason: undefined,
+  }
+  const { page, errors } = await openPanel(truncated)
+  const out = await page.evaluate(async (fullSnap) => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    window.__gpFixture.fullSnapshot = fullSnap
+
+    const bar = () => document.querySelector('.gp-changes__expandbar')
+    const barBtn = () => bar()?.querySelector('button') ?? null
+    result.barShown = bar() !== null
+    result.barText = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null
+    result.barBtnLabel = barBtn()?.textContent ?? null
+    // O1: while truncated the group-head select-all checkbox is hidden.
+    result.headCheckboxWhileTruncated = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
+    result.rowsWhileTruncated = document.querySelectorAll('.gp-file-row').length
+
+    barBtn()?.click()
+    // Wait for the full snapshot to land (the group head reads the full count).
+    for (let i = 0; i < 80 && !(document.querySelector('.gp-group-head')?.textContent ?? '').includes('(50)'); i++) await wait(50)
+    await wait(100)
+    result.fullChangesRequested = window.__gpFixture.lastSnapshotFullChanges === true
+    // Virtualized list: only the viewport window mounts rows, so the evidence
+    // is the group-head count (50) plus the vlist spacer height, not 50 DOM rows.
+    result.headCountAfterExpand = document.querySelector('.gp-group-head')?.textContent ?? null
+    result.mountedRowsAfterExpand = document.querySelectorAll('.gp-file-row').length
+    result.vlistHeightAfterExpand = Math.round(document.querySelector('.gp-changes__vlist')?.getBoundingClientRect().height ?? 0)
+    result.barTextAfter = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null
+    result.barBtnAfter = barBtn()?.textContent ?? null
+    // O1 resolved: the checkbox is back now that the group is complete.
+    result.headCheckboxAfterExpand = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
+
+    // Whole-group pick now covers every row (data-level: all mounted rows check).
+    const head = [...document.querySelectorAll('.gp-group-head')]
+      .find((n) => [...n.childNodes].some((c) => c.nodeType === 3 && (c.textContent ?? '').trim().startsWith('更改 (')))
+    head?.querySelector('input.gp-check')?.click()
+    await wait(80)
+    const mounted = [...document.querySelectorAll('.gp-file-row')]
+    result.checkedAfterGroupPick = mounted.filter((r) => r.querySelector('input.gp-check')?.checked === true).length
+    result.mountedTotal = mounted.length
+
+    // Collapse back to the capped view.
+    barBtn()?.click()
+    for (let i = 0; i < 80 && !(bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? '').includes('仅显示前'); i++) await wait(50)
+    await wait(100)
+    result.collapsedFlag = window.__gpFixture.lastSnapshotFullChanges === false
+    result.barTextAfterCollapse = bar()?.querySelector('.gp-changes__expandbar__text')?.textContent ?? null
+    result.headCheckboxAfterCollapse = [...document.querySelectorAll('.gp-group-head input.gp-check')].length
+    result.mountedRowsAfterCollapse = document.querySelectorAll('.gp-file-row').length
+    return result
+  }, full)
+  await page.close()
+  return { out, errors }
+}
+
+/**
+ * (k) Toolbar "discard all": the confirm dialog counts from the full stats
+ *     (honest while truncated), confirming sends one `{kind:'discard-all'}`
+ *     with no paths, and a host refusal (`status-lossy`) keeps the dialog open
+ *     with the localized copy.
+ */
+async function discardAllScenario() {
+  const truncated = {
+    ...SNAP,
+    staged: 0, modified: 50, untracked: 3,
+    changes: [
+      { path: 'a.txt', status: 'modified', staged: false, isDirectory: false },
+      { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
+    ],
+    stats: { fileCount: 53, staged: 0, modified: 50, untracked: 3, insertions: 5, deletions: 1, lastChangeAt: Date.now(), headCommittedAt: null },
+    truncated: true, truncatedReason: 'cap',
+  }
+  const { page, errors } = await openPanel(truncated)
+  const out = await page.evaluate(async () => {
+    const result = {}
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const allBtn = () => document.querySelector('.gp-changes__discard-all')
+    const confirmBtn = () => [...document.querySelectorAll('.gp-modal--sm .gp-modal__footer .gp-btn')]
+      .find((b) => b.classList.contains('gp-btn--danger')) ?? null
+
+    result.enabled = allBtn()?.disabled === false
+    allBtn()?.click()
+    await wait(150)
+    result.modalTitle = document.querySelector('.gp-modal__path')?.textContent ?? null
+    result.modalTexts = [...document.querySelectorAll('.gp-modal--sm .gp-modal__confirmtext')].map((n) => n.textContent)
+    const before = window.__gpFixture.actions.length
+    confirmBtn()?.click()
+    await wait(250)
+    result.actions = window.__gpFixture.actions.slice(before)
+    result.modalClosed = document.querySelector('.gp-modal--sm') === null
+
+    // A lossy-status refusal keeps the dialog open with the localized copy.
+    window.__gpFixture.runFailure = { kind: 'discard-all', code: 'status-lossy', message: 'status clipped' }
+    allBtn()?.click()
+    await wait(150)
+    const before2 = window.__gpFixture.actions.length
+    confirmBtn()?.click()
+    await wait(250)
+    result.refusalActions = window.__gpFixture.actions.slice(before2)
+    result.refusalModalOpen = document.querySelector('.gp-modal--sm') !== null
+    result.refusalFeedback = document.querySelector('.gp-modal--sm .gp-feedback')?.textContent ?? null
+    return result
+  })
+  await page.close()
+  return { out, errors }
+}
+
 /** The measured hover→tooltip delay, only meaningful when both entries exist. */
 function tipDelay(log) {
   const hover = [...log].reverse().find((e) => e.kind === 'hover')
@@ -789,6 +923,8 @@ try {
   assert.deepEqual(busy.out.inflightActions, [{ kind: 'discard', paths: ['w1.txt'] }], 'confirming sends exactly one discard request')
   assert.equal(busy.out.inflightConfirmDisabled, true, 'the confirm key is disabled while the discard is in flight')
   assert.equal(busy.out.inflightOverlay, '正在放弃…', 'the in-flight overlay carries the localized busy label')
+  assert.equal(busy.out.inflightRowChecksDisabled, true, 'N1: row checkboxes freeze while a write is in flight')
+  assert.equal(busy.out.inflightGroupChecksDisabled, true, 'N1: group-head select-all freezes with the same busy gate')
   assert.equal(busy.out.inflightPressCount, 1, 'a press while in flight queues no second request')
   assert.deepEqual(busy.out.failureActions, [{ kind: 'discard', paths: ['w1.txt'] }], 'the refusal consumed exactly the one request')
   assert.equal(busy.out.modalOpenAfterFail, true, 'the confirm dialog stays open after an index-busy refusal')
@@ -888,9 +1024,50 @@ try {
   assert.equal(touch.out.barCommit, 30, 'compact 30px outranks the touch 36px rule (commit)')
   assert.equal(touch.out.barOpen, 30, 'compact 30px outranks the touch 36px rule (bar)')
 
+  // Expand-all: the truncated bar offers the lift, the request carries the
+  // flag, the full list arrives, and the group checkbox returns.
+  const expand = await expandAllScenario()
+  assert.equal(expand.errors.length, 0, 'no console errors: ' + JSON.stringify(expand.errors))
+  assert.equal(expand.out.barShown, true, 'a truncated list shows the expand bar')
+  assert.match(expand.out.barText ?? '', /仅显示前 2 项/, 'the bar states the loaded prefix')
+  assert.equal(expand.out.barBtnLabel, '展开全部', 'the bar offers expand-all')
+  assert.equal(expand.out.headCheckboxWhileTruncated, 0, 'O1: no group select-all while truncated')
+  assert.equal(expand.out.rowsWhileTruncated, 2, 'the capped list carries the prefix')
+  assert.equal(expand.out.fullChangesRequested, true, 'the expand request carries fullChanges')
+  // Virtualized list: evidence of the full load is the head count + spacer.
+  assert.match(expand.out.headCountAfterExpand ?? '', /更改 \(50\)/, 'the group head counts all 50 after expand')
+  assert.ok((expand.out.vlistHeightAfterExpand ?? 0) >= 50 * 28, `the vlist spacer covers 50 rows (got ${expand.out.vlistHeightAfterExpand}px)`)
+  assert.ok(expand.out.mountedRowsAfterExpand >= 1 && expand.out.mountedRowsAfterExpand < 50, 'only the viewport window mounts rows')
+  assert.match(expand.out.barTextAfter ?? '', /已展开全部 50 个变更/, 'the bar reports the expanded count')
+  assert.equal(expand.out.barBtnAfter, '收起', 'the expanded bar offers collapse')
+  assert.equal(expand.out.headCheckboxAfterExpand, 1, 'the group select-all checkbox returns once complete')
+  assert.equal(expand.out.checkedAfterGroupPick, expand.out.mountedTotal, 'a whole-group pick checks every mounted row')
+  assert.ok((expand.out.mountedTotal ?? 0) >= 1, 'the group pick had rows to check')
+  assert.equal(expand.out.collapsedFlag, true, 'collapse drops the fullChanges flag')
+  assert.match(expand.out.barTextAfterCollapse ?? '', /仅显示前 2 项/, 'collapse returns to the truncated bar wording')
+  assert.equal(expand.out.headCheckboxAfterCollapse, 0, 'the group checkbox hides again while truncated')
+  assert.ok((expand.out.mountedRowsAfterCollapse ?? 0) <= (expand.out.mountedRowsAfterExpand ?? 0), 'collapse never grows the mounted window')
+
+  // Discard-all: counts from the full stats, one pathless action, refusal kept.
+  const discardAll = await discardAllScenario()
+  assert.equal(discardAll.errors.length, 0, 'no console errors: ' + JSON.stringify(discardAll.errors))
+  assert.equal(discardAll.out.enabled, true, 'discard-all is enabled with working-tree changes')
+  assert.equal(discardAll.out.modalTitle, '放弃全部工作区更改', 'dialog title')
+  assert.deepEqual(discardAll.out.modalTexts, [
+    '将放弃全部 53 个工作区文件的未提交更改，回到最后一次提交的状态，此操作不可恢复。',
+    '其中 3 个是未跟踪的文件或目录，将从磁盘删除（不在 Git 历史中，无法恢复）。',
+  ], 'the body counts from the full stats even while truncated')
+  assert.deepEqual(discardAll.out.actions, [{ kind: 'discard-all' }], 'confirming sends one pathless discard-all')
+  assert.equal(discardAll.out.modalClosed, true, 'a landed discard-all closes the dialog')
+  assert.deepEqual(discardAll.out.refusalActions, [{ kind: 'discard-all' }], 'the refused attempt still sent its request')
+  assert.equal(discardAll.out.refusalModalOpen, true, 'a status-lossy refusal keeps the dialog open')
+  assert.equal(discardAll.out.refusalFeedback, 'Git 输出超出上限，无法确认完整变更集；「放弃全部」已取消，请刷新后重试或改用逐项放弃', 'the refusal shows the localized copy')
+
   console.log('e2e changes-discard.mjs: PASS', JSON.stringify({
     discard: batch.out.actions, stagedOnly: stagedOnly.out.actions,
     groupSelect: { pick: group.out.afterUnstagedPick, actions: group.out.actions },
+    expandAll: { rows: expand.out.rowsAfterExpand, checked: expand.out.checkedAfterGroupPick },
+    discardAll: { actions: discardAll.out.actions, refusal: discardAll.out.refusalFeedback },
     stageDelay: tipDelay(tips.out.stageLog), armedDelay: tipDelay(tips.out.armedLog),
     tips: [tips.out.stageTip?.text, tips.out.discardTip?.text, tips.out.armedTip?.text, tips.out.unstageTip?.text],
     refusals: [refused.out.feedback, partial.out.feedback],

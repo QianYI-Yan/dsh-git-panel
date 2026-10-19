@@ -3,7 +3,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
 import type { GitSnapshot } from './types.js'
-import { RefreshIcon, StageAllIcon, StashIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
+import { RefreshIcon, StageAllIcon, StashIcon, TrashAllIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { canPush } from './push-policy.js'
 
@@ -14,6 +14,7 @@ interface ChangesToolbarProps {
   readonly onStageAll: () => void
   readonly onUnstageAll: () => void
   readonly onDiscard: () => void
+  readonly onDiscardAll: () => void
   readonly onStash: () => void
   readonly onPush: () => void
   readonly onRefresh: () => Promise<void>
@@ -48,6 +49,9 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     button('stage-all', 'changes.stageAll', h(StageAllIcon, { size: 16 }), snapshot.changes.length === 0, props.onStageAll),
     button('unstage-all', 'changes.unstageAll', h(UnstageAllIcon, { size: 16 }), snapshot.staged === 0, props.onUnstageAll),
     button('discard-picked', 'changes.discardPicked', h(TrashIcon, { size: 16 }), !props.hasDiscardTargets, props.onDiscard),
+    // Bulk "back to HEAD's work tree": no selection needed, works even when the
+    // list is truncated (the host re-resolves the full change set itself).
+    button('discard-all', 'changes.discardAll', h(TrashAllIcon, { size: 16 }), snapshot.modified === 0 && snapshot.untracked === 0, props.onDiscardAll),
     button('stash', 'changes.stash', h(StashIcon, { size: 16 }), snapshot.staged === 0 && snapshot.modified === 0, props.onStash),
     button('push', 'status.pushTitle', h(UploadIcon, { size: 16 }), !canPush(snapshot), props.onPush),
     button('refresh', 'changes.refresh', h(RefreshIcon, { size: 16 }), false, () => void refresh(), refreshing ? ' gp-changes__refresh--busy' : ''),

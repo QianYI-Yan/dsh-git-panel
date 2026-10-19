@@ -258,7 +258,7 @@ test('toggleGroupKeys clears just the group when every row is already picked', (
   assert.deepEqual([...next], ['z.txt:w'], 'picks outside the group survive the toggle')
 })
 
-test('toggleGroupKeys with nothing picked picks all, and back again is a fixed point on other groups', () => {
+test('toggleGroupKeys round-trips all→none on the group alone', () => {
   const once = toggleGroupKeys(new Set(), G_MIXED)
   assert.equal(groupPickState(once, G_MIXED), 'all')
   const twice = toggleGroupKeys(once, G_MIXED)

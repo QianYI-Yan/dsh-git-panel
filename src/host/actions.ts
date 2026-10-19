@@ -4,6 +4,7 @@
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
 import { mapWorkspaceFailure, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
+import { parseStatus } from './parser.js'
 import { isSafeBranchName, isSafePath, isSafeRemoteName, isSafeRev } from './validate.js'
 import type { GitAction, GitActionRequest, GitActionResult, GitErrorCode } from './types.js'
 
@@ -39,6 +40,11 @@ export function planAction(action: GitAction, unborn: boolean): PlanResult {
         : { argv: [['git', 'restore', '--staged', '--', '.']] }
     case 'discard':
       return withPaths([['git', 'restore', '--']], action.paths)
+    case 'discard-all':
+      // Unreachable from runAction: the executor resolves `discard-all` into a
+      // concrete `discard` (fresh status → paths) before planning. Kept as a
+      // typed refusal so a future caller cannot plan it into a bare restore.
+      return { error: 'invalid-path', message: 'discard-all must be resolved to paths before planning' }
     case 'commit': {
       const message = action.message.trim()
       const amend = action.amend === true
@@ -253,6 +259,35 @@ export async function runAction(
     if (sha === '' || sha !== act.sha) {
       return { ok: false, error: { code: 'not-found', message: 'stash entry changed; refresh and retry' } }
     }
+  }
+
+  // `discard-all` carries no paths on the wire: the host re-runs status itself
+  // and refuses when the stream was lossy (a clipped read cannot honestly back
+  // an "every change" claim). The resolved working-tree paths then ride the
+  // normal `discard` pipeline below, keeping the untracked deletion guards
+  // (nested-repo refusal, per-path re-check) in one place.
+  if (request.action.kind === 'discard-all') {
+    const status = await runCommand(deps.run, ['git', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], root, 'discard-all-status', deps.signal)
+    if ('failure' in status) return { ok: false, error: { code: 'git-unavailable', message: status.failure instanceof Error ? status.failure.message : String(status.failure) } }
+    if (status.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+    if (status.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+    if (status.run.exitCode !== 0) {
+      const failure = classifyActionFailure(status.run.stdout, status.run.stderr, status.run.exitCode ?? -1)
+      return { ok: false, error: failure }
+    }
+    if (status.run.stdoutLossy) {
+      return { ok: false, error: { code: 'status-lossy', message: 'status output was clipped; refusing to discard an incomplete change set' } }
+    }
+    const all = parseStatus(status.run.stdout)
+    // Working-tree side only: staged-only entries are out of scope (same
+    // contract as the picked batch), so `:w` picks are the whole target set.
+    const paths = [...new Set(all.filter((c) => !c.staged).map((c) => c.path))].sort()
+    if (paths.length === 0) {
+      const snapshot = await snapshotForSession(deps, config, request.sessionId)
+      if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
+      return { ok: true, snapshot: snapshot.value, output: '' }
+    }
+    request = { ...request, action: { kind: 'discard', paths } }
   }
 
   // Discard of an untracked path can't go through `git restore` (pathspec does

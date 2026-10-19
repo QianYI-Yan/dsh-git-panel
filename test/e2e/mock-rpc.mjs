@@ -4,6 +4,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
   const fixture = {
     snapshot: snap, fingerprints: false, snapshotError: null,
     snapshotCalls: 0, snapshotReplies: 0, holdSnapshot: false, releaseSnapshot: null,
+    // The last snapshot request's `fullChanges` flag (the client's expand-all
+    // mode); `fullSnapshot` is served instead when the flag is set, so a test
+    // can model the host lifting the list cap.
+    lastSnapshotFullChanges: false, fullSnapshot: null,
     // Resident Git queries only; Files' explicit reads have their own log.
     queries: [], actions: [], renders: { panel: 0, pill: 0 }, resetConnection: null,
     diffText: null, history: null,
@@ -73,12 +77,17 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
         const request = payload && payload.args && payload.args.request
         if (endpoint === 'gitPanel/snapshot') {
           fixture.snapshotCalls++
+          fixture.lastSnapshotFullChanges = request != null && request.fullChanges === true
           if (fixture.holdSnapshot) await park('releaseSnapshot')
           fixture.snapshotReplies++
           if (fixture.snapshotError !== null) {
             const error = fixture.snapshotError
             fixture.snapshotError = null
             return { ok: true, value: { ok: false, error } }
+          }
+          // Expand-all: serve the full list when the client lifted the cap.
+          if (fixture.lastSnapshotFullChanges && fixture.fullSnapshot !== null) {
+            return { ok: true, value: { ok: true, value: fixture.fullSnapshot } }
           }
           return { ok: true, value: { ok: true, value: snapshotValue() } }
         }

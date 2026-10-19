@@ -11,8 +11,8 @@ import { chromium } from 'playwright-core'
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const SCREENSHOT = resolve(DIR, '../../docs/local/review/changes-toolbar.png')
-const ACTIONS = ['stage-all', 'unstage-all', 'discard-picked', 'stash', 'push', 'refresh']
-const LABELS = ['全部暂存', '全部取消暂存', '放弃选中的更改', '贮藏更改', '推送本地提交到远程', '刷新当前仓库状态']
+const ACTIONS = ['stage-all', 'unstage-all', 'discard-picked', 'discard-all', 'stash', 'push', 'refresh']
+const LABELS = ['全部暂存', '全部取消暂存', '放弃选中的更改', '放弃全部变更', '贮藏更改', '推送本地提交到远程', '刷新当前仓库状态']
 const AI_HINT = '提示：给 AI 多一点信任，你可以尝试让 AI 直接执行 Git 操作。'
 const SCOPE = '将推送 5 个提交 · 4 个文件 · +17 / −6 行'
 const THEME = `body{margin:0;font:13px system-ui,sans-serif;--dsh-composer-height:0px;
@@ -185,7 +185,7 @@ async function geometry(page, label) {
   })
   assert.equal(actual.role, 'group', label + ': action group semantics')
   assert.equal(actual.name, '仓库变更操作', label + ': localized group label')
-  assert.deepEqual(actual.buttons.map((b) => b.action), ACTIONS, label + ': all six controls in order')
+  assert.deepEqual(actual.buttons.map((b) => b.action), ACTIONS, label + ': all seven controls in order')
   assert.deepEqual(actual.buttons.map((b) => b.label), LABELS, label + ': meaningful accessible names')
   assert.ok(actual.scrollWidth <= actual.clientWidth + 1, label + ': toolbar has no horizontal overflow')
   const first = actual.buttons[0].rect
@@ -217,7 +217,9 @@ async function geometryScenario() {
       if (label === 'wide left 380') assert.ok(Math.abs(normal.left.width - 380) < 1, 'representative left column is 380px')
       if (label === 'compact 320') assert.equal(await page.locator('.gp-panel').getAttribute('data-layout'), 'compact')
       if (state === 'clean') {
-        assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, false], 'clean repo keeps refresh enabled')
+        // stage-all / unstage-all / discard-picked / discard-all / stash / push
+        // are all unavailable on a clean repo; only refresh stays enabled.
+        assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, true, false], 'clean repo keeps refresh enabled')
         assert.equal(await page.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
       }
       // Compact unmounts the font stepper (it lives on the config page).
@@ -405,7 +407,7 @@ async function pushScenario() {
   assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'busy confirm disabled')
   assert.equal(await page.locator('.gp-modal__close').isDisabled(), true, 'busy close disabled')
   assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'busy push opener disabled')
-  assert.equal(await page.locator('.gp-changes__toolbar button:disabled').count(), 6, 'push in flight disables the complete toolbar')
+  assert.equal(await page.locator('.gp-changes__toolbar button:disabled').count(), 7, 'push in flight disables the complete toolbar')
   await page.keyboard.press('Escape')
   await page.locator('.gp-modal-backdrop').click({ position: { x: 3, y: 3 } })
   await page.locator('.gp-modal__footer .gp-btn').first().evaluate((button) => button.click())
