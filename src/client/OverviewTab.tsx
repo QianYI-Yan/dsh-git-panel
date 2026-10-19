@@ -219,6 +219,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       remote: buildBranchTree(pinPrimaryFirst(remote, remotePrimary)),
       tags: buildBranchTree(tree?.tags ?? []),
     }
+  // Field-by-field on purpose: a fresh `tree` object whose fields are all
+  // equal (each query republishes) must not rebuild both trees.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree?.local, tree?.remote, tree?.tags, tree?.current, tree?.defaultBranch, remoteName])
   const openSwitch = (option: BranchOption): void => { setOpError(null); setSwitchTarget(option) }
   const detail = useCommitDetail(remote, sessionId, defaultDiffView, queryVisible)
@@ -256,6 +259,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     if (compact) setPane('detail')
   }
 
+  // Relative-time baseline: re-stamp only when the row set or the query
+  // sample changes. `commits` is a fresh array per query, so depending on its
+  // contents rather than its identity is what keeps the displayed relative
+  // times from drifting on a poll that changed nothing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => Date.now(), [commits, querySignal.sampledAt])
   const fileTree = useMemo(() => (detail.detail === null ? [] : buildFileTree(detail.detail.stats.map((s) => ({ path: s.path, meta: s.status })))), [detail.detail])
   const selected = detail.selected

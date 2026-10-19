@@ -101,9 +101,13 @@ export function useGitView(sessionId: string | undefined): GitView {
     retain(sessionId)
     const unsub = controller.subscribe(() => forceRender((n) => n + 1))
     // A snapshot may publish between render and effect subscription.
+    // `view` is the render-time baseline of that race check, not a data
+    // source: depending on it would tear down and rebuild the subscription on
+    // every publish, since each snapshot is a fresh object.
     if (controller.getSnapshot() !== view) forceRender((n) => n + 1)
     controller.ensure()
     return () => { unsub(); release(sessionId, controller) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controller, sessionId])
   return view
 }
