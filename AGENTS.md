@@ -142,15 +142,16 @@ npm run typecheck     # 类型检查
 
 ## 发布
 
-发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时执行：跑完整门禁 → 打 tag →（仅正式版）发 npm → 用 `docs/releases/v<版本>.md` 建 GitHub Release 并附上 `npm pack` 产物。版本号含 `-`（如 `1.8.0-rc.1`）是**预发布**：只建 GitHub prerelease Release、**不发 npm**；正式版才走 npm + 稳定 Release。没有 `dist` 分支，GitHub 安装路径是 Release 附件 tgz URL。决策与背景见 `docs/adr/0018`（分发渠道）与 `docs/adr/0019`（发布流程）。
+发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时执行：跑完整门禁 → 打 tag →（仅正式版）发 npm → `docs/releases/v<版本>.md` 建 GitHub Release 并附上 `npm pack` 产物。版本号含 `-`（如 `1.8.0-rc.1`）是**预发布**：只建 GitHub prerelease Release、**不发 npm**，**也不归档正文**——页面先用 `.github/PRERELEASE_BODY.md` 的固定说明建好，完整的变更记录随后用 `gh release edit` 写上去，不进仓库。正式版才走 npm + 稳定 Release。没有 `dist` 分支，GitHub 安装路径是 Release 附件 tgz URL。决策与背景见 `docs/adr/0018`（分发渠道）、`docs/adr/0019`（发布流程）与 `docs/adr/0021`（正文归档范围）。
 
-- **Release 正文随发版提交入库**：`docs/releases/v<版本>.md`，格式以 **`.github/RELEASE_TEMPLATE.md`** 为唯一来源——照它写，**不要再去翻历史 release 反推格式**（格式漂过多次，v1.6.1 起才固定为四段双语 + 对比链接）。workflow 用 `--notes-file` 读它，**不用 `--generate-notes`**。预发布同样要有正文文件。
+- **正文归档只收正式版**：`docs/releases/` 里只有正式版的 `v<版本>.md`，rc / alpha 不写、也不留存（文件名不带 `-`，测试据此把关）。格式以 **`.github/RELEASE_TEMPLATE.md`** 为唯一来源——照它写，**不要再去翻历史 release 反推格式**（格式漂过多次，v1.6.1 起才固定为四段双语 + 对比链接）。workflow 用 `--notes-file` 读正文，**不用 `--generate-notes`**。
 - 正文中英双语：`## 主要变更` / `## 安装` / `## 验证`，`---` 分隔后接 `## English` / `## Install` / `## Verification`；两段都以 `<PREV>...<TAG>` 的 compare 链接收尾。不保留 GitHub 自动生成的 `## What's Changed`。
-- **安装段按发布渠道分**：正式版给 npm + 同版本 Release 附件两条；预发布（版本号含 `-`）**只给 Release 附件，不写 npm**——rc / alpha 从不发 npm。
-- **compare 的 `<PREV>` 按渠道分**：正式版必须与上一个**正式版** tag 比（跳过 rc / alpha，`v1.8.0` 配 `v1.7.0`），保证「完整变更记录」覆盖上一次稳定版之后的全部内容；预发布与上一个 tag 比。这三条（安装渠道、对比基线、双语结构）都由 `test/unit/release-notes.test.mjs` 逐版校验。
+- **安装段给两条**：npm（`@xbzbing/dsh-git-panel@latest`）+ 同版本 Release 附件；预发布不发 npm，它只给附件命令。
+- **compare 的 `<PREV>` 是上一个正式版 tag**（跳过 rc / alpha，`v1.8.0` 配 `v1.7.0`），保证「完整变更记录」覆盖上一次稳定版之后的全部内容——rc 期间的变化因此不会漏记。
+- **预发布页面照常写完整变更记录，但不归档**：workflow 先用 `.github/PRERELEASE_BODY.md` 的固定说明把页面建好，随后用 `gh release edit --notes-file` 写入正文（本地文件，如 `docs/local/releases/v<v>.md`，不进仓库）；重跑 workflow 不会覆盖已写好的预发布正文。安装渠道、对比基线、归档范围、固定说明这四项由 `test/unit/release-notes.test.mjs` 校验。
 - 「验证」里的单测数 / e2e runner 数与产物一致性结论取自**当次** `npm run check` 的真实输出，不得沿用上一版。`test/unit/release-notes.test.mjs` 在本地与 CI 把关格式。
 - 版本号用 `npm version <v> --no-git-tag-version`（同时改 manifest 与 lock）；`lib/` 不入库，发布产物由 workflow 的 `npm pack` 生成。
-- **tag 由 workflow 打在触发发布的 main 提交上**，不要手工在 main 上打；发布前 workflow 会校验正文文件与门禁，缺正文在打包前失败。npm 上已有该版本、远端已有 tag、已有 Release 时相应步骤自动跳过（Release 改为更新正文），失败后可直接重跑。
+- **tag 由 workflow 打在触发发布的 main 提交上**，不要手工在 main 上打；发布前 workflow 会校验门禁与正文（正式版缺正文在打包前失败），npm 上已有该版本、远端已有 tag、已有 Release 时相应步骤自动跳过（Release 改为更新正文），失败后可直接重跑。
 - `scripts/assert-pack.mjs` 对**真正发布的 tarball**断言产物齐全且无安装期脚本——这是出厂产物的唯一把关（`plugin-contract.test.mjs` 校验的是本地构建，不是入库树）。
 - 预发布不触发版本条「有新版本」：GitHub 的 `releases/latest` 服务端排除 prerelease，`version.ts` 零改动。预发布用于自测与隔离 profile 验证，安装用 Release 附件 URL。
 

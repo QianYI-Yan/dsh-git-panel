@@ -1,12 +1,16 @@
 name: release
 
-# Main-driven release (docs/adr/0018 + docs/adr/0019). Pushing a version bump
-# to main runs the full gate, tags the release commit, then — depending on
-# whether the version carries a prerelease identifier — either opens a GitHub
-# prerelease with the tarball attached (npm is skipped) or publishes to npm and
-# opens a stable Release with the same tarball. The body always comes from
-# docs/releases/v<version>.md, never --generate-notes, which would flatten the
-# fixed bilingual template into a list of PR titles.
+# Main-driven release (docs/adr/0018 + docs/adr/0019 + docs/adr/0021). Pushing a
+# version bump to main runs the full gate, tags the release commit, then —
+# depending on whether the version carries a prerelease identifier — either
+# opens a GitHub prerelease with the tarball attached (npm is skipped) or
+# publishes to npm and opens a stable Release with the same tarball. A stable
+# body comes from docs/releases/v<version>.md. A prerelease page starts from the
+# fixed notice in .github/PRERELEASE_BODY.md, and its change log is authored
+# afterwards with `gh release edit` — docs/releases/ archives stable versions
+# only, so a rerun leaves a prerelease body alone instead of clobbering it.
+# Neither uses --generate-notes, which would flatten the fixed bilingual shape
+# into a list of PR titles.
 #
 # Every step checks state first, so a partially completed release can be
 # re-run: an already-published npm version is skipped, an existing tag or
@@ -68,17 +72,35 @@ jobs:
             echo "npm=skipped" >> "$GITHUB_OUTPUT"
           fi
 
+      # A stable release ships its body in docs/releases/v<v>.md. A pre-release
+      # page starts from the fixed notice here, which keeps the page valid even
+      # before the hand-written body lands; docs/releases/ archives stable
+      # versions only, and the stable body that follows compares against the
+      # previous stable tag, so the rc period is covered exactly once.
+      - id: notes
+        name: Release notes
+        run: |
+          set -euo pipefail
+          V="${{ steps.state.outputs.version }}"
+          if [ "${{ steps.state.outputs.prerelease }}" = "true" ]; then
+            FILE="$RUNNER_TEMP/prerelease-notes.md"
+            sed -e "s|<TAG>|v$V|g" -e "s|<VERSION>|$V|g" .github/PRERELEASE_BODY.md > "$FILE"
+          else
+            FILE="docs/releases/v$V.md"
+            # The body ships with the release commit; a missing file must fail
+            # before the irreversible npm step, not after it.
+            if [ ! -f "$FILE" ]; then
+              echo "::error::$FILE is missing — write it from .github/RELEASE_TEMPLATE.md and commit it with the version bump"
+              exit 1
+            fi
+          fi
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
       - name: Gate
         if: steps.state.outputs.npm != 'done' || steps.state.outputs.tag != 'done' || steps.state.outputs.gh != 'done'
         run: |
           set -euo pipefail
           V="${{ steps.state.outputs.version }}"
-          # The body ships with the release commit; a missing file must fail
-          # before the irreversible npm step, not after it.
-          if [ ! -f "docs/releases/v$V.md" ]; then
-            echo "::error::docs/releases/v$V.md is missing — write it from .github/RELEASE_TEMPLATE.md and commit it with the version bump"
-            exit 1
-          fi
           npm ci
           npx --no-install playwright-core install --with-deps chromium
           npm run check
@@ -122,8 +144,15 @@ jobs:
             CHANNEL=(--latest)
           fi
           if gh release view "v$V" >/dev/null 2>&1; then
-            gh release edit "v$V" --title "v$V" --notes-file "docs/releases/v$V.md" "${CHANNEL[@]}"
+            if [ "${{ steps.state.outputs.prerelease }}" = "true" ]; then
+              # A pre-release body is authored by hand once the page exists
+              # (docs/releases/ archives stable versions only), so a rerun must
+              # not clobber it with the placeholder.
+              gh release edit "v$V" --title "v$V" --prerelease
+            else
+              gh release edit "v$V" --title "v$V" --notes-file "${{ steps.notes.outputs.file }}" --latest
+            fi
           else
             gh release create "v$V" "xbzbing-dsh-git-panel-$V.tgz" \
-              --title "v$V" --notes-file "docs/releases/v$V.md" --verify-tag "${CHANNEL[@]}"
+              --title "v$V" --notes-file "${{ steps.notes.outputs.file }}" --verify-tag "${CHANNEL[@]}"
           fi

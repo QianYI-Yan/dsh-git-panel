@@ -1,14 +1,13 @@
 # Release notes template
 
-本文件是 GitHub Release 正文的**唯一格式来源**。发版时照抄下面的骨架填写，不要再去翻历史 release 反推格式——历史上格式漂过好几次（`中文 / English` → `主要变更 / 验证` → 直到 v1.6.1 才稳定成现在的四段双语 + 对比链接）。
+本文件是**正式版** GitHub Release 正文的**唯一格式来源**。发版时照抄下面的骨架填写，不要再去翻历史 release 反推格式——历史上格式漂过好几次（`中文 / English` → `主要变更 / 验证` → 直到 v1.6.1 才稳定成现在的四段双语 + 对比链接）。
 
 - Release 标题 = tag 名 = `v<package.json version>`；tag 必须与 manifest 的 version 一致。
 - 正文**必须中英双语**：中文段在前，`---` 分隔，英文段在后；两段内容一一对应，不是摘要。
-- 两段都以 compare 链接收尾：`https://github.com/xbzbing/dsh-git-panel/compare/<PREV>...<TAG>`。
-  - **正式版**：`<PREV>` 是上一个**正式版** tag，跳过中间的 rc / alpha（`v1.8.0` 配 `v1.7.0`，不是配 `v1.8.0-rc.1`）——正式版的完整变更记录必须覆盖「上一次稳定版之后」的全部内容。
-  - **预发布**：`<PREV>` 是上一个 tag（通常就是上一个预发布），便于对照相邻的候选版本。
+- 两段都以 compare 链接收尾：`https://github.com/xbzbing/dsh-git-panel/compare/<PREV>...<TAG>`，`<PREV>` 是上一个**正式版** tag，跳过中间的 rc / alpha（`v1.8.0` 配 `v1.7.0`，不是配 `v1.8.0-rc.1`）——完整变更记录必须覆盖「上一次稳定版之后」的全部内容。
 - 不要保留 GitHub 自动生成的 `## What's Changed` 段落，它和这里的结构冲突。
-- 历史 release 只读不改；格式统一从现在这版开始。
+- **归档只收正式版**：`docs/releases/` 只存正式版正文，rc / alpha 不写、也不留存正文文件。预发布的 Release 页面**照常写完整变更记录**，但不入库：workflow 先用 `.github/PRERELEASE_BODY.md` 的固定说明建页面（含本版附件地址），发布后用 `gh release edit --notes-file <本地文件>` 把正文写上去；重跑 workflow 不会覆盖它。
+- 历史 release 页面只读不改；仓库里只随正式版新增正文文件。
 
 ## 写作规则
 
@@ -27,9 +26,9 @@
 
 **安装**
 
-- **正式版**：两条都给——npm 一条（`@xbzbing/dsh-git-panel@latest`）+ 同版本 GitHub Release 附件一条。
-- **预发布**：**只给 GitHub Release 附件一条，绝不要写 npm**。rc / alpha 从不发布到 npm，抄上 npm 命令的用户会拿到旧版本或 404。
+- 两条都给——npm 一条（`@xbzbing/dsh-git-panel@latest`）+ 同版本 GitHub Release 附件一条。
 - URL 里的 tag 用本版真实 tag；命令必须带 `--profile <profile>`，示例统一用 `web`。
+- 预发布不发 npm：它的正文是 `.github/PRERELEASE_BODY.md` 里的固定说明，只给附件一条。
 
 **篇幅**
 
@@ -38,6 +37,8 @@
 | patch（修 bug / 文档） | 1–4 |
 | minor（新能力） | 5–10 |
 | major | 按需分组，每组一个小标题 |
+
+预发布也用同样的四段结构，篇幅参照上面的 patch / minor；它只用于自测，把影响安装与升级的部分写清即可。
 
 ## 骨架
 
@@ -52,7 +53,7 @@
 
 ## 安装
 
-<!-- 正式版：保留 npm 与附件两条；预发布：删掉 npm 那条，只留附件 -->
+<!-- 正式版两条都给：npm + 同版本 Release 附件 -->
 
 ```bash
 # 正式版（npm）
@@ -80,7 +81,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 ## Install
 
-<!-- Stable: keep both lines. Pre-release: drop the npm line, keep only the asset -->
+<!-- Stable only: both lines -->
 
 ```bash
 # Stable (npm)
@@ -102,11 +103,12 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 ## 填写素材
 
 ```bash
-# 上一个 tag 到 HEAD 的提交（合并提交已排除，release 里不列）
-git log --oneline --no-merges "$(git describe --tags --abbrev=0 HEAD^)"..HEAD
+# 上一个正式版 tag 到 HEAD 的提交（合并提交已排除，release 里不列）
+PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+git log --oneline --no-merges "$PREV"..HEAD
 
-# 上一个正式版 tag（compare 链接的 <PREV> 用它；预发布才用上一个 tag）
-git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1
+# 上一个正式版 tag（compare 链接的 <PREV> 也用它）
+echo "$PREV"
 
 # 当次门禁的真实数字
 npm run check
@@ -114,29 +116,33 @@ npm run check
 
 ## 发布流程
 
-发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时执行；正文不再是发布那一刻手写的，而是**随发版提交一起入库**的文件：
+发布由 `.github/workflows/release.yml` 在「version bump 合入 main」时执行。正式版正文**随发版提交一起入库**；预发布没有正文文件，Release 页面由 workflow 用固定说明生成：
 
 ```bash
-# 1. 发布说明：照上面的骨架填 docs/releases/v<v>.md，和代码一起提交、一起 review
-$EDITOR docs/releases/v<v>.md
-
-# 2. 版本号：同时更新 package.json 与 package-lock.json 的两处 version
-#    预发布用带 - 的版本（1.8.0-rc.1）：只发 GitHub，不发 npm
-#    正式版用纯 semver（1.8.0）：发 npm + 稳定 Release
+# 1. 版本号：同时更新 package.json 与 package-lock.json 的两处 version
+#    预发布用带 - 的版本（1.8.1-rc.1）：只发 GitHub，不发 npm，不写正文
+#    正式版用纯 semver（1.8.1）：发 npm + 稳定 Release，并照上面的骨架写正文
 npm version <v> --no-git-tag-version
-git add package.json package-lock.json docs/releases/v<v>.md && git commit -m "chore: release v<v>"
 
-# 3. 产物：src/ 与 lib/ 必须同一个提交
-node build.mjs
-git add lib/ && git commit -m "chore: build lib for v<v>"
+# 2. 正式版正文（预发布跳过这步）：和代码一起提交、一起 review
+$EDITOR docs/releases/v<v>.md
+git add package.json package-lock.json docs/releases/v<v>.md && git commit -m "chore: release v<v>"
 ```
 
-合入 main 后 workflow 自动完成：门禁 → 打 tag →（仅正式版）`npm publish` → GitHub Release（附同一个 tgz；预发布带 `--prerelease`）。不要手工在 main 上打 tag。
+`lib/` 不入库：产物由 workflow 的 `npm pack` 在门禁后生成，不需要也不应该提交构建产物。
 
-workflow 在动手之前先校验：`docs/releases/v<v>.md` 必须存在、`npm run check` 必须全绿；任何一条不满足就停在发布之前。npm 已存在同版本、远端已有 tag、已有 Release 时相应步骤自动跳过（Release 改为更新正文），所以失败后可以直接重跑：
+合入 main 后 workflow 自动完成：门禁 → 打 tag →（仅正式版）`npm publish` → GitHub Release（附同一个 tgz；预发布带 `--prerelease`，正文先用 `.github/PRERELEASE_BODY.md` 的固定说明）。不要手工在 main 上打 tag。
+
+预发布页面不归档正文，但**照常写完整变更记录**：workflow 建好页面后，把整理好的正文写进本地文件（如 `docs/local/releases/v<v>.md`，不进仓库）再推上页面；之后重跑 workflow 不会覆盖它：
+
+```bash
+gh release edit "v<v>" --notes-file docs/local/releases/v<v>.md
+```
+
+workflow 在动手之前先校验：正式版的 `docs/releases/v<v>.md` 必须存在、`npm run check` 必须全绿；任何一条不满足就停在发布之前。npm 已存在同版本、远端已有 tag、已有 Release 时相应步骤自动跳过（Release 改为更新正文），所以失败后可以直接重跑：
 
 ```bash
 gh workflow run release.yml
 ```
 
-手工在网页上改正文而不改 `docs/releases/v<v>.md`，下次重跑会被文件内容覆盖。预发布版本号含 `-`，GitHub 会标为 prerelease、`releases/latest` 不返回它，版本条不会提示「有新版本」；正式版发布后 npm 与稳定 Release 同时上线。
+手工在网页上改正文而不改文件，下次重跑会被文件内容覆盖——正式版来自 `docs/releases/v<v>.md`，预发布来自 `.github/PRERELEASE_BODY.md`。预发布版本号含 `-`，GitHub 会标为 prerelease、`releases/latest` 不返回它，版本条不会提示「有新版本」；正式版发布后 npm 与稳定 Release 同时上线。

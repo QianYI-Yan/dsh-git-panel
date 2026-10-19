@@ -36,6 +36,7 @@
 | [ADR-0018](0018-distribution-channels.md) | 分发渠道与产物来源（正式版 npm + Release 附件；预发布只走 GitHub） | 分发 |
 | [ADR-0019](0019-release-process.md) | 发布流程与发布说明 | 分发 |
 | [ADR-0020](0020-html-preview-asset-packing.md) | HTML 预览的相对资源打包（镜像官方 packHtml） | 安全 |
+| [ADR-0021](0021-release-notes-record-stable-only.md) | 发布正文归档只收正式版（rc 页面照写但不归档） | 分发 |
 
 ## 有效期
 
