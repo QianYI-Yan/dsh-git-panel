@@ -231,7 +231,17 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-changes__right{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 /* files browser: resizable tree column + preview pane */
 .gp-files{display:flex;width:100%;height:100%;min-height:0}
-.gp-files__tree{flex:0 0 300px;min-width:180px;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+/* The tree column keeps the entries in a scrolling child so the refresh
+ * control can float at the box's top-right corner: it neither takes a row of
+ * its own above the list nor scrolls away with the entries. */
+.gp-files__tree-wrap{flex:0 0 300px;min-width:180px;position:relative;display:flex;flex-direction:column;min-height:0}
+.gp-files__tree{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+.gp-files__refresh{position:absolute;top:5px;right:5px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.gp-files__refresh:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-files__refresh:disabled{opacity:.55;cursor:default}
+.gp-files__refresh:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__refresh--busy svg{animation:gp-spin 1s linear infinite}
+.gp-panel[data-layout="compact"] .gp-files__refresh{width:30px;height:30px}
 .gp-files__preview{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__preview-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
@@ -782,7 +792,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 /* Changes / Files: the single visible pane takes the full width. */
 .gp-changes--compact .gp-changes__left,
 .gp-changes--compact .gp-changes__right{flex:1 1 100%;min-width:0;width:100%}
-.gp-files--compact .gp-files__tree,
+.gp-files--compact .gp-files__tree-wrap,
 .gp-files--compact .gp-files__preview{flex:1 1 100%;min-width:0;width:100%}
 
 /* Image compare stacks vertically in compact: two ~195px columns are unusable

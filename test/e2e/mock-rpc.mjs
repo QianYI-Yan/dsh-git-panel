@@ -19,6 +19,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     // reads land here); the styled.html assertion checks the css was read
     // through this route rather than the network.
     contentQueries: [],
+    // Files-refresh fixtures: entries appended to the root listing and per-path
+    // text overrides. The panel writes neither, so a test can stage a change
+    // that happened outside the panel and observe the refresh pick it up.
+    rootExtraEntries: [], textOverrides: {},
     // Branch-switch probes: every `run` action lands here, and `branchQueries`
     // counts the branch-list reloads a landed checkout must trigger.
     // `runFailure` forces a wire error once: `{kind, code, message}` for exactly
@@ -127,6 +131,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             fixture.fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
               { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'styled.html', dir: false, size: 90 }, { name: 'styled.css', dir: false, size: 22 }, { name: 'unpacked.html', dir: false, size: 88 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
+              ...fixture.rootExtraEntries,
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
               { name: 'index.ts', dir: false, size: 40 },
@@ -170,6 +175,8 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             if (q.path.endsWith('wide.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_WIDE}` } } }
             if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}`, size: 64, mtimeMs: MOCK_MTIME } } }
+            const override = fixture.textOverrides[q.path]
+            if (override !== undefined) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: override, lines: override.split('\n').length - 1, size: override.length, mtimeMs: MOCK_MTIME } } }
             return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'const x = 1\nconst y = 2\n', lines: 2, size: 24, mtimeMs: MOCK_MTIME } } }
           }
           if (q.kind === 'last-commit-message') return { ok: true, value: { ok: true, value: { kind: 'last-commit-message', message: 'init: first commit' } } }

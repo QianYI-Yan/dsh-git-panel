@@ -116,7 +116,7 @@ for (const width of [390, 304]) {
   await page.evaluate((w) => { window.__panelHost.style.width = w + 'px' }, width)
   await page.waitForTimeout(250)
   // docs and local expanded, like the official browser's open-directory state.
-  const tree = page.locator('.gp-files__tree')
+  const tree = page.locator('.gp-files__tree-wrap')
   await page.evaluate(async () => { await window.__expand('docs'); await window.__expand('local') })
   report[width] = { icons: await page.evaluate(() => window.__treeIcons()) }
   await tree.screenshot({ path: resolve(OUT, `files-tree-${width}.png`) })

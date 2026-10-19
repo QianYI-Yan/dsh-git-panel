@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 const RUNNERS = [
   'run', 'run2', 'run3', 'run4', 'run5',
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
-  'branch-status-review', 'files-bar-review', 'files-tree-review',
+  'branch-status-review', 'files-bar-review', 'files-tree-review', 'files-refresh',
   'overview-toolbar-review', 'version-bar-review', 'discard-tip-review',
   'changes-discard', 'changes-toolbar', 'commit-fold-review', 'publish-branch',
 ]

@@ -903,6 +903,29 @@ const out = await page.evaluate(async (snap) => {
   if (tsRow) { tsRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.officialCodeHighlight = [...document.querySelectorAll('.gp-files__code .gp-diff-cell span')].some((node) => node.style.color.includes('--shiki-keyword'))
   result.codeIconPath = tsRow?.querySelector('[data-file-type]')?.getAttribute('data-file-type')
+  // Files refresh: the tree's floating button re-lists the expanded directories
+  // and re-reads the selected file. Stage a change made outside the panel (a
+  // new root entry + modified index.ts) and assert one click lands both.
+  const refreshBtn = document.querySelector('.gp-files__tree-wrap [aria-label="files.refresh"]')
+  result.filesRefreshShown = refreshBtn !== null
+  const rootListsBeforeRefresh = fixture.fileQueries.filter((p) => p === '').length
+  const srcListsBeforeRefresh = fixture.fileQueries.filter((p) => p === 'src').length
+  const fileReadsBeforeRefresh = fixture.contentQueries.filter((p) => p === 'src/index.ts').length
+  fixture.rootExtraEntries = [{ name: 'fresh.txt', dir: false, size: 9 }]
+  fixture.textOverrides = { 'src/index.ts': 'const x = 42\n' }
+  refreshBtn?.click()
+  await new Promise((r) => setTimeout(r, 500))
+  result.refreshRelistedRoot = fixture.fileQueries.filter((p) => p === '').length > rootListsBeforeRefresh
+  result.refreshRelistedOpenDir = fixture.fileQueries.filter((p) => p === 'src').length > srcListsBeforeRefresh
+  result.refreshRereadSelectedFile = fixture.contentQueries.filter((p) => p === 'src/index.ts').length > fileReadsBeforeRefresh
+  result.refreshNewEntryShown = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].some((r) => (r.textContent || '').includes('fresh.txt'))
+  result.refreshContentUpdated = (document.querySelector('.gp-files__code')?.textContent || '').includes('const x = 42')
+  // The in-flight lock must clear: a stuck `refreshing` would disable every
+  // later refresh.
+  result.refreshReenabled = refreshBtn !== null && !refreshBtn.disabled
+  // Leave the mock as the rest of the runner expects it.
+  fixture.rootExtraEntries = []
+  fixture.textOverrides = {}
   let copiedPath = null
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { copiedPath = text } } })
   document.querySelector('.gp-files__copy-path')?.click()
