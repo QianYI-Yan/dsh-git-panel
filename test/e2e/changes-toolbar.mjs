@@ -482,6 +482,27 @@ async function pushFailureAndStaleScenario() {
   }
 }
 
+/**
+ * An inline failure is dismissible. Provider errors (e.g. an AI suggest that the
+ * model gateway refuses) arrive as long, wrapping text; the banner carries its
+ * own close control instead of occupying the list until the next action.
+ */
+async function errorDismissScenario() {
+  const page = await openPanel(DIRTY)
+  await page.evaluate(() => {
+    window.__gpFixture.runFailure = { kind: 'stage-all', code: 'git-error', message: 'model gateway refused the request' }
+  })
+  await page.locator('.gp-changes__stage-all').click()
+  await page.locator('.gp-feedback--dismissible').waitFor()
+  assert.equal(await page.locator('.gp-feedback__text').textContent(), 'model gateway refused the request')
+  assert.equal(await page.locator('.gp-feedback__close').getAttribute('aria-label'), '关闭', 'the close control is named for screen readers')
+  assert.equal(await page.locator('.gp-feedback__close').isEnabled(), true)
+  await page.locator('.gp-feedback__close').click()
+  await page.waitForFunction(() => document.querySelector('.gp-feedback') === null)
+  assert.equal(await page.locator('.gp-feedback').count(), 0, 'closing the banner clears it')
+  await page.close()
+}
+
 /** A disabled control must still explain itself on hover (issue #61). */
 async function disabledTipScenario() {
   const page = await openPanel(CLEAN)
@@ -504,6 +525,7 @@ try {
   await geometryScenario()
   await tipsAndStageScenario()
   await disabledTipScenario()
+  await errorDismissScenario()
   await refreshScenario()
   await pushScenario()
   await pushFailureAndStaleScenario()

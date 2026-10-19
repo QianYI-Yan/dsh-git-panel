@@ -154,6 +154,24 @@ const UNTRACKED_FILE_CAP = 16
  */
 const PROMPT_FILE_CAP = 200
 
+/**
+ * Whether this route needs the session id on the wire.
+ *
+ * dsh's adapters map `GenerateOptions.sessionId` to provider transport
+ * metadata, and only the OpenCode routes *require* it: pi-ai's OpenCode
+ * providers reject a request that lacks its `x-opencode-session` routing
+ * header. Elsewhere the field is optional attribution — OpenRouter endpoints
+ * use it for prompt-cache affinity, DeepSeek sends
+ * `x-deepseek-harness-session-id` — so a plugin's one-shot suggestion leaves it
+ * off rather than decorating requests to every provider with session metadata.
+ *
+ * Matched on the substring, not a fixed id list: OpenCode ships more than one
+ * route (`opencode`, `opencode-go`) and self-hosted forks name themselves.
+ */
+function routeNeedsSessionId(provider: string): boolean {
+  return provider.toLowerCase().includes('opencode')
+}
+
 /** Resolve the model route: config override pair first, then the session's
  * durable model selection, then the agent default. A route may carry an effort
  * (config override or session selection); the agent-default path never does. */
@@ -494,6 +512,9 @@ export async function runSuggest(
     maxTokens: config.suggestMaxOutputTokens,
     temperature: 0.3,
     signal: deadline.signal,
+    ...(routeNeedsSessionId(route.provider)
+      ? { sessionId: request.sessionId as NonNullable<GenerateOptions['sessionId']> }
+      : {}),
   }
 
   let output = ''

@@ -13,7 +13,7 @@ import type { GitKey } from './locales.js'
 import { ChangeStats } from './ChangeStats.js'
 import { canPublish } from './push-policy.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
-import { ArrowLeftIcon, ChevronIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
+import { ArrowLeftIcon, ChevronIcon, CloseIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
 import { statusChar, statusClass } from './status.js'
 import { useResizableColumn } from './resizable.js'
 import { segButtons } from './seg.js'
@@ -541,7 +541,18 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onPublish: () => { hideTip(); setPublishOpen(true) },
       onRefresh, t,
     }),
-    error !== null ? h('div', { key: 'err', className: 'gp-feedback' }, error) : null,
+    // Inline failure, dismissible: provider errors can be long and wrap, so the
+    // close control sits at the banner's bottom-right instead of costing a row.
+    error !== null
+      ? h('div', { key: 'err', className: 'gp-feedback gp-feedback--dismissible' }, [
+        h('span', { key: 'txt', className: 'gp-feedback__text' }, error),
+        h('button', {
+          key: 'close', type: 'button', className: 'gp-feedback__close',
+          title: t('common.close'), 'aria-label': t('common.close'),
+          onClick: () => setError(null),
+        }, h(CloseIcon, { key: 'i', size: 12 })),
+      ])
+      : null,
     notice !== null
       ? h(NoticeBar, { key: 'notice', text: notice, closeLabel: t('common.close'), onClose: () => setNotice(null) })
       : null,
