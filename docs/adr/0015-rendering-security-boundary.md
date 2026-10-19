@@ -1,7 +1,7 @@
 # ADR-0015：渲染安全边界：HTML / Markdown 图片 / mermaid
 
 - 状态：Accepted（2026-10-18，迁移自现有实现）
-- 相关：`src/client/FilesTab.tsx`、`src/client/path-images.ts`、`src/client/MermaidFigure.tsx`、`src/client/mermaid-blocks.ts`
+- 相关：`src/client/FilesTab.tsx`、`src/client/path-images.ts`、`src/client/MermaidFigure.tsx`、`src/client/mermaid-blocks.ts`；HTML 相对资源打包（css/js → blob URL）见 ADR-0020
 
 ## Context
 
@@ -15,7 +15,7 @@
 
 ## Decision
 
-- **HTML 预览走 `allow-scripts` 的隔离源 iframe，且不带 `allow-same-origin`**：文档落在唯一的不透明源里，够不到 DSH 父页面、它的 storage 与同源网络；`srcDoc` 让字节留在文档内（不发额外请求）。
+- **HTML 预览走 `allow-scripts` 的隔离源 iframe，且不带 `allow-same-origin`**：文档落在唯一的不透明源里，够不到 DSH 父页面、它的 storage 与同源网络；`srcDoc` 让页面字节留在文档内（不发额外请求）。相对 css/js 由 ADR-0020 的打包器经 host 文件路由读出后改写为 iframe 内 blob URL——仍不发起网络请求，隔离边界不变。
 - **Markdown 本地图片经官方 `pathImages.resolve` 契约**解析到宿主的认证文件路由（`api/file?path=…`）：解析逻辑**一对一镜像官方文档预览的 `markdownImageUrl`**（解码一次、拒绝 scheme、贴着文档所在目录拼接、wire 上只接受绝对路径）。**偏离这个实现会让路径解析到宿主路由随后拒绝的位置**。
 - **mermaid 走懒加载 chunk**：`lib/client.mermaid.js` 由 `/plugins` 路由按需下发，**主 bundle 里只允许一个引用点**（`MermaidFigure.tsx` 的 `require.async`）；渲染失败**回退为代码块**，不留空白。
 - 因为 `MarkdownText` 转义内联 HTML，`<kbd>` 只能在**送入前做文本替换**（`mermaid-blocks.ts`），且**围栏与行内代码内不替换**。

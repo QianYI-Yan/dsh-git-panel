@@ -24,6 +24,7 @@ import { useViewportTracker } from './use-viewport.js'
 import { canCopyContent } from './copy-content.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
+import { packHtmlDocument } from './html-pack.js'
 import { MermaidFigure } from './MermaidFigure.js'
 
 interface FilesTabProps {
@@ -85,6 +86,15 @@ type FileState =
   | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'error'; readonly path: string; readonly code?: string }
+
+/** HTML asset pack for the loaded document: in flight, packed bootstrap
+ * srcdoc, or a deliberate fall-back to the plain bytes (no packable assets,
+ * a base element, or any pack failure). */
+type HtmlPackState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading'; readonly file: FileState }
+  | { readonly status: 'ready'; readonly file: FileState; readonly srcdoc: string }
+  | { readonly status: 'plain'; readonly file: FileState }
 
 /**
  * Preserved Files-tab state so a quick return (within the same ~1-minute
@@ -164,6 +174,37 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       : { kind: 'markdown' as const, text: markdownKbdToCode(segment.text) })
   }, [file])
   const fileSeq = useRef(0)
+
+  // HTML asset pack (ADR-0020): relative css/js is read through the host's
+  // validated file-content route and the iframe receives a bootstrap srcdoc
+  // that rewrites those references to in-document blob URLs. Keyed on the
+  // loaded file object (same identity memo as pathImages/markdownSegments);
+  // a stale in-flight pack is dropped by object identity. Packing runs only
+  // while the rendered view is on — HTML defaults to source, so selection
+  // alone never reads extra files. Any pack failure falls back to the plain
+  // bytes (exactly the previous behaviour).
+  const [htmlPack, setHtmlPack] = useState<HtmlPackState>({ status: 'idle' })
+  useEffect(() => {
+    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown) {
+      setHtmlPack((prev) => (prev.status === 'idle' ? prev : { status: 'idle' }))
+      return
+    }
+    let cancelled = false
+    setHtmlPack({ status: 'loading', file })
+    const readText = async (path: string): Promise<string | null> => {
+      const res = await remote.query({ sessionId, query: { kind: 'file-content', path } })
+      const fc = queryAs(res, 'file-content')
+      if (fc === null || fc.variant !== 'text' || fc.content === undefined || fc.tooLarge === true) return null
+      return fc.content
+    }
+    void packHtmlDocument(file.content, file.path, readText).then((srcdoc) => {
+      if (cancelled) return
+      setHtmlPack(srcdoc === null ? { status: 'plain', file } : { status: 'ready', file, srcdoc })
+    }).catch(() => {
+      if (!cancelled) setHtmlPack({ status: 'plain', file })
+    })
+    return () => { cancelled = true }
+  }, [file, renderMarkdown, remote, sessionId])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
 
@@ -396,19 +437,19 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       h('div', {
         key: 'src', id: `${modeId}-source-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-source`,
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t)),
       h('div', {
         key: 'rnd', id: `${modeId}-render-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-render`,
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t)
 
   const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
     selected !== null ? (compact ? compactBar : wideBar) : null,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     fullscreen && selected !== null && file.kind === 'text'
-      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, onClose: () => setFullscreen(false), t })
+      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, onClose: () => setFullscreen(false), t })
       : null,
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
@@ -435,6 +476,7 @@ function renderContent(
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string },
   pathImages: PathImages | undefined,
   markdownSegments: MermaidSegment[] | undefined,
+  htmlPack: HtmlPackState,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
@@ -450,12 +492,19 @@ function renderContent(
       : h(MarkdownText, { key: index, text: segment.text, ...markdownProps })))
   }
   if (file.kind === 'text' && renderMarkdown && isHtmlPath(file.path)) {
+    // Asset packing is in flight: hold the previous body instead of flashing
+    // an unstyled page (the pack resolves in a few local RPC round-trips).
+    if (htmlPack.status === 'loading' && htmlPack.file === file) return renderPreview(file, wrap, t)
     // Render in a locked-down iframe: allow-scripts lets an interactive page
     // run, but WITHOUT allow-same-origin the document is a unique opaque
     // origin — it cannot reach the DSH parent, its storage, or same-origin
-    // network. srcDoc keeps the bytes in-document (no extra fetch).
+    // network. srcDoc keeps the bytes in-document (no extra fetch); relative
+    // css/js arrives as a bootstrap document that rewrites it to blob URLs
+    // packed from the host file route (ADR-0020), or the plain bytes when
+    // there was nothing to pack.
+    const srcdoc = htmlPack.status === 'ready' && htmlPack.file === file ? htmlPack.srcdoc : file.content
     return h('iframe', {
-      className: 'gp-files__html', title: file.path, srcDoc: file.content,
+      className: 'gp-files__html', title: file.path, srcDoc: srcdoc,
       sandbox: 'allow-scripts', referrerPolicy: 'no-referrer',
     })
   }
@@ -475,10 +524,11 @@ function FileFullscreen(props: {
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
   pathImages: PathImages | undefined
   markdownSegments: MermaidSegment[] | undefined
+  htmlPack: HtmlPackState
   onClose: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
 }): JSX.Element | null {
-  const { file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, onClose, t } = props
+  const { file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, onClose, t } = props
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef<HTMLButtonElement | null>(null)
   useDialogFocus(dialogRef, onClose, closeRef)
@@ -495,7 +545,7 @@ function FileFullscreen(props: {
       }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, t))),
+      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t))),
   ])), document.body, 'file-fullscreen')
 }
 
