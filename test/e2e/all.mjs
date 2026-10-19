@@ -18,7 +18,7 @@ const RUNNERS = [
   'branch-tree-review', 'filtered-graph', 'graph-filter-transition',
   'branch-status-review', 'files-bar-review', 'files-tree-review',
   'overview-toolbar-review', 'version-bar-review', 'discard-tip-review',
-  'changes-discard', 'changes-toolbar', 'commit-fold-review',
+  'changes-discard', 'changes-toolbar', 'commit-fold-review', 'publish-branch',
 ]
 
 const failed = []

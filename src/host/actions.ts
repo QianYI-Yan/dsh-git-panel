@@ -155,6 +155,22 @@ function isIndexBusy(outcome: Awaited<ReturnType<typeof runCommand>>): boolean {
   return /index\.lock|Unable to create.*index|another git process/i.test(outcome.run.stderr + outcome.run.stdout)
 }
 
+/**
+ * The wire error for a probe that never ran (spawn failure) or never finished
+ * (timeout / cancellation); null when it produced a result. A probe that broke
+ * says nothing about the repository state it was meant to observe, so folding
+ * it into the action's own verdict would report a condition that was never
+ * established — e.g. a timed-out `symbolic-ref` is not a detached HEAD.
+ */
+function probeFailure(outcome: Awaited<ReturnType<typeof runCommand>>): Extract<GitActionResult, { ok: false }> | null {
+  if ('failure' in outcome) {
+    return { ok: false, error: { code: 'git-unavailable', message: outcome.failure instanceof Error ? outcome.failure.message : String(outcome.failure) } }
+  }
+  if (outcome.run.cancelled) return { ok: false, error: { code: 'cancelled' } }
+  if (outcome.run.timedOut) return { ok: false, error: { code: 'timeout' } }
+  return null
+}
+
 /** Strip an embedded credential (`scheme://user:token@host`) from a git
  * message so a token in a remote URL never reaches the RPC reply or logs. */
 export function scrubCredentials(text: string): string {
@@ -243,6 +259,25 @@ export async function runAction(
   // Detect unborn for correct unstage semantics.
   const headProbe = await runCommand(deps.run, ['git', 'rev-parse', '--verify', 'HEAD'], root, 'head-probe', deps.signal)
   const unborn = !('run' in headProbe) || headProbe.run.exitCode !== 0
+
+  // Publish needs a branch for git to derive the remote destination from. Bare
+  // `HEAD` is not enough on a detached HEAD or in an unborn repository: git
+  // answers with a refspec hint instead of a name. Probe it here (the client's
+  // snapshot may already be stale) and refuse with a clear code, so that hint
+  // never surfaces as a raw git error. The command itself keeps the literal
+  // `HEAD` (ADR-0007) — no ref reaches argv from the RPC. A probe that never
+  // ran or never finished reports its own condition: it established nothing
+  // about the branch, so it must not be read as a detached HEAD.
+  if (request.action.kind === 'publish') {
+    const headBroke = probeFailure(headProbe)
+    if (headBroke !== null) return headBroke
+    if (unborn) return { ok: false, error: { code: 'no-branch', message: 'no commits to publish' } }
+    const branchProbe = await runCommand(deps.run, ['git', 'symbolic-ref', '--quiet', '--short', 'HEAD'], root, 'publish-branch', deps.signal)
+    const branchBroke = probeFailure(branchProbe)
+    if (branchBroke !== null) return branchBroke
+    const branch = 'run' in branchProbe && branchProbe.run.exitCode === 0 ? branchProbe.run.stdout.trim() : ''
+    if (branch === '') return { ok: false, error: { code: 'no-branch', message: 'detached HEAD: no branch to publish' } }
+  }
 
   // Stash is a stack addressed by position; under a shared worktree another
   // actor can push/pop/drop between the list query and this action, shifting

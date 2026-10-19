@@ -9,7 +9,7 @@ import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { DownloadIcon, GitHubIcon, SyncIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
-import { canPush as canPushSnapshot } from './push-policy.js'
+import { pushIntent as pushIntentOf } from './push-policy.js'
 
 type Translate = (key: GitKey, params?: Record<string, string | number>) => string
 
@@ -110,10 +110,10 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
   // Push is offered only when strictly ahead (ahead>0, behind=0): the push can
   // only fast-forward the remote. A diverged branch (both ahead and behind) is
   // deliberately not offered — the user must reconcile first.
-  const canPush = canPushSnapshot(snapshot)
-  // A branch with no upstream yet can be published (push -u) when a remote
-  // exists to publish to.
-  const canPublish = !hasUpstream && branch !== null && remote !== null
+  // A branch with no upstream yet is published instead (push -u): creating a
+  // same-named remote branch cannot overwrite anything, so it needs no
+  // ahead/behind reconciliation. One control, one intent, never both.
+  const intent = pushIntentOf(snapshot)
   const stateNode = ((): JSX.Element => {
     let text: string
     let tone = ''
@@ -148,14 +148,14 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
       disabled: cb.pullBusy, 'aria-label': t('status.pullTitle'),
       onClick: () => { hideTip(); cb.onPull() },
     }, [h(DownloadIcon, { key: 'i', size: 12 }), t('status.pull')])) : null,
-    canPush ? h(TipWrapper, {
+    intent === 'push' ? h(TipWrapper, {
       key: 'push', tipProps: tipProps(t('status.pushTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',
       disabled: cb.pushBusy, 'aria-label': t('status.pushTitle'),
       onClick: () => { hideTip(); cb.onPush() },
     }, [h(UploadIcon, { key: 'i', size: 12 }), t('status.push')])) : null,
-    canPublish ? h(TipWrapper, {
+    intent === 'publish' ? h(TipWrapper, {
       key: 'publish', tipProps: tipProps(t('status.publishTitle')),
     }, h('button', {
       type: 'button', className: 'gp-btn gp-btn--sm gp-statusbar__pull',

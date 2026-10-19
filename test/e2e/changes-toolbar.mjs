@@ -359,22 +359,37 @@ async function modalCopy(page) {
 
 async function pushScenario() {
   const page = await openPanel(CLEAN)
+  // Every row states one independent state: the branch/unborn/head trio is
+  // reset to the fixture baseline before the row's own patch lands, so a row
+  // like "unborn" cannot accidentally run as "detached AND unborn" because the
+  // previous row cleared the branch.
+  const BASELINE = { branch: 'main', unborn: false, head: 'de54fc0' }
   for (const [state, patch] of [
     ['synced', { ahead: 0, behind: 0, hasUpstream: true, remote: CLEAN.remote }],
     ['behind', { ahead: 0, behind: 3 }],
     ['diverged', { ahead: 2, behind: 3 }],
+    // A local-only branch is publishable, not pushable: the control is live but
+    // opens the publish dialog instead (covered in publish-branch.mjs).
     ['no upstream', { ahead: 5, behind: 0, hasUpstream: false }],
+    // Detached HEAD and an unborn repo have no branch to create remotely.
+    ['detached', { hasUpstream: false, ahead: 0, behind: 0, branch: null }],
+    ['unborn', { hasUpstream: false, ahead: 0, behind: 0, unborn: true, head: null }],
     ['no remote/upstream', { ahead: 0, behind: 0, hasUpstream: false, remote: null }],
   ]) {
-    await page.evaluate((patch) => { window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, ...patch } }, patch)
+    const publishable = state === 'no upstream'
+    await page.evaluate(({ baseline, patch }) => {
+      window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, ...baseline, ...patch }
+    }, { baseline: BASELINE, patch })
     await refresh(page)
-    assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, state + ': push is disabled')
-    await page.locator('.gp-changes__push').evaluate((button) => button.click())
-    assert.equal(await page.locator('.gp-modal--sm').count(), 0, state + ': native disabled blocks modal')
+    assert.equal(await page.locator('.gp-changes__push').isDisabled(), !publishable, state + (publishable ? ': publish is offered' : ': upload is disabled'))
+    if (!publishable) {
+      await page.locator('.gp-changes__push').evaluate((button) => button.click())
+      assert.equal(await page.locator('.gp-modal--sm').count(), 0, state + ': native disabled blocks modal')
+    }
   }
-  // Simulate a completed commit becoming visible on the explicit local refresh.
+  // Back to a plain push: a strictly-ahead branch with an upstream.
   await page.evaluate((remote) => {
-    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 5, behind: 0, hasUpstream: true, remote }
+    window.__gpFixture.snapshot = { ...window.__gpFixture.snapshot, head: 'abc1234', ahead: 5, behind: 0, hasUpstream: true, remote, unborn: false, branch: 'main' }
   }, CLEAN.remote)
   await refresh(page)
   assert.equal(await page.locator('.gp-changes__push').isEnabled(), true, 'strictly ahead snapshot enables push')

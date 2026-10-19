@@ -5,7 +5,7 @@ import type { GitKey } from './locales.js'
 import type { GitSnapshot } from './types.js'
 import { RefreshIcon, StageAllIcon, StashIcon, TrashAllIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
-import { canPush } from './push-policy.js'
+import { pushIntent } from './push-policy.js'
 
 interface ChangesToolbarProps {
   readonly snapshot: GitSnapshot
@@ -16,7 +16,10 @@ interface ChangesToolbarProps {
   readonly onDiscard: () => void
   readonly onDiscardAll: () => void
   readonly onStash: () => void
+  /** Ordinary push (`git push`) to the upstream. */
   readonly onPush: () => void
+  /** Publish a branch that only exists locally (`git push -u`). */
+  readonly onPublish: () => void
   readonly onRefresh: () => Promise<void>
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
@@ -35,10 +38,21 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     finally { refreshFlight.current = false; setRefreshing(false) }
   }
   const disabled = busy || refreshing
+  // The upload control carries whichever remote write this branch can take: a
+  // push when strictly ahead, a publish when the branch has no upstream yet.
+  // Both intents are unavailable otherwise, so the button never reads as a dead
+  // control on a freshly committed local-only branch (issue #63).
+  const intent = pushIntent(snapshot)
+  const remoteLabel: GitKey = intent === 'publish' ? 'status.publishTitle' : 'status.pushTitle'
+  // An unavailable control keeps its action name (aria-label) and explains
+  // itself on hover instead — the accessible name states what the control is,
+  // the tip states why it is off (issue #61).
+  const remoteTip: GitKey = intent === null ? 'changes.noRemoteTarget' : remoteLabel
+  const remoteAction = (): void => { if (intent === 'publish') props.onPublish(); else if (intent === 'push') props.onPush() }
   // Tip handlers live on a non-disabled wrapper: a `disabled` button swallows
   // mouse events, so hover would never reach the button itself (issue #61).
-  const button = (key: string, label: GitKey, icon: JSX.Element, unavailable: boolean, onClick: () => void, extraClass = ''): JSX.Element => h(TipWrapper, {
-    key, tipProps: tipProps(t(label)),
+  const button = (key: string, label: GitKey, icon: JSX.Element, unavailable: boolean, onClick: () => void, extraClass = '', tipLabel?: GitKey): JSX.Element => h(TipWrapper, {
+    key, tipProps: tipProps(t(tipLabel ?? label)),
   }, h('button', {
     type: 'button', className: `gp-icon-btn gp-changes__${key}${extraClass}`,
     'aria-label': t(label), disabled: disabled || unavailable,
@@ -53,7 +67,7 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     // list is truncated (the host re-resolves the full change set itself).
     button('discard-all', 'changes.discardAll', h(TrashAllIcon, { size: 16 }), snapshot.modified === 0 && snapshot.untracked === 0, props.onDiscardAll),
     button('stash', 'changes.stash', h(StashIcon, { size: 16 }), snapshot.staged === 0 && snapshot.modified === 0, props.onStash),
-    button('push', 'status.pushTitle', h(UploadIcon, { size: 16 }), !canPush(snapshot), props.onPush),
+    button('push', remoteLabel, h(UploadIcon, { size: 16 }), intent === null, remoteAction, '', remoteTip),
     button('refresh', 'changes.refresh', h(RefreshIcon, { size: 16 }), false, () => void refresh(), refreshing ? ' gp-changes__refresh--busy' : ''),
     tipNode,
   ])

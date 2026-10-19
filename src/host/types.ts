@@ -313,6 +313,9 @@ export type GitErrorCode =
   // clipped) means "every change" cannot be proven, so the action is refused
   // instead of silently discarding a prefix.
   | 'status-lossy'
+  // A publish was requested but HEAD names no branch to create on the remote:
+  // a detached HEAD, or a repository with no commits yet (unborn).
+  | 'no-branch'
   // AI commit-message suggestion endpoint.
   | 'empty-diff'
   | 'llm-unavailable'

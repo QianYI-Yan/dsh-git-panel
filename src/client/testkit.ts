@@ -25,6 +25,7 @@ export { changeKey, sideOf, pathOfKey, pickDiscardTargets, groupPickState, toggl
 export { formatBytes } from './bytes.js'
 export { langLabel } from './lang-label.js'
 export { isUntrackedPath } from './status.js'
+export { canPush, canPublish, pushIntent } from './push-policy.js'
 export { canCopyContent } from './copy-content.js'
 export { markdownImageUrl, createPathImages } from './path-images.js'
 export { splitMermaidSegments, markdownKbdToCode } from './mermaid-blocks.js'
