@@ -543,7 +543,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       onRefresh, t,
     }),
     // Inline failure, dismissible: provider errors can be long and wrap, so the
-    // close control sits at the banner's bottom-right instead of costing a row.
+    // close control shares the text row instead of costing one of its own.
     error !== null
       ? h('div', { key: 'err', className: 'gp-feedback gp-feedback--dismissible' }, [
         h('span', { key: 'txt', className: 'gp-feedback__text' }, error),

@@ -503,6 +503,52 @@ async function errorDismissScenario() {
   await page.close()
 }
 
+/**
+ * Committing with nothing staged is refused by git on stdout (exit 1). The
+ * banner must show the localized explanation, never git's English line, and
+ * centre the message on a one-line banner instead of pinning it to the bottom.
+ */
+async function nothingToCommitScenario() {
+  const page = await openPanel(DIRTY)
+  await page.evaluate(() => {
+    window.__gpFixture.runFailure = { kind: 'commit', code: 'nothing-to-commit' }
+  })
+  await page.locator('.gp-commitbox__msg').fill('docs: probe')
+  await page.locator('.gp-commitbox .gp-btn--primary').click()
+  await page.locator('.gp-feedback--dismissible').waitFor()
+  assert.equal(
+    await page.locator('.gp-feedback__text').textContent(),
+    '没有可提交的变更：请先暂存，或在列表中勾选有改动的文件',
+    'a refusal with no git stderr is localized, not shown as English git output',
+  )
+  const oneLine = await page.locator('.gp-feedback--dismissible').evaluate((banner) => {
+    const rect = (node) => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height } }
+    return { banner: rect(banner), text: rect(banner.querySelector('.gp-feedback__text')) }
+  })
+  assert.ok(
+    Math.abs((oneLine.banner.top + oneLine.banner.bottom) / 2 - (oneLine.text.top + oneLine.text.bottom) / 2) <= 1,
+    'one-line message is vertically centred in the banner',
+  )
+
+  // A wrapped message grows downward; the close control keeps the bottom-right.
+  await page.locator('.gp-feedback__close').click()
+  await page.waitForFunction(() => document.querySelector('.gp-feedback') === null)
+  const long = 'the model gateway refused the request because the prompt exceeded the provider context window and no fallback route was configured'
+  await page.evaluate((message) => {
+    window.__gpFixture.runFailure = { kind: 'stage-all', code: 'git-error', message }
+  }, long)
+  await page.locator('.gp-changes__stage-all').click()
+  await page.locator('.gp-feedback--dismissible').waitFor()
+  const wrapped = await page.locator('.gp-feedback--dismissible').evaluate((banner) => {
+    const rect = (node) => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height } }
+    return { banner: rect(banner), text: rect(banner.querySelector('.gp-feedback__text')), close: rect(banner.querySelector('.gp-feedback__close')) }
+  })
+  assert.ok(wrapped.text.height > 20, 'a long provider error wraps to more than one line')
+  assert.ok(wrapped.banner.bottom - wrapped.close.bottom <= 7, 'wrapped banner keeps its close control at the bottom-right')
+  assert.equal(await page.locator('.gp-feedback__text').textContent(), long, 'provider detail still rides along verbatim')
+  await page.close()
+}
+
 /** A disabled control must still explain itself on hover (issue #61). */
 async function disabledTipScenario() {
   const page = await openPanel(CLEAN)
@@ -526,6 +572,7 @@ try {
   await tipsAndStageScenario()
   await disabledTipScenario()
   await errorDismissScenario()
+  await nothingToCommitScenario()
   await refreshScenario()
   await pushScenario()
   await pushFailureAndStaleScenario()

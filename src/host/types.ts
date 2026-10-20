@@ -272,6 +272,9 @@ export type GitErrorCode =
   | 'timeout'
   | 'cancelled'
   | 'empty-message'
+  // `commit` found nothing to record: nothing staged, and no selected path with
+  // a change. git writes this refusal to stdout (exit 1), not stderr.
+  | 'nothing-to-commit'
   | 'local-changes-block'
   // A fast-forward-only pull could not fast-forward (local/remote diverged).
   | 'not-ff'

@@ -20,6 +20,7 @@ export type OpT = (key: GitKey, params?: Record<string, string | number>) => str
 export function opErrorText(code: string, message: string | undefined, t: OpT): string {
   switch (code) {
     case 'empty-message': return t('error.emptyMessage')
+    case 'nothing-to-commit': return t('error.nothingToCommit')
     case 'not-a-git-repo': return t('error.notARepo')
     case 'cwd-unavailable': return t('error.noCwd')
     case 'local-changes-block': return t('error.localChangesBlock')
@@ -48,6 +49,14 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'no-branch': return t('error.noBranch')
     case 'invalid-name':
     case 'invalid-index': return t('error.invalidName')
+    // A rejected path came from the panel's own selection: it is outside the
+    // repository (or a `.git` entry), so there is no detail worth showing.
+    case 'invalid-path': return t('error.invalidPath')
+    // Transport-level outcomes carry no message of their own.
+    case 'timeout': return t('error.timeout')
+    case 'cancelled': return t('error.cancelled')
+    // `git-error` keeps the repository's own message: hooks, signing and
+    // provider failures are the only copy that says why, and cannot be translated.
     default: return message ?? t('error.generic')
   }
 }

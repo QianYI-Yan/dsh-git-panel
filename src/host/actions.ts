@@ -206,8 +206,8 @@ export function classifyActionFailure(stdout: string, stderr: string, exitCode: 
   if (/index\.lock|Unable to create.*index|another git process/i.test(combined)) {
     return { code: 'index-busy', message: err }
   }
-  if (/nothing to commit|no changes added/i.test(combined)) {
-    return { code: 'git-error', message: err || 'nothing to commit' }
+  if (/nothing to commit|nothing added to commit|no changes added/i.test(combined)) {
+    return { code: 'nothing-to-commit', message: err }
   }
   if (/No such ref|not a valid reference|is not a stash|no tag|tag .* not found|unknown revision|bad revision|Could not parse object|ambiguous argument|did not match any file\(s\) known to git/i.test(combined)) {
     return { code: 'not-found', message: err || 'not found' }

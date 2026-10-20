@@ -853,6 +853,24 @@ test('stage then commit advances HEAD', async () => {
   assert.equal(msg.value.message, 'chore: update a')
 })
 
+test('commit with nothing staged reports nothing-to-commit, not a raw git line', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gp-it-nothing-'))
+  try {
+    await runGit(dir, ['init', '-q'])
+    await runGit(dir, ['config', 'user.email', 't@t.co'])
+    await runGit(dir, ['config', 'user.name', 'Tester'])
+    await runGit(dir, ['commit', '--allow-empty', '-qm', 'init'])
+    const refused = await runAction(depsAt(dir), DEFAULT_CONFIG, { sessionId: SID, action: { kind: 'commit', message: 'chore: noop' } })
+    assert.equal(refused.ok, false)
+    // git explains this refusal on stdout and leaves stderr empty; the code is
+    // what the client localizes.
+    assert.equal(refused.error.code, 'nothing-to-commit')
+    assert.equal(refused.error.message, '')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('image-diff serves old/new data URLs per base', async () => {
   const d = depsAt(repoImg)
   const b64 = (s) => Buffer.from(s).toString('base64')

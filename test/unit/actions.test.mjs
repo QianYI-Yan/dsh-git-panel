@@ -197,7 +197,12 @@ test('classifyActionFailure orders conflict before nothing-to-commit, and maps c
   const popConflict = classifyActionFailure('Auto-merging a\nCONFLICT (content): Merge conflict in a\nno changes added to commit', '', 1)
   assert.equal(popConflict.code, 'conflict')
   assert.equal(classifyActionFailure('', 'fatal: Unable to create .git/index.lock: File exists', 128).code, 'index-busy')
-  assert.equal(classifyActionFailure('nothing to commit, working tree clean', '', 1).code, 'git-error')
+  // A commit with nothing staged prints its refusal on stdout (exit 1) and
+  // leaves stderr empty; with untracked files present the wording differs.
+  const nothing = classifyActionFailure('nothing to commit, working tree clean', '', 1)
+  assert.equal(nothing.code, 'nothing-to-commit')
+  assert.equal(nothing.message, '')
+  assert.equal(classifyActionFailure('', 'nothing added to commit but untracked files present', 1).code, 'nothing-to-commit')
   assert.equal(classifyActionFailure('', "error: tag 'nope' not found.", 1).code, 'not-found')
   assert.equal(classifyActionFailure('', 'is not a valid reference', 1).code, 'not-found')
   assert.equal(classifyActionFailure('', 'error: Your local changes to the following files would be overwritten by merge', 1).code, 'local-changes-block')

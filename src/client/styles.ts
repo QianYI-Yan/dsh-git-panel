@@ -504,9 +504,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-svgdiff__bar{flex:none;display:flex;justify-content:flex-end;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-svgdiff__body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-feedback{padding:6px 10px;font-size:12px;color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);display:flex;align-items:center;gap:8px}
-/* Dismissible error banner: a wrapped message grows downward, so the close
- * control is pinned to the bottom-right corner rather than centred on it. */
-.gp-feedback--dismissible{align-items:flex-end}
+/* Dismissible error banner: the message line is centred on a one-line banner;
+ * when the message wraps, the close control drops to the bottom-right corner. */
+.gp-feedback--dismissible .gp-feedback__close{align-self:flex-end}
 .gp-feedback__text{flex:1 1 auto;min-width:0}
 .gp-feedback__close{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:transparent;color:inherit;cursor:pointer;opacity:.75}
 .gp-feedback__close:hover{opacity:1;background:var(--dsw-alias-interactive-bg-hover)}
