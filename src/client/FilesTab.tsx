@@ -25,6 +25,7 @@ import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { createStaticHtmlDocument, HTML_HEAVY_SCRIPT_BYTES, inlineScriptBytes, looksScriptRendered, packHtmlDocument, withReadyPing } from './html-pack.js'
 import { formatBytes } from './bytes.js'
+import { canOpenLocally } from './local-origin.js'
 import { renderModalShell } from './ops-modals.js'
 import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
@@ -233,6 +234,27 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   // The user has approved this document's render (or it is light enough to
   // need no approval). Keyed on the file, so another file asks again.
   const [heavyApproved, setHeavyApproved] = useState<string | null>(null)
+  // "Open it outside the panel" is only meaningful on the machine that has the
+  // file: a loopback GUI means the server and the reader share a disk.
+  const heavyCanOpen = useMemo(
+    () => canOpenLocally(typeof location === 'undefined' ? '' : location.hostname),
+    [],
+  )
+  const [openExternal, setOpenExternal] = useState<{ readonly busy: boolean; readonly error: string | null }>({ busy: false, error: null })
+  const openFileExternally = useCallback(async (): Promise<void> => {
+    if (file.kind !== 'text') return
+    setOpenExternal({ busy: true, error: null })
+    const res = await remote.openFile({ sessionId, path: file.path })
+    if (res.ok) {
+      // The page now lives in the system browser; leave the source view here so
+      // nothing tries to mount a frame on top of a page that is being painted
+      // somewhere else.
+      setOpenExternal({ busy: false, error: null })
+      setRenderMarkdown(false)
+      return
+    }
+    setOpenExternal({ busy: false, error: t('files.htmlOpenFailed') })
+  }, [file, remote, sessionId, t])
   const htmlPath = file.kind === 'idle' ? null : file.path
   const heavyPending = heavyDocument && renderMarkdown && htmlMode === 'interactive' && htmlPath !== null && heavyApproved !== htmlPath
   // The user stopped the render from the mask: the frame is unmounted and the
@@ -687,8 +709,12 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       key: 'heavy',
       path: file.path,
       bytes: heavyScriptBytes,
-      onRender: () => { setHeavyApproved(file.path) },
-      onCancel: () => { setRenderMarkdown(false) },
+      canOpen: heavyCanOpen,
+      opening: openExternal.busy,
+      error: openExternal.error,
+      onOpen: () => { void openFileExternally() },
+      onRender: () => { setHeavyApproved(file.path); setOpenExternal({ busy: false, error: null }) },
+      onCancel: () => { setRenderMarkdown(false); setOpenExternal({ busy: false, error: null }) },
       t,
     })
     : null
@@ -805,6 +831,10 @@ function renderContent(
 function HeavyPreviewModal(props: {
   path: string
   bytes: number
+  readonly canOpen: boolean
+  readonly opening: boolean
+  readonly error: string | null
+  readonly onOpen: () => void
   readonly onRender: () => void
   readonly onCancel: () => void
   t: (key: GitKey, params?: Record<string, string | number>) => string
@@ -814,12 +844,19 @@ function HeavyPreviewModal(props: {
     h('div', { key: 'wrap', 'data-gp-heavy-modal': '' }, [
       h('p', { key: 'why', className: 'gp-modal__confirmtext' }, t('files.htmlHeavyWhy', { size: formatBytes(props.bytes) })),
       h('p', { key: 'inline', className: 'gp-modal__confirmtext' }, t('files.htmlHeavyInline')),
+      props.canOpen ? null : h('p', { key: 'remote', className: 'gp-modal__confirmtext' }, t('files.htmlHeavyRemote')),
+      props.error !== null ? h('p', { key: 'err', className: 'gp-feedback', role: 'alert' }, props.error) : null,
     ]),
   ]
   const footer = h('div', { key: 'footer', className: 'gp-modal__footer' }, [
-    h('button', { key: 'cancel', type: 'button', className: 'gp-btn', onClick: props.onCancel }, t('common.cancel')),
+    h('button', { key: 'cancel', type: 'button', className: 'gp-btn', disabled: props.opening, onClick: props.onCancel }, t('common.cancel')),
+    props.canOpen
+      ? h('button', {
+        key: 'open', type: 'button', className: 'gp-btn', disabled: props.opening, onClick: props.onOpen,
+      }, t(props.opening ? 'files.htmlOpening' : 'files.htmlOpenInBrowser'))
+      : null,
     h('button', {
-      key: 'render', type: 'button', className: 'gp-btn gp-btn--primary', onClick: props.onRender,
+      key: 'render', type: 'button', className: 'gp-btn gp-btn--primary', disabled: props.opening, onClick: props.onRender,
     }, t('files.htmlHeavyRun')),
   ])
   return renderModalShell({

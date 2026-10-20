@@ -10,7 +10,7 @@
 import type {
   GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitQueryResult,
   GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult,
-  GitVersionInfo, GitVersionRequest,
+  GitOpenFileRequest, GitOpenFileResult, GitVersionInfo, GitVersionRequest,
 } from './types.js'
 
 const API_CHANNEL = '/api'
@@ -100,6 +100,7 @@ export interface GitPanelRemote {
   query(request: GitQueryRequest, signal?: AbortSignal): Promise<GitQueryResponse>
   suggest(request: GitSuggestRequest, signal?: AbortSignal): Promise<GitSuggestResult>
   version(request: GitVersionRequest, signal?: AbortSignal): Promise<GitVersionInfo | { ok: false; error: { code: string; message?: string } }>
+  openFile(request: GitOpenFileRequest, signal?: AbortSignal): Promise<GitOpenFileResult>
 }
 
 /**
@@ -147,6 +148,7 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
     query: (request, signal) => invoke<GitQueryResponse>('query', request, signal) as Promise<GitQueryResponse>,
     suggest: (request, signal) => invoke<GitSuggestResult>('suggest', request, signal) as Promise<GitSuggestResult>,
     version: (request, signal) => invoke<GitVersionInfo>('version', request, signal),
+    openFile: (request, signal) => invoke<GitOpenFileResult>('openFile', request, signal) as Promise<GitOpenFileResult>,
   }
   remoteCache.set(ctx, remote)
   return remote

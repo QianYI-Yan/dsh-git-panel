@@ -1356,6 +1356,10 @@ const out = await page.evaluate(async (snap) => {
   const heavyRenderBtn2 = modeTab('files.render')
   if (heavyRenderBtn2) { heavyRenderBtn2.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.htmlHeavyAsksAgain = heavyModal() !== null
+  // On a loopback GUI the dialog offers the local-open escape; the harness is
+  // served from file:// so it lands on the remote copy (no open button).
+  result.htmlHeavyOpensLocally = heavyButtons().some((b) => (b.textContent || '').includes('files.htmlOpenInBrowser')) === false
+    && (heavyModal()?.textContent || '').includes('files.htmlHeavyRemote')
   // Approving mounts the frame and runs the page.
   heavyButtons().find((b) => (b.textContent || '').includes('files.htmlHeavyRun'))?.click()
   await new Promise((r) => setTimeout(r, 300))

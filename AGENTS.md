@@ -71,7 +71,8 @@ Host 半 (Cordis + typert, lib/host)
 - 全屏阅读器（`files.fullscreen`）是面板里那份预览换样式成弹窗，**不能**在弹窗里重新渲染文件：重建 iframe 会重跑页面脚本（同一份报告再等约 12 s），代码视图也会丢滚动与查找。它也不能搬进 portal——搬动 DOM 就会重载 iframe（ADR-0016）。
 - HTML 预览在渲染期间覆盖一层遮罩（`.gp-files__html-mask`），`ready` 由页面自己回报（`withReadyPing`：`load` 后再过两帧 `postMessage`），父侧 `load` + 超时只作兜底；遮罩退出后保持挂载但透明且 `pointer-events:none`。
 - **等待不得装成死机**：遮罩 4 s 后进入 slow 态——放行指针（`pointer-events:none`，只留停止按钮可点）、显示已等待秒数、给出「停止渲染」（卸载 frame 并回到源码视图）。页面自己的脚本跑在 frame 进程里，等待时长不可缩短，只能让它可退出（ADR-0020）。
-- **重页面先问再渲染**：内联脚本 ≥ 512 KiB 的文档在挂 frame 前用 **modal** 确认（不是提示条）：取消（保持源码）/ 仍然渲染。取消不算批准，切回渲染视图会再问一次。
+- **重页面先问再渲染**：内联脚本 ≥ 512 KiB 的文档在挂 frame 前用 **modal** 确认（不是提示条）：取消（保持源码）/ 仍然渲染 / 本地实例上的「在系统浏览器中打开」。取消不算批准，切回渲染视图会再问一次。
+- **本地打开是一次 host 动作**：`openFile` 端点用 argv 数组调用系统打开器（`open` / `rundll32` / `xdg-open`，绝不过 shell），路径先 `isSafePath` 再 `isInsideRoot`（realpath 仍在根内）——与读取端点同一条包含检查。只有 `location.hostname` 是回环时才提供该出口；远程实例说明文件在远端、只能内嵌渲染（等待期间可停止），打开失败要显示错误而非静默。
 - **页面自身能冻住整个应用，遮罩救不了**：2D canvas 大幅绘制的页面会打满全应用唯一的 GPU 进程，壳与面板同时出不了帧（JS 仍 1–2 ms）。实测同一份 report.html：默认 GPU 98–99%、截图挂死；`--disable-accelerated-2d-canvas` 下 GPU 3–7%、零挂死。所以遮罩/确认只负责「可预期、可退出」，真正的修复在壳侧或不内嵌渲染（ADR-0020）。
 - HTML 交互预览的 iframe 必须用 `blob:` URL（`URL.createObjectURL`），**不能用 `srcdoc`**：带自身 URL 的沙箱 iframe 在 Chromium 里走独立渲染进程，页面脚本再重也不冻结面板；`srcdoc` 与面板同进程，实测同一份报告 12 s 全冻结。iframe 始终不带 `allow-same-origin`；工具栏 `JS` 开关切到静态模式时改用 `srcdoc` + `sandbox=""` + `default-src 'none'` 的 CSP。交互模式把相对 css/js 经 `file-content` 端点读出、以 `data:` URL 内联（≥2 MiB 跳过打包），任何失败回落原始字节（`html-pack.ts`，ADR-0020）。
 

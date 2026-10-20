@@ -657,13 +657,17 @@ function hasGitSegment(path: string): boolean {
 
 /** Whether a path resolves inside the browse root, outside its .git tree, or
  * is absent (a deleted entry still listed by a stale tree). */
-type PathState = 'inside' | 'outside' | 'missing'
+export type PathState = 'inside' | 'outside' | 'missing'
 
 function isMissingPath(error: unknown): boolean {
   return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
 }
 
-async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<PathState> {
+/**
+ * Where `path` sits relative to `root` after symlinks are followed: the one
+ * containment check shared by every endpoint that touches a browsable file.
+ */
+export async function isInsideRoot(deps: SnapshotDeps, root: string, path: string, hideGit = false): Promise<PathState> {
   try {
     const real = await deps.fs.realpath(path)
     const rootReal = await deps.fs.realpath(root)

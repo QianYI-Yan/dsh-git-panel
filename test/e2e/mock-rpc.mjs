@@ -23,6 +23,9 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     // text overrides. The panel writes neither, so a test can stage a change
     // that happened outside the panel and observe the refresh pick it up.
     rootExtraEntries: [], textOverrides: {},
+    // Files the panel asked the host to open outside the panel, and an optional
+    // typed failure so the error path can be driven.
+    openedFiles: [], openFileFailure: null,
     // Branch-switch probes: every `run` action lands here, and `branchQueries`
     // counts the branch-list reloads a landed checkout must trigger.
     // `runFailure` forces a wire error once: `{kind, code, message}` for exactly
@@ -231,6 +234,13 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           return { ok: true, value: { ok: true, value: { message: 'feat: suggested', truncated: fixture.suggestTruncated === true } } }
         }
         if (endpoint === 'gitPanel/version') return { ok: true, value: { current: '0.1.0', repositoryUrl: 'https://github.com/xbzbing/dsh-git-panel', updateAvailable: false, checkedRemote: request.check === true } }
+        // "Open in the system browser": the harness records the request so a
+        // test can prove the panel asked the host instead of mounting a frame.
+        if (endpoint === 'gitPanel/openFile') {
+          fixture.openedFiles.push(request.path)
+          if (fixture.openFileFailure !== null) return { ok: true, value: { ok: false, error: fixture.openFileFailure } }
+          return { ok: true, value: { ok: true, absolutePath: '/abs/' + request.path } }
+        }
         return { ok: false, error: { code: 'git-error', message: 'unhandled ' + endpoint } }
       },
     },

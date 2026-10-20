@@ -294,6 +294,7 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.htmlMaskFallbackReady, true, 'the load fallback lifts the mask even when the page CSP blocks the report')
   assert.equal(out.htmlHeavyAsks, true, 'a heavy document asks in a modal before its frame is mounted (no page scripts run uninvited)')
   assert.equal(out.htmlHeavyKeptSource, true, 'cancelling closes the question without mounting a frame')
+  assert.equal(out.htmlHeavyOpensLocally, true, 'a non-loopback GUI offers no local-open button and says the file is remote')
   assert.equal(out.htmlHeavyAsksAgain, true, 'declining is not an approval: the question comes back')
   assert.equal(out.htmlHeavyRuns, true, 'approving mounts the frame and runs the page')
   assert.equal(out.htmlMaskSlowClickThrough, true, 'a slow frame stops the mask from taking clicks, so the panel stays usable')
