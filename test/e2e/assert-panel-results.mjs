@@ -276,12 +276,25 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.htmlSourceDefault, true, 'HTML defaults to the source view, never auto-rendered')
   assert.equal(out.htmlRenderShown, true, 'switching HTML to render mounts the preview iframe')
   assert.equal(out.htmlFrameSandbox, 'allow-scripts', 'the HTML iframe runs scripts but stays a unique opaque origin (no allow-same-origin)')
-  assert.equal(out.htmlFrameHasSrcdoc, true, 'the HTML iframe carries the page bytes via srcdoc (no extra fetch)')
-  assert.equal(out.htmlAssetPacked, true, 'a relative stylesheet turns the srcdoc into the asset-pack bootstrap document')
+  assert.equal(out.htmlInteractiveDefault, true, 'a small HTML document keeps the interactive preview by default')
+  assert.equal(out.htmlStaticToggle, true, 'the JS toggle drops script permission and injects the static CSP')
+  assert.equal(out.htmlStaticHint, true, 'a script-rendered page explains the blank static preview and offers to run it')
+  assert.equal(out.htmlStaticNoMask, true, 'a srcdoc (static) preview shows no loading mask')
+  assert.equal(out.htmlScriptsRestored, true, 'toggling JS back restores the interactive preview')
+  assert.equal(out.htmlLoadingMask, true, 'the blob frame is masked until load, then the mask is click-through and hidden from AT')
+  assert.equal(out.htmlMaskLoadingState, true, 'a frame that never reports keeps the mask (and blocks the pointer) until the fallback')
+  assert.equal(out.htmlMaskIgnoresForeignMessage, true, 'a paint report from anywhere but the frame itself is refused')
+  assert.equal(out.htmlMaskFallbackReady, true, 'the load fallback lifts the mask even when the page CSP blocks the report')
+  assert.equal(out.htmlFrameUsesBlob, true, 'the interactive HTML body travels as a blob: URL (own renderer process)')
+  assert.equal(out.htmlFrameHasPageBytes, true, 'the HTML iframe carries the page bytes (blob document, no network)')
+  assert.equal(out.htmlRunsPageScript, true, 'the interactive frame really executes the page scripts')
+  assert.equal(out.htmlStaticBlocksScript, true, 'the static preview really blocks them')
+  assert.equal(out.htmlAssetPacked, true, 'a relative stylesheet is inlined as a data: URL in the srcdoc')
   assert.equal(out.htmlAssetCssRead, true, 'the stylesheet is read through the host file-content route, not the network')
   assert.equal(out.htmlAssetSandbox, 'allow-scripts', 'the packed HTML iframe keeps the opaque-origin sandbox')
-  assert.equal(out.htmlAssetBundleHasCss, true, 'the bootstrap payload carries the stylesheet text for the in-iframe blob rewrite')
+  assert.equal(out.htmlAssetBundleHasCss, true, 'the inlined data: URL carries the stylesheet text')
   assert.equal(out.htmlAssetFallback, true, 'a missing asset abandons the pack and the plain page bytes render')
+  assert.equal(out.htmlAssetMissingRead, true, 'the missing asset was actually read and refused, not skipped')
   assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
   assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
   assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
@@ -387,9 +400,22 @@ export function assertPanelResults(out, realInput, errors) {
   assert.ok(realInput !== null && realInput.after.left > realInput.before.left && realInput.after.top > realInput.before.top, `real input: a mouse drag pans the zoomed image (${JSON.stringify(realInput?.before)} -> ${JSON.stringify(realInput?.after)})`)
   assert.equal(realInput?.after.pct, realInput?.before.pct, 'real input: a drag leaves the zoom level untouched')
   assert.equal(realInput?.after.lightbox, false, 'real input: a drag never opens the lightbox')
-  // The unpacked.html fixture's abandoned pack leaves its relative
-  // `missing.css` reference exactly as authored, so the iframe still asks
-  // for it and file:// refuses — that one failed load IS the fall-back
-  // under test. Every other console error stays fatal.
-  assert.deepEqual(errors.filter((message) => !/missing\.css/.test(message)), [], 'no console errors: ' + JSON.stringify(errors))
+  // Exactly two console errors are the behaviour under test, not defects:
+  // the static preview of page.html blocks that page's inline script (the
+  // sandbox denies it), and csp.html blocks the preview's own paint report
+  // with its `script-src 'none'` — the fallback path. Both must actually
+  // appear, so a silent regression cannot hide behind the allow list; every
+  // other console error stays fatal.
+  const expectedErrors = [
+    { pattern: /frame is sandboxed and the 'allow-scripts' permission is not set/, seen: 'the static preview blocks the page script' },
+    { pattern: /Content Security Policy directive 'script-src 'none''.*has been blocked/, seen: 'the CSP fixture blocks the paint report' },
+  ]
+  for (const expected of expectedErrors) {
+    assert.ok(errors.some((message) => expected.pattern.test(message)), `expected console error missing (${expected.seen}): ${JSON.stringify(errors)}`)
+  }
+  assert.deepEqual(
+    errors.filter((message) => !expectedErrors.some((expected) => expected.pattern.test(message))),
+    [],
+    'no console errors: ' + JSON.stringify(errors),
+  )
 }

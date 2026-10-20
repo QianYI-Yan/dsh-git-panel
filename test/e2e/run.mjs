@@ -1192,12 +1192,83 @@ const out = await page.evaluate(async (snap) => {
   const htmlRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('page.html'))
   if (htmlRow) { htmlRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.htmlSourceDefault = document.querySelector('.gp-files__code') !== null && document.querySelector('.gp-files__html') === null
+  // The panel cannot read into the opaque frame, so the page reports itself:
+  // a message per document load proves the scripts really ran (and that a
+  // remount really reloaded).
+  let pageLoads = 0
+  window.addEventListener('message', (event) => { if (event.data === 'html-page-load') pageLoads += 1 })
   const htmlRenderBtn = modeTab('files.render')
   if (htmlRenderBtn) { htmlRenderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
+  for (let i = 0; i < 80 && pageLoads === 0; i++) await new Promise((r) => setTimeout(r, 25))
+  result.htmlRunsPageScript = pageLoads === 1
   const htmlFrame = document.querySelector('.gp-files__html')
   result.htmlRenderShown = htmlFrame !== null && document.querySelector('.gp-files__code') === null
   result.htmlFrameSandbox = htmlFrame?.getAttribute('sandbox') ?? null
-  result.htmlFrameHasSrcdoc = (htmlFrame?.getAttribute('srcdoc') || '').includes('Hello HTML')
+  // The interactive body travels through a blob: URL, so the frame gets its
+  // own renderer process instead of sharing the panel's main thread.
+  const htmlFrameSrc = htmlFrame?.getAttribute('src') || ''
+  result.htmlFrameUsesBlob = htmlFrameSrc.startsWith('blob:')
+  result.htmlFrameHasPageBytes = htmlFrameSrc === ''
+    ? (htmlFrame?.getAttribute('srcdoc') || '').includes('Hello HTML')
+    : (await (await fetch(htmlFrameSrc)).text()).includes('Hello HTML')
+  // Scripts stay on by default; the JS toggle forces the static preview
+  // (no script permission + a CSP that blocks the network).
+  result.htmlInteractiveDefault = htmlFrame?.getAttribute('sandbox') === 'allow-scripts'
+  const scriptToggle = document.querySelector('.gp-files__scripts')
+  if (scriptToggle) { scriptToggle.click(); await new Promise((r) => setTimeout(r, 150)) }
+  const staticFrame = document.querySelector('.gp-files__html')
+  const staticSrcdoc = staticFrame?.getAttribute('srcdoc') || ''
+  result.htmlStaticToggle = staticFrame?.getAttribute('sandbox') === ''
+    && staticSrcdoc.includes('Content-Security-Policy')
+    && scriptToggle?.getAttribute('aria-pressed') === 'false'
+  // A static preview of a script-rendered page is blank; the note says why and
+  // runs the page when the reader asks for it.
+  const staticNote = document.querySelector('.gp-files__html-note')
+  result.htmlStaticHint = staticNote !== null && (staticNote.textContent || '').includes('files.scriptsSkipped')
+  // A srcdoc document commits in the same task, so the static preview has no
+  // mask to show.
+  result.htmlStaticNoMask = document.querySelector('.gp-files__html-mask') === null
+  result.htmlStaticBlocksScript = pageLoads === 1
+  staticNote?.querySelector('.gp-files__html-note-run')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.htmlScriptsRestored = document.querySelector('.gp-files__html')?.getAttribute('sandbox') === 'allow-scripts'
+    && scriptToggle?.getAttribute('aria-pressed') === 'true'
+  // A blob frame paints asynchronously: a mask covers it until the document
+  // loads, then goes click-through and reports itself as done to AT. Poll for
+  // the load event instead of assuming a fixed frame budget.
+  for (let i = 0; i < 80 && document.querySelector('.gp-files__html-mask')?.getAttribute('data-state') !== 'ready'; i++) {
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  // Let the 180 ms fade finish before reading the computed opacity.
+  await new Promise((r) => setTimeout(r, 250))
+  const htmlMask = document.querySelector('.gp-files__html-mask')
+  result.htmlLoadingMask = htmlMask !== null
+    && htmlMask.getAttribute('data-state') === 'ready'
+    && htmlMask.getAttribute('aria-hidden') === 'true'
+    // Done means click-through and invisible, not just a different label.
+    && getComputedStyle(htmlMask).pointerEvents === 'none'
+    && getComputedStyle(htmlMask).opacity === '0'
+  // A page whose own CSP blocks the appended paint report: the mask stays up
+  // until the load fallback, ignores a forged report from the panel itself,
+  // and only then goes click-through.
+  const cspRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('csp.html'))
+  if (cspRow) { cspRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const cspRenderBtn = modeTab('files.render')
+  if (cspRenderBtn) { cspRenderBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
+  const cspMask = document.querySelector('.gp-files__html-mask')
+  result.htmlMaskLoadingState = cspMask?.getAttribute('data-state') === 'loading'
+    && getComputedStyle(cspMask).pointerEvents !== 'none'
+    && (cspMask?.textContent || '').includes('files.htmlRendering')
+  // The report is refused unless it comes from the frame's own window.
+  window.postMessage('dsh-html-ready', '*')
+  await new Promise((r) => setTimeout(r, 200))
+  result.htmlMaskIgnoresForeignMessage = document.querySelector('.gp-files__html-mask')?.getAttribute('data-state') === 'loading'
+  for (let i = 0; i < 160 && document.querySelector('.gp-files__html-mask')?.getAttribute('data-state') !== 'ready'; i++) {
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  const cspMaskAfter = document.querySelector('.gp-files__html-mask')
+  result.htmlMaskFallbackReady = cspMaskAfter?.getAttribute('data-state') === 'ready'
+    && getComputedStyle(cspMaskAfter).pointerEvents === 'none'
   // HTML asset pack (ADR-0020): a page with a relative stylesheet is read
   // through the host file-content route and handed to the iframe as the
   // bootstrap document; a missing asset abandons the pack and the plain
@@ -1208,32 +1279,32 @@ const out = await page.evaluate(async (snap) => {
   const styledRenderBtn = modeTab('files.render')
   if (styledRenderBtn) { styledRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
   const styledFrame = document.querySelector('.gp-files__html')
-  const styledSrcdoc = styledFrame?.getAttribute('srcdoc') || ''
-  result.htmlAssetPacked = styledSrcdoc.startsWith('<!doctype html><meta charset="utf-8"><script>')
-    && styledSrcdoc.includes('createObjectURL')
+  const styledSrc = styledFrame?.getAttribute('src') || ''
+  const styledSrcdoc = styledSrc === '' ? (styledFrame?.getAttribute('srcdoc') || '') : await (await fetch(styledSrc)).text()
+  result.htmlAssetPacked = styledSrcdoc.includes('data:text/css;base64,')
+    && !styledSrcdoc.includes('createObjectURL')
   result.htmlAssetCssRead = fixture.contentQueries.slice(contentQueriesBeforeHtml).includes('styled.css')
   result.htmlAssetSandbox = styledFrame?.getAttribute('sandbox') ?? null
   // Decode the bootstrap payload to prove the stylesheet text travelled
   // inside the srcdoc (no network fetch of the css).
   result.htmlAssetBundleHasCss = (() => {
-    const payload = styledSrcdoc.match(/JSON\.parse\(text\("([^"]+)"\)\)/)
-    if (payload === null) return false
-    try {
-      const bytes = Uint8Array.from(atob(payload[1]), (c) => c.charCodeAt(0))
-      const bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
-      return bundle.assets.length === 1
-        && bundle.assets[0].kind === 'stylesheet'
-        && bundle.assets[0].reference === 'styled.css'
-        && bundle.assets[0].text.includes('rgb(1, 2, 3)')
-    } catch { return false }
+    const inline = styledSrcdoc.match(/data:text\/css;base64,([A-Za-z0-9+/=]+)/)
+    if (inline === null) return false
+    try { return atob(inline[1]).includes('rgb(1, 2, 3)') } catch { return false }
   })()
   const unpackedRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('unpacked.html'))
   if (unpackedRow) { unpackedRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   const unpackedRenderBtn = modeTab('files.render')
   if (unpackedRenderBtn) { unpackedRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
-  const unpackedSrcdoc = document.querySelector('.gp-files__html')?.getAttribute('srcdoc') || ''
+  const unpackedFrame = document.querySelector('.gp-files__html')
+  const unpackedSrc = unpackedFrame?.getAttribute('src') || ''
+  const unpackedSrcdoc = unpackedSrc === ''
+    ? (unpackedFrame?.getAttribute('srcdoc') || '')
+    : await (await fetch(unpackedSrc)).text()
   result.htmlAssetFallback = unpackedSrcdoc.includes('Unpacked HTML')
-    && !unpackedSrcdoc.includes('createObjectURL')
+    && !unpackedSrcdoc.includes('data:text/css;base64,')
+  // …because the read was attempted and failed, not skipped up front.
+  result.htmlAssetMissingRead = fixture.contentQueries.slice(contentQueriesBeforeHtml).includes('missing.css')
   // Large-file source guards: highlighting is skipped (a notice shows, no
   // syntax spans) and the over-long line is truncated with a marker.
   const bigRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.js'))

@@ -1,17 +1,19 @@
 /**
- * html-pack: the HTML preview asset packer that mirrors the official
- * document preview's packHtml. Locks the reference filter (relative only,
- * scheme/absolute/NUL refused), the document-relative path resolution
- * (query/fragment stripped, one decode, `.`/`..` resolved, root escape
- * refused), the all-or-nothing pack loop with its byte/count caps, and the
- * bootstrap document that carries page + assets as base64 JSON for the
- * iframe to rewrite to blob URLs.
+ * html-pack: the HTML preview document builder. Locks the reference filter
+ * (relative only, scheme/absolute/NUL refused), the document-relative path
+ * resolution (query/fragment stripped, one decode, `.`/`..` resolved, root
+ * escape refused), the all-or-nothing pack loop with its byte/count caps, the
+ * pre-check that skips the parse when nothing could be referenced, the static
+ * document's CSP and its doctype-first insertion, the escape-report the mask
+ * waits for, and the data: URLs assets are inlined as.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  isRelativeAssetReference, resolveAssetPath, packAssets, encodeText, createHtmlDocument,
-  packHtmlDocument, MAX_ASSET_BYTES, MAX_TOTAL_BYTES, MAX_ASSETS,
+  isRelativeAssetReference, resolveAssetPath, packAssets, encodeText, assetDataUrl,
+  createStaticHtmlDocument, looksScriptRendered, packHtmlDocument,
+  withReadyPing, hasAssetReferences, HTML_READY_MESSAGE,
+  MAX_ASSET_BYTES, MAX_TOTAL_BYTES, MAX_ASSETS,
 } from '../../lib/testkit.mjs'
 
 const DOC = 'docs/local/mock.html'
@@ -95,14 +97,74 @@ test('encodeText is base64 of the UTF-8 bytes', () => {
   assert.equal(Buffer.from(encodeText('颜色 emoji 🎨'), 'base64').toString('utf8'), '颜色 emoji 🎨')
 })
 
-test('createHtmlDocument carries the page and assets as base64 JSON for the bootstrap', () => {
-  const doc = createHtmlDocument('<p>hi</p>', [{ kind: 'stylesheet', reference: 'style.css', text: 'body{}' }])
-  assert.ok(doc.startsWith('<!doctype html><meta charset="utf-8"><script>'), 'bootstrap shell first')
-  assert.ok(doc.includes('createObjectURL') && doc.includes('document.write'), 'rewrite + write bootstrap')
-  const payload = doc.match(/JSON\.parse\(text\("([^"]+)"\)\)/)
-  assert.ok(payload, 'base64 payload embedded')
-  const bundle = JSON.parse(Buffer.from(payload[1], 'base64').toString('utf8'))
-  assert.deepEqual(bundle, { html: '<p>hi</p>', assets: [{ kind: 'stylesheet', reference: 'style.css', text: 'body{}' }] })
+test('createStaticHtmlDocument puts the CSP first in the head', () => {
+  const doc = createStaticHtmlDocument('<!doctype html><html><head><title>t</title></head><body>x</body></html>')
+  assert.ok(doc.startsWith('<!doctype html><html><head><meta http-equiv="Content-Security-Policy"'), 'meta leads the head')
+  assert.ok(doc.includes("default-src 'none'"), 'network and scripts are denied')
+  assert.ok(doc.includes('</head><body>x</body>'), 'the rest of the document is untouched')
+  assert.ok(createStaticHtmlDocument('<html><body>x</body></html>').includes('<head><meta http-equiv="Content-Security-Policy"'))
+  assert.ok(createStaticHtmlDocument('<p>x</p>').startsWith('<meta http-equiv="Content-Security-Policy"'), 'no html root: policy leads the fragment')
+  // A document without <html> must keep its doctype first: anything ahead of
+  // it puts the parser in quirks mode and changes the layout.
+  assert.ok(createStaticHtmlDocument('<!doctype html><p>x</p>').startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"'), 'doctype stays first')
+  // A `<head` that is only text (inside a comment or a script body) must not
+  // receive the meta: the policy would be inert and the page could be cut.
+  const commented = createStaticHtmlDocument('<!doctype html><!-- <head> --><html><head></head><body>x</body></html>')
+  assert.ok(commented.startsWith('<!doctype html>'), 'the doctype still leads the document')
+  assert.ok(commented.includes('<html><head><meta http-equiv="Content-Security-Policy"'), 'the meta goes into the real head, not the comment')
+  const scripted = createStaticHtmlDocument('<!doctype html><script>var s = "<head>"</script><body>x</body>')
+  assert.ok(scripted.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"'), 'a head inside a script is not a head')
+  // An earlier, closed script must not hide the fact that this `<head` sits
+  // inside a later one.
+  const twoScripts = createStaticHtmlDocument('<!doctype html><script>var a=1</script><script>var s = "<head>"</script><body>x</body>')
+  assert.ok(twoScripts.startsWith('<!doctype html><meta http-equiv="Content-Security-Policy"'), 'the last script decides, not the first')
+})
+
+test('looksScriptRendered separates canvas pages from authored copy', () => {
+  assert.equal(looksScriptRendered('<body><div id="root"></div><script>render()</script></body>'), true, 'script-only shell')
+  assert.equal(looksScriptRendered('<body><p>Hello</p><script>render()</script></body>'), true, 'tiny authored text')
+  assert.equal(
+    looksScriptRendered('<body><p>' + 'word '.repeat(80) + '</p><script>render()</script></body>'),
+    false,
+    'a styled document with real copy keeps it without scripts',
+  )
+  assert.equal(looksScriptRendered('<html><p>' + 'word '.repeat(80) + '</p></html>'), false, 'no body element: whole document is inspected')
+  // Inline style sheets are markup, not authored copy: a canvas page carrying
+  // a long <style> block is still script-rendered.
+  const styled = '<body><div id="root"></div><style>' + '.c{color:#123}'.repeat(80) + '</style><script>draw()</script></body>'
+  assert.equal(looksScriptRendered(styled), true, 'style bodies do not count as copy')
+})
+
+test('assetDataUrl carries the asset text as base64 under its MIME type', () => {
+  const css = assetDataUrl('stylesheet', 'body{color:red}')
+  assert.ok(css.startsWith('data:text/css;base64,'))
+  assert.equal(Buffer.from(css.split(',')[1], 'base64').toString('utf8'), 'body{color:red}')
+  const js = assetDataUrl('script', 'window.x=1')
+  assert.ok(js.startsWith('data:text/javascript;base64,'))
+  assert.equal(Buffer.from(js.split(',')[1], 'base64').toString('utf8'), 'window.x=1')
+})
+
+test('hasAssetReferences answers from one scan, without a DOM parse', () => {
+  assert.equal(hasAssetReferences('<div class="x">hi</div>'), false)
+  assert.equal(hasAssetReferences('<img alt="x">'), false)
+  assert.equal(hasAssetReferences('<link rel="stylesheet" href="a.css">'), true)
+  assert.equal(hasAssetReferences('<script src="a.js"></script>'), true)
+  assert.equal(hasAssetReferences('<img src="a.png">'), true)
+  assert.equal(hasAssetReferences('<a HREF="x.html">x</a>'), true, 'attribute names are case-insensitive')
+  assert.equal(hasAssetReferences('<img data-src="x.png">'), false, 'a data- attribute is not a reference')
+  assert.equal(hasAssetReferences('<script\n  src="a.js">'), true, 'any whitespace separates the attribute')
+})
+
+test('withReadyPing appends one paint report and leaves the page intact', () => {
+  const page = '<!doctype html><html><body><h1>Hi</h1><script>1</script></body></html>'
+  const out = withReadyPing(page)
+  assert.equal(out.startsWith(page), true, 'the page text is untouched')
+  assert.equal(out.slice(page.length).match(/<script>/g)?.length, 1, 'exactly one appended script')
+  assert.equal(out.includes(HTML_READY_MESSAGE), true, 'posts the agreed message')
+  assert.equal(out.includes('parent.postMessage'), true, 'reaches the panel')
+  assert.equal(out.includes("addEventListener(\"load\""), true, 'reports after the page load')
+  assert.equal(out.split('requestAnimationFrame').length - 1, 2, 'waits for the drawn frame')
+  assert.equal(withReadyPing('').endsWith('</script>'), true, 'an empty document still reports')
 })
 
 test('packHtmlDocument returns null in a non-DOM runtime (no packable parse)', async () => {

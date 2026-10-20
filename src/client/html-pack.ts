@@ -1,21 +1,29 @@
 /**
- * HTML preview asset packing — the panel-side mirror of the official
- * document preview's `packHtml` (see ADR-0020). A `srcdoc` iframe has no URL
- * of its own, so authored relative `css`/`js` references would resolve
- * against the GUI origin and 404. Packing reads those references through the
- * host's validated `file-content` route and hands the iframe a bootstrap
- * document that turns each asset into an in-document blob URL before
- * `document.write`ing the page — same opaque-origin sandbox, styles load.
+ * HTML preview document preparation (ADR-0020).
  *
- * All-or-nothing like the official pack: any limit trip, missing asset, or
- * unsafe reference gives the whole pack up (`null`) and the caller renders
- * the plain page bytes, which is exactly the previous behaviour. A `<base
- * href>` hands URL resolution to the browser, so packing is skipped.
+ * A `srcdoc` iframe has no URL of its own, so authored relative `css`/`js`
+ * references would resolve against the GUI origin and 404. The preview has two
+ * shapes:
+ *
+ * - **static** (opt-out): the authored bytes with a restrictive CSP inserted,
+ *   rendered in a script-less sandbox. One string insertion, so a multi-megabyte
+ *   document costs a few milliseconds — page scripts never run.
+ * - **interactive** (default): relative scripts and stylesheets are read through
+ *   the host's validated `file-content` route and inlined as `data:` URLs. One
+ *   parse → attribute rewrite → serialize, then the iframe runs the page. Above
+ *   {@link HTML_PACK_MAX_BYTES} the pack is skipped (the parse and the extra DOM
+ *   are the expensive part); the caller then renders the plain bytes.
+ *
+ * Packing stays all-or-nothing: any limit trip, missing asset, or unsafe
+ * reference gives the whole pack up (`null`) and the caller renders the plain
+ * page bytes. A `<base href>` hands URL resolution to the browser, so packing
+ * is skipped.
  */
+
 /** One static dependency of a previewed HTML document. */
 export interface AssetRef {
   readonly kind: 'script' | 'stylesheet'
-  /** Authored `src`/`href` value, verbatim — the bootstrap matches on it. */
+  /** Authored `src`/`href` value, verbatim — the rewrite matches on it. */
   readonly reference: string
 }
 
@@ -28,6 +36,76 @@ export interface HtmlAsset extends AssetRef {
 export const MAX_ASSET_BYTES = 4 * 1024 * 1024
 export const MAX_TOTAL_BYTES = 32 * 1024 * 1024
 export const MAX_ASSETS = 64
+
+/**
+ * Documents at or above this size skip asset packing even when the user turns
+ * scripts on: one more parse plus a second DOM buys little next to the page
+ * scripts the user already accepted, and doubles peak memory on a big file.
+ */
+export const HTML_PACK_MAX_BYTES = 2 * 1024 * 1024
+
+/** Posted by a rendered page once it has painted its load, per {@link withReadyPing}. */
+export const HTML_READY_MESSAGE = 'dsh-html-ready'
+
+/**
+ * Append the paint report the preview mask waits for. A document's own `load`
+ * handler can keep its renderer busy for seconds after the frame's load event,
+ * so the parent cannot trust that event alone: the page posts once two
+ * animation frames after `load` have been drawn, i.e. once the handler returned
+ * and the result is on screen. The parent falls back to the load event plus a
+ * timeout when a page CSP blocks this script.
+ *
+ * @param html Complete page text.
+ * @returns The page with the reporting script appended.
+ */
+export function withReadyPing(html: string): string {
+  return `${html}<script>addEventListener("load",function(){requestAnimationFrame(function(){requestAnimationFrame(function(){try{parent.postMessage("${HTML_READY_MESSAGE}","*")}catch(e){}})})})</script>`
+}
+
+/** The restrictive policy of a static preview: no scripts, no network, no frames. */
+export const STATIC_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
+
+/**
+ * Insert the static preview's CSP as the first thing in the document head, so
+ * it applies before any authored resource. Falls back to creating a head when
+ * the document has none, and to a leading policy when there is no `<html>`.
+ * The insertion point never lands inside a comment or a script body, and an
+ * opening doctype stays first: a document whose first token is not the doctype
+ * is parsed in quirks mode.
+ *
+ * @param html Complete page text.
+ * @returns The same page with the CSP meta first in its head.
+ */
+export function createStaticHtmlDocument(html: string): string {
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${STATIC_CSP}">`
+  const head = /<head(?:\s[^>]*)?>/i.exec(html)
+  if (head !== null && !insideOpaqueText(html, head.index)) {
+    const at = head.index + head[0].length
+    return html.slice(0, at) + meta + html.slice(at)
+  }
+  const root = /<html(?:\s[^>]*)?>/i.exec(html)
+  if (root !== null && !insideOpaqueText(html, root.index)) {
+    const at = root.index + root[0].length
+    return html.slice(0, at) + `<head>${meta}</head>` + html.slice(at)
+  }
+  const doctype = /^\s*<!doctype[^>]*>/i.exec(html)
+  const at = doctype === null ? 0 : doctype[0].length
+  return html.slice(0, at) + meta + html.slice(at)
+}
+
+/**
+ * Whether the offset falls inside a comment or a script body, where a tag
+ * match is text rather than markup.
+ */
+function insideOpaqueText(html: string, offset: number): boolean {
+  const before = html.slice(0, offset).toLowerCase()
+  if (before.lastIndexOf('<!--') > before.lastIndexOf('-->')) return true
+  // The last opening tag decides: an earlier, already closed script says
+  // nothing about whether this offset sits inside the one still open.
+  const open = before.lastIndexOf('<script')
+  if (open === -1) return false
+  return before.indexOf('</script', open) === -1
+}
 
 /**
  * Whether this reference can be read relative to the original document,
@@ -109,9 +187,13 @@ export async function packAssets(
 }
 
 /**
- * Encode Unicode text for the iframe's base64 payload: UTF-8 bytes as a
- * binary string in bounded chunks (a spread over a multi-megabyte array
- * would overflow the argument limit).
+ * Encode text for a `data:` payload: UTF-8 bytes as a binary string in bounded
+ * chunks (a spread over a multi-megabyte array would overflow the argument
+ * limit). Inlining keeps the reference resolvable inside the opaque iframe,
+ * which cannot load blob URLs minted by the parent.
+ *
+ * @param text Asset source text.
+ * @returns base64 of its UTF-8 bytes.
  */
 export function encodeText(text: string): string {
   const bytes = new TextEncoder().encode(text)
@@ -123,65 +205,48 @@ export function encodeText(text: string): string {
 }
 
 /**
- * Build the bootstrap document handed to `srcdoc`: a fixed script decodes
- * the embedded bundle, mints one blob URL per asset **inside the iframe**
- * (a unique opaque origin cannot load blob URLs created by the parent),
- * rewrites the matching `link`/`script` attributes, and `document.write`s
- * the page. Asset text reaches the iframe only as base64 JSON, so page
- * bytes can never break out of the bootstrap script.
+ * Whether a document's visible content mostly comes from its scripts. Used to
+ * explain a blank static preview: a canvas / chart page has almost no authored
+ * text once script bodies and tags are stripped, while a styled document keeps
+ * its copy and needs no such warning.
  *
  * @param html Complete page text.
- * @param assets Packed asset set (never empty — an empty set means the
- * caller should render the plain page instead).
+ * @returns true when stripping scripts and tags leaves under 200 characters.
  */
-export function createHtmlDocument(html: string, assets: readonly HtmlAsset[]): string {
-  const bundle = encodeText(JSON.stringify({ html, assets: assets.map((asset) => ({ kind: asset.kind, reference: asset.reference, text: asset.text })) }))
-  return `<!doctype html><meta charset="utf-8"><script>(()=>{ const bytes=data=>Uint8Array.from(atob(data),character=>character.charCodeAt(0)); const text=data=>new TextDecoder('utf-8',{fatal:true}).decode(bytes(data)); const bundle=JSON.parse(text("${bundle}")); const parsed=new DOMParser().parseFromString(bundle.html,'text/html'); for(const asset of bundle.assets){ const script=asset.kind==='script'; const url=URL.createObjectURL(new Blob([asset.text],{type:script?'application/javascript':'text/css'})); const attribute=script?'src':'href'; for(const element of parsed.querySelectorAll(script?'script[src]':'link[rel~="stylesheet" i][href]')){ if(element.getAttribute(attribute)===asset.reference)element.setAttribute(attribute,url); } } document.open();document.write('<!doctype html>'+parsed.documentElement.outerHTML);document.close(); })()</script>`
+export function looksScriptRendered(html: string): boolean {
+  const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html)?.[1] ?? html
+  // Style and template bodies are markup the browser never shows, so they must
+  // not count as authored copy either.
+  const withoutMarkupBodies = body
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<template[\s\S]*?<\/template>/gi, ' ')
+  const text = withoutMarkupBodies.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  return text.length < 200
+}
+
+/** The `data:` URL an inlined asset is written as. */
+export function assetDataUrl(kind: AssetRef['kind'], text: string): string {
+  return `data:${kind === 'script' ? 'text/javascript' : 'text/css'};base64,${encodeText(text)}`
+}
+
+/** One collected dependency plus every element that references it. */
+interface AssetTarget {
+  readonly ref: AssetRef
+  readonly elements: Element[]
 }
 
 /**
- * Read the page's packable references and, when there are any, replace the
- * plain `srcdoc` body with {@link createHtmlDocument}'s bootstrap.
- *
- * @param html Complete page text (already decoded by the host).
- * @param documentPath Browse-root-relative path of the previewed HTML file.
- * @param readText Reads one root-relative file as text; null on any failure.
- * @returns The bootstrap document, or null for "render the plain bytes":
- * no packable references, a `<base href>`, or any pack failure.
+ * Collect the document's packable references from an inert parsed document:
+ * direct classic `.js` scripts and `.css` stylesheets only. A `<base href>`
+ * leaves URL resolution to the browser, so packing is skipped; over the
+ * asset-count limit the pack is abandoned.
  */
-export async function packHtmlDocument(
-  html: string,
-  documentPath: string,
-  readText: (path: string) => Promise<string | null>,
-): Promise<string | null> {
-  const collected = collectHtmlAssets(html)
-  if (collected === 'skip' || collected.length === 0) return null
-  const htmlBytes = new TextEncoder().encode(html).byteLength
-  const assets = await packAssets(collected, documentPath, readText, htmlBytes)
-  if (assets === null || assets.length === 0) return null
-  return createHtmlDocument(html, assets)
-}
-
-/**
- * Collect the document's packable static references without executing or
- * mounting anything in the parent page (a inert `<template>` never runs
- * scripts or fetches). A `<base href>` leaves URL resolution to the browser,
- * so packing is skipped; over the asset-count limit the pack is abandoned.
- * Only direct classic `.js` scripts and `.css` stylesheet links are packed —
- * modules, `url()`/`@import` inside CSS and dynamically built URLs are
- * unsupported, exactly like the official pack.
- *
- * @param html Complete page text.
- * @returns Collected refs, or 'skip' when packing must not run at all.
- */
-export function collectHtmlAssets(html: string): AssetRef[] | 'skip' {
-  if (typeof document === 'undefined') return 'skip'
-  const template = document.createElement('template')
-  template.innerHTML = html
-  if (template.content.querySelector('base[href]') !== null) return 'skip'
-  const refs: AssetRef[] = []
-  const seen = new Set<string>()
-  for (const element of template.content.querySelectorAll('script[src],link[href]')) {
+function collectDocumentAssets(doc: Document): AssetTarget[] | 'skip' {
+  if (doc.querySelector('base[href]') !== null) return 'skip'
+  const targets: AssetTarget[] = []
+  const byKey = new Map<string, number>()
+  for (const element of doc.querySelectorAll('script[src], link[href]')) {
     const script = element.localName === 'script'
     const type = element.getAttribute('type')?.trim().toLowerCase() ?? ''
     if (script && !['', 'text/javascript', 'application/javascript'].includes(type)) continue
@@ -191,10 +256,61 @@ export function collectHtmlAssets(html: string): AssetRef[] | 'skip' {
     const path = suffix === -1 ? reference : reference.slice(0, suffix)
     if (!isRelativeAssetReference(reference) || !(script ? /\.js$/i : /\.css$/i).test(path)) continue
     const key = `${script ? 'script' : 'stylesheet'}:${reference}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    if (refs.length >= MAX_ASSETS) return 'skip'
-    refs.push({ kind: script ? 'script' : 'stylesheet', reference })
+    const known = byKey.get(key)
+    if (known !== undefined) {
+      targets[known].elements.push(element)
+      continue
+    }
+    if (targets.length >= MAX_ASSETS) return 'skip'
+    byKey.set(key, targets.length)
+    targets.push({ ref: { kind: script ? 'script' : 'stylesheet', reference }, elements: [element] })
   }
-  return refs
+  return targets
+}
+
+/**
+ * Whether a document could reference an asset at all. A document without a
+ * single `src`/`href` attribute has nothing to rewrite, so the pack can answer
+ * "no" from one scan instead of parsing a megabyte-long report.
+ *
+ * @param html Complete page text.
+ * @returns True when the text carries at least one `src=` or `href=` attribute.
+ */
+export function hasAssetReferences(html: string): boolean {
+  return /\s(?:src|href)\s*=/i.test(html)
+}
+
+/**
+ * Build the interactive preview body: read each relative asset, inline it as a
+ * `data:` URL, and serialize the document once.
+ *
+ * @param html Complete page text (already decoded by the host).
+ * @param documentPath Browse-root-relative path of the previewed HTML file.
+ * @param readText Reads one root-relative file as text; null on any failure.
+ * @returns The rewritten page, or null for "render the plain bytes": no
+ * packable references, an oversized document, a `<base href>`, or any failure.
+ */
+export async function packHtmlDocument(
+  html: string,
+  documentPath: string,
+  readText: (path: string) => Promise<string | null>,
+): Promise<string | null> {
+  if (typeof DOMParser === 'undefined') return null
+  const htmlBytes = new TextEncoder().encode(html).byteLength
+  if (htmlBytes >= HTML_PACK_MAX_BYTES) return null
+  if (!hasAssetReferences(html)) return null
+  // Inert parse: scripts do not run and resources are not fetched in a
+  // document that is never rendered.
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const targets = collectDocumentAssets(doc)
+  if (targets === 'skip' || targets.length === 0) return null
+  const assets = await packAssets(targets.map((target) => target.ref), documentPath, readText, htmlBytes)
+  if (assets === null) return null
+  for (let index = 0; index < assets.length; index += 1) {
+    const asset = assets[index]
+    const attribute = asset.kind === 'script' ? 'src' : 'href'
+    const url = assetDataUrl(asset.kind, asset.text)
+    for (const element of targets[index].elements) element.setAttribute(attribute, url)
+  }
+  return `<!doctype html>${doc.documentElement.outerHTML}`
 }
