@@ -23,7 +23,9 @@ import { useViewportTracker } from './use-viewport.js'
 import { canCopyContent } from './copy-content.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
-import { createStaticHtmlDocument, looksScriptRendered, packHtmlDocument, withReadyPing } from './html-pack.js'
+import { createStaticHtmlDocument, HTML_HEAVY_SCRIPT_BYTES, inlineScriptBytes, looksScriptRendered, packHtmlDocument, withReadyPing } from './html-pack.js'
+import { formatBytes } from './bytes.js'
+import { renderModalShell } from './ops-modals.js'
 import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { MermaidFigure } from './MermaidFigure.js'
@@ -217,9 +219,29 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   // defaults to source, so selection alone never reads extra files. Any pack
   // failure falls back to the plain bytes.
   const htmlMode: 'static' | 'interactive' = htmlScripts ? 'interactive' : 'static'
+  // A document whose own scripts weigh more than the panel is willing to wait
+  // for is confirmed before its frame is mounted: the page's scripts run
+  // before it paints, and a multi-megabyte report can hold the frame blank
+  // for a dozen seconds. The frame is isolated, so the panel stays usable —
+  // but the preview looks broken during the wait, and the user should know
+  // that up front rather than watch a mask.
+  const heavyScriptBytes = useMemo(() => {
+    if (file.kind !== 'text' || !isHtmlPath(file.path)) return 0
+    return inlineScriptBytes(file.content)
+  }, [file])
+  const heavyDocument = heavyScriptBytes >= HTML_HEAVY_SCRIPT_BYTES
+  // The user has approved this document's render (or it is light enough to
+  // need no approval). Keyed on the file, so another file asks again.
+  const [heavyApproved, setHeavyApproved] = useState<string | null>(null)
+  const htmlPath = file.kind === 'idle' ? null : file.path
+  const heavyPending = heavyDocument && renderMarkdown && htmlMode === 'interactive' && htmlPath !== null && heavyApproved !== htmlPath
+  // The user stopped the render from the mask: the frame is unmounted and the
+  // source view takes over again, so a page that never paints cannot trap the
+  // panel.
+  const [htmlStopped, setHtmlStopped] = useState<string | null>(null)
   const [htmlPack, setHtmlPack] = useState<HtmlPackState>({ status: 'idle' })
   useEffect(() => {
-    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown || htmlMode !== 'interactive') {
+    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown || htmlMode !== 'interactive' || heavyPending || htmlStopped === file.path) {
       setHtmlPack((prev) => (prev.status === 'idle' ? prev : { status: 'idle' }))
       return
     }
@@ -238,7 +260,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       if (!cancelled) setHtmlPack({ status: 'plain', file })
     })
     return () => { cancelled = true }
-  }, [file, renderMarkdown, htmlMode, remote, sessionId])
+  }, [file, renderMarkdown, htmlMode, remote, sessionId, heavyPending, htmlStopped])
 
   // Interactive documents are handed to the iframe through a blob: URL, never
   // srcdoc: a frame with a URL of its own goes into a separate renderer
@@ -268,8 +290,11 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const htmlFrame = useMemo<HtmlFrameSpec | null | undefined>(() => {
     if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown) return undefined
     if (htmlMode === 'static') return { kind: 'static', srcdoc: createStaticHtmlDocument(file.content) }
+    // A heavy document waits for the user's confirmation, and a stopped render
+    // stays stopped: neither may mount a frame.
+    if (heavyPending || htmlStopped === file.path) return undefined
     return htmlBlob !== undefined && htmlBlob.doc === htmlInteractiveDoc ? { kind: 'interactive', src: htmlBlob.url } : null
-  }, [file, renderMarkdown, htmlMode, htmlBlob, htmlInteractiveDoc])
+  }, [file, renderMarkdown, htmlMode, htmlBlob, htmlInteractiveDoc, heavyPending, htmlStopped])
 
   // A static preview of a script-rendered page is blank, which looks like a
   // bug. Offer the explicit way back to a running page instead, but only when
@@ -286,6 +311,17 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     () => (!scriptRendered || htmlFrame?.kind !== 'static' ? undefined : { run: () => setHtmlScripts(true) }),
     [scriptRendered, htmlFrame],
   )
+  // Stopping a render unmounts the frame and returns to the source view: the
+  // page's scripts are gone with the frame, and the user gets their document
+  // back instead of an empty preview.
+  const stopHtmlRender = useCallback(() => {
+    if (file.kind !== 'text') return
+    setHtmlStopped(file.path)
+    setRenderMarkdown(false)
+  }, [file])
+  // The stop control belongs to the interactive frame only: a static preview
+  // commits in the same task and has no wait to end.
+  const htmlStop = htmlFrame?.kind === 'interactive' ? stopHtmlRender : undefined
 
   // Browser fullscreen belongs to the browser: the system UI or Esc can leave
   // it, so the button mirrors `fullscreenchange` instead of a local flag. Only
@@ -408,6 +444,10 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     setCopyState('idle')
     setCopyContentState('idle')
     setShowProps(false)
+    // A stopped render and a declined heavy document belong to the file that
+    // was loaded: another file starts from a clean slate.
+    setHtmlStopped(null)
+    setHeavyApproved(null)
     void loadFile(path, true)
   }, [compact, loadFile])
 
@@ -534,7 +574,12 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
         { value: 'source', label: t('files.source') },
         { value: 'render', label: t('files.render') },
       ],
-      onChange: (next: string) => setRenderMarkdown(next === 'render'),
+      // Switching back to the rendered view retries a render the user stopped:
+      // the frame was unmounted, so a new one starts from scratch.
+      onChange: (next: string) => {
+        if (next === 'render' && htmlStopped !== null) setHtmlStopped(null)
+        setRenderMarkdown(next === 'render')
+      },
     })
     : null
   const fullscreenButton = file.kind === 'text'
@@ -626,13 +671,27 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       h('div', {
         key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, htmlStop, t)),
       h('div', {
         key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, htmlStop, t) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, htmlStop, t)
+
+  // A heavy document asks in a modal before its frame is mounted: the choice
+  // is about a page that can freeze the whole app while it paints, so it must
+  // be deliberate rather than a bar that is easy to click past.
+  const heavyNotice = heavyPending && file.kind === 'text'
+    ? h(HeavyPreviewModal, {
+      key: 'heavy',
+      path: file.path,
+      bytes: heavyScriptBytes,
+      onRender: () => { setHeavyApproved(file.path) },
+      onCancel: () => { setRenderMarkdown(false) },
+      t,
+    })
+    : null
 
 
   const previewBlock = h('div', {
@@ -659,6 +718,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       ? h(FullscreenFocus, { key: 'fsfocus', cardRef: fsCardRef, initialRef: fsCloseRef, restoreRef: fsTriggerRef, onClose: closeFullscreen })
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
+    heavyNotice,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
@@ -694,6 +754,7 @@ function renderContent(
   markdownSegments: MermaidSegment[] | undefined,
   htmlFrame: HtmlFrameSpec | null | undefined,
   htmlHint: { readonly run: () => void } | undefined,
+  htmlStop: (() => void) | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
@@ -727,10 +788,48 @@ function renderContent(
       // Keyed on the frame identity: a sandbox attribute updated after the
       // document loaded does not re-run the scripts it already blocked, so a
       // permission change must remount the frame (and its loading mask).
-      h(HtmlFrame, { key: `frame:${htmlFrame.kind}:${htmlFrame.kind === 'interactive' ? htmlFrame.src : ''}`, frame: htmlFrame, title: file.path, t }),
+      h(HtmlFrame, { key: `frame:${htmlFrame.kind}:${htmlFrame.kind === 'interactive' ? htmlFrame.src : ''}`, frame: htmlFrame, title: file.path, t, ...(htmlStop !== undefined ? { onStop: htmlStop } : {}) }),
     ])
   }
   return renderPreview(file, wrap, t)
+}
+
+
+/**
+ * The confirmation a heavy HTML document asks for before its frame is mounted.
+ *
+ * A modal rather than a bar: the choice is about a page that can freeze the
+ * whole app while it paints, so it must not be dismissed by accident, and it
+ * has to be readable before anything starts.
+ */
+function HeavyPreviewModal(props: {
+  path: string
+  bytes: number
+  readonly onRender: () => void
+  readonly onCancel: () => void
+  t: (key: GitKey, params?: Record<string, string | number>) => string
+}): JSX.Element {
+  const { t } = props
+  const body: (JSX.Element | null)[] = [
+    h('div', { key: 'wrap', 'data-gp-heavy-modal': '' }, [
+      h('p', { key: 'why', className: 'gp-modal__confirmtext' }, t('files.htmlHeavyWhy', { size: formatBytes(props.bytes) })),
+      h('p', { key: 'inline', className: 'gp-modal__confirmtext' }, t('files.htmlHeavyInline')),
+    ]),
+  ]
+  const footer = h('div', { key: 'footer', className: 'gp-modal__footer' }, [
+    h('button', { key: 'cancel', type: 'button', className: 'gp-btn', onClick: props.onCancel }, t('common.cancel')),
+    h('button', {
+      key: 'render', type: 'button', className: 'gp-btn gp-btn--primary', onClick: props.onRender,
+    }, t('files.htmlHeavyRun')),
+  ])
+  return renderModalShell({
+    onClose: props.onCancel,
+    title: props.path,
+    portalKey: 'file-heavy-preview',
+    body,
+    footer,
+    t,
+  }) as JSX.Element
 }
 
 /**

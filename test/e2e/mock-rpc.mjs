@@ -130,7 +130,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           if (q.kind === 'dir-list') {
             fixture.fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'csp.html', dir: false, size: 120 }, { name: 'styled.html', dir: false, size: 90 }, { name: 'styled.css', dir: false, size: 22 }, { name: 'unpacked.html', dir: false, size: 88 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'csp.html', dir: false, size: 120 }, { name: 'heavy.html', dir: false, size: 614400 }, { name: 'styled.html', dir: false, size: 90 }, { name: 'styled.css', dir: false, size: 22 }, { name: 'unpacked.html', dir: false, size: 88 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
               ...fixture.rootExtraEntries,
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
@@ -161,6 +161,15 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             // A page whose own CSP blocks the appended paint report: the mask
             // can only be lifted by the load fallback.
             if (q.path.endsWith('csp.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><meta http-equiv="Content-Security-Policy" content="script-src \'none\'"><p id="hi">CSP HTML</p>', lines: 1 } } }
+            // A heavy document: its own inline script is past the weight the
+            // preview accepts without asking, so the panel must confirm the
+            // render before the frame is mounted. The script also keeps the
+            // frame busy past the mask's slow threshold (4 s), so the slow
+            // state — the one that must not look like a dead panel — is real.
+            if (q.path.endsWith('heavy.html')) {
+              const body = 'x'.repeat(600 * 1024)
+              return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: `<!doctype html><title>Heavy</title><p id="hi">Heavy HTML</p><script>var pad="${body}";var t0=Date.now();while(Date.now()-t0<6000){}</script>`, lines: 3, size: 600 * 1024 } } }
+            }
             if (q.path.endsWith('styled.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><link rel="stylesheet" href="styled.css"><p id="hi">Styled HTML</p>', lines: 1 } } }
             if (q.path.endsWith('unpacked.html')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: '<!doctype html><title>Doc</title><link rel="stylesheet" href="missing.css"><p id="hi">Unpacked HTML</p>', lines: 1 } } }
             if (q.path.endsWith('styled.css')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: 'body { color: rgb(1, 2, 3); }\n', lines: 1, size: 22, mtimeMs: MOCK_MTIME } } }

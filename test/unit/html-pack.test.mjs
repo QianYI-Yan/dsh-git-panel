@@ -13,6 +13,7 @@ import {
   isRelativeAssetReference, resolveAssetPath, packAssets, encodeText, assetDataUrl,
   createStaticHtmlDocument, looksScriptRendered, packHtmlDocument,
   withReadyPing, hasAssetReferences, HTML_READY_MESSAGE,
+  inlineScriptBytes, isHeavyScriptDocument, HTML_HEAVY_SCRIPT_BYTES,
   MAX_ASSET_BYTES, MAX_TOTAL_BYTES, MAX_ASSETS,
 } from '../../lib/testkit.mjs'
 
@@ -169,4 +170,30 @@ test('withReadyPing appends one paint report and leaves the page intact', () => 
 
 test('packHtmlDocument returns null in a non-DOM runtime (no packable parse)', async () => {
   assert.equal(await packHtmlDocument('<link rel="stylesheet" href="a.css">', DOC, readOf({})), null)
+})
+
+test('inlineScriptBytes counts the script bodies a page will run', () => {
+  assert.equal(inlineScriptBytes('<p>no scripts</p>'), 0)
+  assert.equal(inlineScriptBytes('<script>abc</script>'), 3)
+  assert.equal(inlineScriptBytes('<script type="module">abcd</script>'), 4, 'a module body runs too')
+  assert.equal(inlineScriptBytes('<script type="application/json">{"a":1}</script>'), 0, 'a data block is not code')
+  assert.equal(inlineScriptBytes('<script src="a.js"></script>'), 0, 'an external script has no body')
+  assert.equal(
+    inlineScriptBytes('<script>one</script><script>two</script>'),
+    6,
+    'every inline body counts'
+  )
+  // HTML has no escape for `</script>` inside a string literal: the parser
+  // ends the body there, so the scan must too.
+  assert.equal(inlineScriptBytes('<script>var s = "</script>";</script><p>after</p>'), 9)
+})
+
+test('a heavy inline-script page is detected before its frame is mounted', () => {
+  const heavy = 'x'.repeat(HTML_HEAVY_SCRIPT_BYTES)
+  assert.equal(isHeavyScriptDocument(`<script>${heavy}</script>`), true)
+  assert.equal(inlineScriptBytes(`<script>${heavy}</script>`), HTML_HEAVY_SCRIPT_BYTES)
+  assert.equal(isHeavyScriptDocument('<script>small</script>'), false)
+  // The threshold is on the body alone: a page with a big external script
+  // carries no inline cost, and a page whose bytes are all markup is light.
+  assert.equal(isHeavyScriptDocument(`<script src="big.js"></script><p>${'y'.repeat(HTML_HEAVY_SCRIPT_BYTES)}</p>`), false)
 })
