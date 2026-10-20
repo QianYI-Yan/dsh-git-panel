@@ -1334,6 +1334,53 @@ const out = await page.evaluate(async (snap) => {
   const cspMaskAfter = document.querySelector('.gp-files__html-mask')
   result.htmlMaskFallbackReady = cspMaskAfter?.getAttribute('data-state') === 'ready'
     && getComputedStyle(cspMaskAfter).pointerEvents === 'none'
+  // A heavy document asks before it is rendered: the panel must not mount a
+  // frame (and start the page's own scripts) without the user's consent.
+  const heavyRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('heavy.html'))
+  if (heavyRow) { heavyRow.click(); await new Promise((r) => setTimeout(r, 300)) }
+  const heavyRenderBtn = modeTab('files.render')
+  if (heavyRenderBtn) { heavyRenderBtn.click(); await new Promise((r) => setTimeout(r, 300)) }
+  // The question is a modal: a page that can freeze the app must not be
+  // started by an easy-to-miss bar.
+  const heavyModal = () => document.querySelector('[data-gp-heavy-modal]')?.closest('.gp-modal') ?? null
+  result.htmlHeavyAsks = heavyModal() !== null
+    && (heavyModal().textContent || '').includes('files.htmlHeavyWhy')
+    && document.querySelector('.gp-files__html') === null
+  // Cancelling keeps the source and closes the dialog without approving.
+  const heavyButtons = () => [...(heavyModal()?.querySelectorAll('button') ?? [])]
+  heavyButtons().find((b) => (b.textContent || '').includes('common.cancel'))?.click()
+  await new Promise((r) => setTimeout(r, 250))
+  result.htmlHeavyKeptSource = heavyModal() === null
+    && document.querySelector('.gp-files__html') === null
+  // Asking again shows the question again: cancelling is not an approval.
+  const heavyRenderBtn2 = modeTab('files.render')
+  if (heavyRenderBtn2) { heavyRenderBtn2.click(); await new Promise((r) => setTimeout(r, 300)) }
+  result.htmlHeavyAsksAgain = heavyModal() !== null
+  // On a loopback GUI the dialog offers the local-open escape; the harness is
+  // served from file:// so it lands on the remote copy (no open button).
+  result.htmlHeavyOpensLocally = heavyButtons().some((b) => (b.textContent || '').includes('files.htmlOpenInBrowser')) === false
+    && (heavyModal()?.textContent || '').includes('files.htmlHeavyRemote')
+  // Approving mounts the frame and runs the page.
+  heavyButtons().find((b) => (b.textContent || '').includes('files.htmlHeavyRun'))?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.htmlHeavyRuns = document.querySelector('.gp-files__html') !== null
+    && heavyModal() === null
+  // A slow frame must not look like a dead panel: past the slow threshold the
+  // mask stops taking clicks, counts the wait, and offers a way out.
+  for (let i = 0; i < 200 && document.querySelector('.gp-files__html-mask')?.getAttribute('data-state') !== 'slow'; i++) {
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  const slowMask = document.querySelector('.gp-files__html-mask')
+  result.htmlMaskSlowClickThrough = slowMask !== null
+    && slowMask.getAttribute('data-state') === 'slow'
+    && getComputedStyle(slowMask).pointerEvents === 'none'
+  result.htmlMaskSlowHasStop = slowMask?.querySelector('.gp-files__html-mask-stop') !== null
+  result.htmlMaskSlowCounts = slowMask?.querySelector('.gp-files__html-mask-elapsed') !== null
+  // Stopping unmounts the frame and returns the source view.
+  slowMask?.querySelector('.gp-files__html-mask-stop')?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.htmlStopUnmounts = document.querySelector('.gp-files__html') === null
+    && document.querySelector('.gp-files__code') !== null
   // HTML asset pack (ADR-0020): a page with a relative stylesheet is read
   // through the host file-content route and handed to the iframe as the
   // bootstrap document; a missing asset abandons the pack and the plain

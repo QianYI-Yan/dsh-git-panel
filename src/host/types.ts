@@ -705,6 +705,23 @@ export function imageMimeFor(path: string): string | null {
   return IMAGE_MIME[path.slice(dot + 1).toLowerCase()] ?? null
 }
 
+// ── open in the OS default application ────────────────────────────────────
+
+/**
+ * Hand one browsable file to the operating system so it opens outside the
+ * panel. The path is validated and confirmed inside the browse root before the
+ * OS sees it; `sessionId` picks that root.
+ */
+export interface GitOpenFileRequest {
+  readonly sessionId: string
+  /** Browse-root-relative path of the file to open. */
+  readonly path: string
+}
+
+export type GitOpenFileResult =
+  | { readonly ok: true; readonly absolutePath: string }
+  | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }
+
 // ── version (update check) ────────────────────────────────────────────────
 
 export interface GitVersionRequest {

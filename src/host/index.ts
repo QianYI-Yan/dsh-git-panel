@@ -11,13 +11,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createGitRunner, type SubprocessLike } from './git.js'
 import { createFsDeps } from './fs-deps.js'
-import { normalizeConfig, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
+import { normalizeConfig, resolveBrowseRoot, snapshotForSession, DEFAULT_CONFIG, type GitPanelConfig, type SnapshotDeps } from './core.js'
+import { canOpenWithSystem, openWithSystem } from './open-file.js'
 import { runAction } from './actions.js'
 import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
 import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
 import { checkLatestVersion, readVersionInfo } from './version.js'
-import type { GitActionRequest, GitActionResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js'
+import type { GitActionRequest, GitActionResult, GitOpenFileRequest, GitOpenFileResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js'
 
 export type {
   GitSnapshot, GitSnapshotResult, GitSnapshotRequest, GitFailure, GitCommit, GraphCommit, GitRef,
@@ -25,6 +26,7 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
+  GitOpenFileRequest, GitOpenFileResult,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
 export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage } from './core.js'
@@ -32,9 +34,36 @@ export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'
 export { isSafePath, planAction, runAction, classifyActionFailure } from './actions.js'
+export { openerArgv, canOpenWithSystem, openWithSystem } from './open-file.js'
 export { runQuery } from './queries.js'
 export { runSuggest, resolveSuggestLanguage, parseStyleHistory, isCjkText, compactLongLines, LONG_LINE_MAX_CHARS } from './suggest.js'
 export { readVersionInfo, checkLatestVersion, compareVersions, parseRepository } from './version.js'
+
+/**
+ * Run one OS-opener argv through the host subprocess service.
+ *
+ * Output is discarded: an opener reports success through its exit code, and its
+ * stderr is not something the panel can act on. Resolves null when the spawn
+ * itself fails (no handler installed, binary missing).
+ */
+async function spawnDetached(subprocess: SubprocessLike, argv: readonly string[]): Promise<number | null> {
+  try {
+    const handle = subprocess.spawn({
+      argv,
+      cwd: process.cwd(),
+      stdio: {
+        stdin: 'ignore',
+        stdout: { collect: { maxBytes: 4096 } },
+        stderr: { collect: { maxBytes: 4096 } },
+      },
+      graceMs: 200,
+    })
+    const outcome = await handle.done
+    return outcome.exitCode
+  } catch {
+    return null
+  }
+}
 
 /** Structural slice of the Cordis sessions store (live session objects). */
 interface SessionsService {
@@ -126,6 +155,11 @@ export class GitPanelService extends TypertRemoteService {
     const run = subprocess === undefined
       ? { run: async (): Promise<never> => { throw new Error('subprocess service unavailable') } }
       : createGitRunner(subprocess, config.timeoutMs, config.maxBytes)
+    // The system opener is not git: it needs one short argv and an exit code,
+    // so it keeps the raw service face instead of the git-configured runner.
+    this.spawnOpener = subprocess === undefined
+      ? null
+      : (argv) => spawnDetached(subprocess, argv)
     const sessions = get('sessions') as SessionsService | undefined
     const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
     const projections = get('sessionProjections') as SessionProjectionsLike | undefined
@@ -207,6 +241,26 @@ export class GitPanelService extends TypertRemoteService {
   }
 
   /** Re-read config so a live-edited volatile field (showInputPill) is current. */
+  /** Runs one OS-opener argv; null when the host has no subprocess service. */
+  private spawnOpener: ((argv: readonly string[]) => Promise<number | null>) | null = null
+
+  @Remote('openFile')
+  async openFile(request: GitOpenFileRequest): Promise<GitOpenFileResult> {
+    if (!canOpenWithSystem(process.platform)) {
+      return { ok: false, error: { code: 'git-error', message: 'this host cannot open files in a desktop application' } }
+    }
+    if (this.spawnOpener === null) {
+      return { ok: false, error: { code: 'git-error', message: 'subprocess service unavailable' } }
+    }
+    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId)
+    if (!browse.ok) return { ok: false, error: browse.error }
+    try {
+      return await openWithSystem(this.deps, browse.root, request.path, this.spawnOpener)
+    } catch (error) {
+      return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
+    }
+  }
+
   private liveConfig(): GitPanelConfig {
     this.config = normalizeConfig(this.rawConfig)
     return this.config

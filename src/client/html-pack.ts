@@ -48,6 +48,57 @@ export const HTML_PACK_MAX_BYTES = 2 * 1024 * 1024
 export const HTML_READY_MESSAGE = 'dsh-html-ready'
 
 /**
+ * Inline script bytes above which a page is treated as heavy.
+ *
+ * A document that carries its own megabytes of script pays for it in the
+ * frame's own renderer: the page's scripts run before it paints, and a
+ * script-heavy report can hold that renderer for many seconds. The preview
+ * must then set the expectation up front instead of covering the panel with a
+ * mask that looks like a hang.
+ */
+export const HTML_HEAVY_SCRIPT_BYTES = 512 * 1024
+
+/**
+ * Total bytes of inline script bodies in a document.
+ *
+ * A page's own scripts are the cost the preview cannot avoid, and their size
+ * predicts how long the frame stays blank. The scan is a text pass, not a
+ * parse: it must stay cheap enough to run on every preview.
+ *
+ * @param html Complete page text.
+ * @returns The summed byte length of the inline `<script>` bodies.
+ */
+export function inlineScriptBytes(html: string): number {
+  let total = 0
+  const open = /<script\b[^>]*>/gi
+  let match: RegExpExecArray | null
+  while ((match = open.exec(html)) !== null) {
+    // A `src` script has no body, and a `type` the browser will not run has
+    // none worth counting.
+    const tag = match[0]
+    if (/\bsrc\s*=/i.test(tag)) continue
+    const type = /\btype\s*=\s*["']?([^"'\s>]+)/i.exec(tag)?.[1]?.toLowerCase()
+    if (type !== undefined && type !== '' && type !== 'module' && type !== 'text/javascript' && type !== 'application/javascript') continue
+    const close = html.indexOf('</script', match.index + tag.length)
+    if (close === -1) break
+    total += close - (match.index + tag.length)
+    open.lastIndex = close
+  }
+  return total
+}
+
+/**
+ * Whether a document's own scripts make its first paint slow enough to warn
+ * about before the frame is mounted.
+ *
+ * @param html Complete page text.
+ * @returns true when the inline script weight passes {@link HTML_HEAVY_SCRIPT_BYTES}.
+ */
+export function isHeavyScriptDocument(html: string): boolean {
+  return inlineScriptBytes(html) >= HTML_HEAVY_SCRIPT_BYTES
+}
+
+/**
  * Append the paint report the preview mask waits for. A document's own `load`
  * handler can keep its renderer busy for seconds after the frame's load event,
  * so the parent cannot trust that event alone: the page posts once two

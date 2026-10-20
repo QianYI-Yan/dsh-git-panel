@@ -297,6 +297,15 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * renderer process, so the panel shows an empty frame in the meantime. */
 .gp-files__html-mask{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;transition:opacity .18s ease}
 .gp-files__html-mask[data-state="ready"]{opacity:0;pointer-events:none}
+/* A page that is merely slow must not look like a dead panel: the mask keeps
+ * showing but stops taking clicks, so the tree, the toolbar and the reader
+ * stay usable while the page finishes. */
+.gp-files__html-mask[data-state="slow"]{pointer-events:none;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1) 72%,transparent)}
+.gp-files__html-mask[data-state="slow"] .gp-files__html-mask-stop{pointer-events:auto}
+.gp-files__html-mask-elapsed{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary)}
+.gp-files__html-mask-stop{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:3px 10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:12px}
+.gp-files__html-mask-stop:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-files__html-mask-stop:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__html-mask[data-state="ready"] .gp-spinner{animation:none}
 .gp-files__html-mask .gp-spinner{width:20px;height:20px;border-width:2px}
 .gp-files__html-mask-label{max-width:80%;text-align:center;line-height:1.5}
