@@ -236,7 +236,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * its own above the list nor scrolls away with the entries. */
 .gp-files__tree-wrap{flex:0 0 300px;min-width:180px;position:relative;display:flex;flex-direction:column;min-height:0}
 .gp-files__tree{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
-.gp-files__refresh{position:absolute;top:5px;right:5px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
+.gp-files__refresh{position:absolute;top:5px;right:10px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-files__refresh:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-files__refresh:disabled{opacity:.55;cursor:default}
 .gp-files__refresh:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
