@@ -26,7 +26,8 @@
 
 **安装**
 
-- 两条都给——npm 一条（`@xbzbing/dsh-git-panel@latest`）+ 同版本 GitHub Release 附件一条。
+- 两条都给——npm 一条（`@xbzbing/dsh-git-panel@<VERSION>`）+ 同版本 GitHub Release 附件一条。
+- npm 那行**钉到本版的具体版本**，不写 `@latest`：这一页讲的是本版怎么装，`@latest` 会在下一个版本发布后指向别的产物，与页面上的 tag / 附件对不上。
 - URL 里的 tag 用本版真实 tag；命令必须带 `--profile <profile>`，示例统一用 `web`。
 - 预发布不发 npm：它的正文是 `.github/PRERELEASE_BODY.md` 里的固定说明，只给附件一条。
 
@@ -57,7 +58,7 @@
 
 ```bash
 # 正式版（npm）
-dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
+dsh plugin --profile web add @xbzbing/dsh-git-panel@<VERSION>
 
 # 同一版本的 GitHub Release 附件
 dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz
@@ -85,7 +86,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 ```bash
 # Stable (npm)
-dsh plugin --profile web add @xbzbing/dsh-git-panel@latest
+dsh plugin --profile web add @xbzbing/dsh-git-panel@<VERSION>
 
 # The same version as a GitHub Release asset
 dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/download/<TAG>/xbzbing-dsh-git-panel-<VERSION>.tgz

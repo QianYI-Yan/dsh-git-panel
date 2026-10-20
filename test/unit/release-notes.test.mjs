@@ -59,6 +59,25 @@ test('the release template carries the shape the notes are validated against', (
   assert.match(template, /releases\/download\/<TAG>/, 'the template must show the asset install')
   // The template must send pre-releases to the fixed notice instead of a body.
   assert.match(template, /PRERELEASE_BODY\.md/, 'the template must point pre-releases at the notice')
+  // A release page installs the version it documents, so the npm line takes a
+  // version placeholder rather than `@latest` (which would drift to a later
+  // tarball and contradict the tag and the asset on the same page).
+  assert.doesNotMatch(template, /@xbzbing\/dsh-git-panel@latest/, 'the template must not install `@latest`')
+  assert.match(template, /@xbzbing\/dsh-git-panel@<VERSION>/, 'the template must pin the npm install to the version')
+})
+
+test('the body of the shipped version pins that exact version on npm', () => {
+  const { version } = JSON.parse(readFileSync(fileURLToPath(new URL('package.json', ROOT)), 'utf8'))
+  const body = new URL(`docs/releases/v${version}.md`, ROOT)
+  // A pre-release has no body: its page is the notice, and its install is the
+  // asset alone. Only a stable version ships notes that must match `package.json`.
+  if (!existsSync(body)) return
+  const text = readFileSync(body, 'utf8')
+  assert.ok(
+    text.includes(`@xbzbing/dsh-git-panel@${version}`),
+    `docs/releases/v${version}.md must install @xbzbing/dsh-git-panel@${version}, not a floating tag`,
+  )
+  assert.doesNotMatch(text, /@xbzbing\/dsh-git-panel@latest/, `docs/releases/v${version}.md must not install @latest`)
 })
 
 test('every committed release body follows the template', () => {
