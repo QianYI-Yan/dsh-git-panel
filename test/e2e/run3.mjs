@@ -283,7 +283,7 @@ const out = await page.evaluate(async (snap) => {
   confirmBtn?.click()
   await new Promise((r) => setTimeout(r, 90))
   result.statusPullOverlayShown = document.querySelector('.gp-modal__overlay') !== null
-  result.statusPullSpinnerShown = document.querySelector('.gp-modal__overlay .gp-spinner') !== null
+  result.statusPullSpinnerShown = document.querySelector('.gp-modal__overlay svg[data-state="ongoing"]') !== null
   result.statusPullLabelShown = (document.querySelector('.gp-modal__overlay .gp-modal__overlay-label')?.textContent || '').includes('status.pulling')
   // No progress bar — only a spinner + the "syncing" label (no real % to show).
   result.statusPullNoProgressBar = document.querySelector('.gp-modal__overlay .gp-progress') === null

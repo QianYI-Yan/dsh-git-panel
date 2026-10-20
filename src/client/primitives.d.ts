@@ -38,6 +38,18 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     pathImages?: { readonly resolve: (destination: string) => string | undefined }
   }) => JSX.Element
 
+  /** Which mark a {@link StateDot} paints. `ongoing` is the platform's loader:
+   * a rotating ring with a breathing arc, sized 14 by default. */
+  export type StateDotState = 'done' | 'warning' | 'ongoing' | 'error' | 'idle'
+  /** The platform's state mark — the only loading indicator the shell draws,
+   * so a plugin that shows a loader must render this rather than its own ring. */
+  export const StateDot: (props: {
+    state: StateDotState
+    size?: number
+    className?: string
+    appearance?: 'dot' | 'step'
+  }) => JSX.Element
+
   /** One selectable menu row (optionally with a nested submenu). */
   export interface MenuItem {
     id: string

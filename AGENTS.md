@@ -106,6 +106,7 @@ Host 半 (Cordis + typert, lib/host)
 - 长列表（变更列表、源码视图、DiffView）用 `virtual-list.ts` + `use-viewport.ts` 虚拟化；查找跳转到窗口外命中时窗口吸附到命中邻域，不挂载中间的连续区间。
 - `memo` 组件的 props 传普通值，不在渲染中新建对象字面量（会让浅比较失效、重跑整套高亮）；逐行高亮经 `highlight-cache.ts` 缓存。
 - 图片缩放：`.gp-zoom__img` 必须 `flex:none`（否则放大超过 100% 不生效）；拖拽的 pointer 事件挂 window 且不 `setPointerCapture`（会改写 click 目标）。
+- **加载指示一律用平台 `StateDot`（`state="ongoing"`，尺寸按场景传 `size`）**，不自绘边框圈：`border` + `border-top-color` 拼出来的圆环在 13–26px 下看着不是正圆，且与会话行/侧栏的加载标记不同源，会随平台改版漂移。动画由平台样式表提供，所以遮罩进 ready 后要显式让透明层上的动画停下（`.gp-files__html-mask-spin *{animation:none}`）。
 
 ## 依赖策略
 

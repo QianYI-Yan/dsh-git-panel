@@ -306,8 +306,10 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__html-mask-stop{border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:3px 10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__html-mask-stop:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-files__html-mask-stop:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-files__html-mask[data-state="ready"] .gp-spinner{animation:none}
-.gp-files__html-mask .gp-spinner{width:20px;height:20px;border-width:2px}
+/* The platform loader owns its own animation; a transparent mask must not keep
+ * it running behind the finished page. */
+.gp-files__html-mask-spin{flex:none;display:inline-flex}
+.gp-files__html-mask[data-state="ready"] .gp-files__html-mask-spin *{animation:none}
 .gp-files__html-mask-label{max-width:80%;text-align:center;line-height:1.5}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
 /* Both sticky axes: the header must also stay put under horizontal scroll
@@ -410,8 +412,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-commitbox__msg{width:100%;min-height:72px;resize:vertical;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:8px;box-sizing:border-box}
 .gp-commitbox__msg-wrap{position:relative;display:block}
 .gp-commitbox__msg-wrap--busy .gp-commitbox__msg{padding-right:28px}
-/* Loading indicator inside the disabled field (AI suggest in flight). */
-.gp-commitbox__spin{position:absolute;top:8px;right:8px;width:13px;height:13px;box-sizing:border-box;border-radius:50%;border:2px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:gp-spin .7s linear infinite;pointer-events:none}
+/* Loading indicator inside the disabled field (AI suggest in flight): a
+ * positioning box around the platform loader. */
+.gp-commitbox__spin{position:absolute;top:8px;right:8px;display:inline-flex;pointer-events:none}
 .gp-commitbox__msg[readonly]{color:var(--dsw-alias-label-tertiary);background:var(--dsw-alias-bg-layer-2);cursor:progress}
 .gp-commitbox__msg:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-commitbox__row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
@@ -564,7 +567,6 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-modal__overlay{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-2) 82%,transparent);backdrop-filter:blur(1.5px);border-radius:inherit;animation:gp-fade-in .12s ease}
 .gp-modal__overlay-label{font-size:12px;color:var(--dsw-alias-label-secondary)}
 @keyframes gp-fade-in{from{opacity:0}to{opacity:1}}
-.gp-spinner{width:26px;height:26px;border-radius:50%;border:2.5px solid var(--dsw-alias-border-l2);border-top-color:var(--dsw-alias-state-business-primary);animation:gp-spin .7s linear infinite}
 .gp-modal__check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;user-select:none}
 .gp-input{width:100%;box-sizing:border-box;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px}
 .gp-input:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}

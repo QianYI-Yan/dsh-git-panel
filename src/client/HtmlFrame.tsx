@@ -9,6 +9,7 @@
  */
 import { createElement as h, useCallback, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GitKey } from './locales.js'
 import { HTML_READY_MESSAGE } from './html-pack.js'
 import { inertAttr } from './inert.js'
@@ -134,7 +135,7 @@ export function HtmlFrame(props: {
         key: 'mask', className: 'gp-files__html-mask', 'data-state': phase,
         ...(phase === 'ready' ? { 'aria-hidden': 'true' } : {}),
       }, [
-        h('span', { key: 'spin', className: 'gp-spinner', 'aria-hidden': 'true' }),
+        h('span', { key: 'spin', className: 'gp-files__html-mask-spin' }, h(StateDot, { state: 'ongoing', size: 20 })),
         h('span', { key: 'label', className: 'gp-files__html-mask-label', role: 'status' }, spoken),
         // The wait counter: it shows the panel is working, not stuck.
         phase === 'slow'

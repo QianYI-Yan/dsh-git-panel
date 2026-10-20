@@ -45,6 +45,26 @@
         }, window.React.createElement('path', { d: 'M4 2h5l3 3v9H4z' }));
       },
       languageForPath: function (path) { return /\.tsx?$/i.test(path) ? 'typescript' : undefined; },
+      // Official dsh StateDot: the one loading glyph the shell draws. The stub
+      // mirrors the real markup (svg[data-state] + track/arc circles, size 14
+      // when ongoing) so the panel's loader can be asserted as "the platform
+      // mark", not as a ring of our own. The animation itself belongs to the
+      // platform's stylesheet, which the file:// harness does not load.
+      StateDot: function (props) {
+        var edge = props.size || (props.state === 'ongoing' ? 14 : 10);
+        if (props.state === 'ongoing') {
+          return window.React.createElement('svg', {
+            className: props.className, 'data-state': 'ongoing', 'aria-hidden': 'true',
+            width: edge, height: edge, viewBox: '0 0 24 24',
+          }, window.React.createElement('g', { 'data-spinner-motion': '' },
+            window.React.createElement('circle', { 'data-spinner-track': '', cx: 12, cy: 12, r: 9.5, fill: 'none', stroke: 'currentColor', strokeWidth: 2 }),
+            window.React.createElement('circle', { 'data-spinner-arc': '', cx: 12, cy: 12, r: 9.5, fill: 'none', stroke: 'currentColor', strokeWidth: 2 })));
+        }
+        return window.React.createElement('span', {
+          className: props.className, 'data-state': props.state, 'aria-hidden': 'true',
+          style: { width: edge, height: edge, display: 'inline-block' },
+        });
+      },
       useCodeHighlighter: function (language) {
         return window.React.useCallback(function (code) {
           return language ? code.split('\n').map(function (line) {

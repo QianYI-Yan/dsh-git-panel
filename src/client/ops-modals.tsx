@@ -7,6 +7,7 @@
 import { createElement as h, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
+import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon } from './icons.js'
 import type { GitKey } from './locales.js'
 
@@ -140,13 +141,14 @@ function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalK
 }
 
 /**
- * A busy overlay covering a dialog while an op runs: a spinner + a label. No
- * progress bar — the single-shot `run` RPC returns only on completion, so there
- * is no real progress to report; the label alone states that work is in flight.
+ * A busy overlay covering a dialog while an op runs: the platform loader plus a
+ * label. No progress bar — the single-shot `run` RPC returns only on completion,
+ * so there is no real progress to report; the label alone states that work is in
+ * flight.
  */
 function renderBusyOverlay(label: string): JSX.Element {
   return h('div', { key: 'overlay', className: 'gp-modal__overlay' }, [
-    h('div', { key: 'sp', className: 'gp-spinner' }),
+    h(StateDot, { key: 'sp', state: 'ongoing', size: 26 }),
     h('div', { key: 'lb', className: 'gp-modal__overlay-label' }, label),
   ])
 }

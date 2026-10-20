@@ -435,12 +435,13 @@ const out = await page.evaluate(async (snap) => {
     const amendCb = document.querySelector('.gp-commitbox__amend input')
     result.suggestLocksMessage = msgBox.readOnly === true && msgBox.getAttribute('aria-busy') === 'true'
     result.suggestLocksAmend = amendCb?.disabled === true
-    // A spinner sits inside the locked message field so the disabled state
-    // reads as "generating", not as a broken input.
+    // The platform loader sits inside the locked message field so the disabled
+    // state reads as "generating", not as a broken input.
     const spinner = document.querySelector('.gp-commitbox__msg-wrap .gp-commitbox__spin')
     result.suggestFieldSpinner = spinner !== null
-    result.suggestFieldSpinnerAnimates = spinner !== null
-      && window.getComputedStyle(spinner).animationName !== 'none'
+    // The glyph is the platform's ongoing mark, not a ring the plugin draws:
+    // one loader for the whole APP, so it cannot drift from the shell's.
+    result.suggestFieldSpinnerPlatform = spinner?.querySelector('svg[data-state="ongoing"]') !== null
     result.suggestFieldSpinnerAria = spinner?.getAttribute('aria-hidden') === 'true'
     // Presence in the DOM is not enough: the glyph must render inside the
     // field's own box, otherwise it is invisible where it matters.

@@ -4,6 +4,7 @@
  */
 import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { useChangesData } from './changes-hooks.js'
 import { pageVisibility } from './visibility.js'
@@ -443,10 +444,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         'aria-busy': suggesting,
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
       }),
-      // Spinner inside the field itself: the lock should read as "working",
-      // not as a broken input. Decorative — aria-busy above carries the state.
+      // The platform loader inside the field itself: the lock should read as
+      // "working", not as a broken input. Decorative — aria-busy above carries
+      // the state.
       suggesting
-        ? h('span', { key: 'spin', className: 'gp-commitbox__spin', 'aria-hidden': 'true' })
+        ? h('span', { key: 'spin', className: 'gp-commitbox__spin', 'aria-hidden': 'true' }, h(StateDot, { state: 'ongoing', size: 13 }))
         : null,
     ]),
     h('div', { key: 'row', className: 'gp-commitbox__row' }, [
