@@ -55,7 +55,7 @@ Host 半 (Cordis + typert, lib/host)
 - 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
 - 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
 - 页面：`Panel.tsx`（子 tab 路由、字号、版本条）、`OverviewTab.tsx` + `overview-hooks.ts` / `overview-statusbar.tsx` / `overview-modals.tsx`、`ChangesTab.tsx` + `changes-hooks.ts` / `ChangesToolbar.tsx` / `ChangeStats.tsx`、`DiffView.tsx` + `image-diff-hook.ts` / `ImageCompare.tsx`、`FilesTab.tsx`、`GitPill.tsx`、`PillConfig.tsx`。
-- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`、`panel-fit.ts`（面板断点与 `isCramped` 组合判据——测量在 `layout.ts`，策略纯函数，故可单测）、`path-images.ts`（Markdown 本地图片 → `api/file` 路由，镜像官方解析）、`mermaid-blocks.ts`（mermaid 围栏分段 + `<kbd>`→行内代码——MarkdownText 刻意转义内联 HTML，kbd 只能在送入前文本替换，围栏与行内代码内不替换）、`html-pack.ts`（HTML 预览相对 css/js 打包：引用过滤、文档相对路径解析、全有或全无的限额读取、bootstrap srcdoc——镜像官方 packHtml，ADR-0020）。
+- 纯算法（有单测）：`branch-tree.ts`、`git-graph.ts`、`filtered-graph.ts`、`file-tree.ts`、`diff.ts`、`code-spans.ts`、`virtual-list.ts`、`zoom.ts`、`selection-keys.ts`、`branch-options.ts`、`push-policy.ts`、`panel-fit.ts`（面板断点与 `isCramped` 组合判据——测量在 `layout.ts`，策略纯函数，故可单测）、`path-images.ts`（Markdown 本地图片 → `api/file` 路由，镜像官方解析）、`mermaid-blocks.ts`（mermaid 围栏分段 + `<kbd>`→行内代码——MarkdownText 刻意转义内联 HTML，kbd 只能在送入前文本替换，围栏与行内代码内不替换）、`html-pack.ts`（HTML 预览文档：交互模式把相对 css/js 内联为 `data:` URL、页面脚本默认执行；静态模式插 CSP 且不执行脚本——引用过滤、文档相对路径解析、全有或全无的限额读取，ADR-0020）。
 - 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`（悬浮提示）、`notice.tsx`（可关闭提示条）、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（经 `require.async` 懒加载 `client.mermaid.js` chunk 渲染 mermaid，失败回退代码块）。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 
@@ -68,7 +68,9 @@ Host 半 (Cordis + typert, lib/host)
 - 写操作不越权：push 绝不 `--force` 且仅在严格领先时提供；pull 只走 `--ff-only`；分叉时 push / pull 都不提供；绝不直接检出远程引用（落为同名跟踪分支，避免游离 HEAD）；publish 的 `HEAD`、pull-preview 的 `@{upstream}` 为固定字面量。
 - 放弃未跟踪条目由 host 直接删盘（`git restore` 摸不到）：任何删除失败都汇总成错误返回，绝不静默；条目本身是仓库（嵌套仓库 / 子模块 / bare 布局）时整批拒绝（`nested-repo`），删除循环内逐条复检（竞态命中报 `nested-repo-partial`）；只「包含」仓库的普通目录仍整体删除——这条边界是刻意的（issue #46），单测同时锁住两者。
 - 破坏性操作（discard、reset、stash-drop、删除标签、带贮藏的分支切换等）UI 必须二次确认，硬重置需列出将丢失的改动并额外勾选；「放弃更改」只作用于工作区侧，暂存侧需先取消暂存。
-- HTML 渲染预览走 `allow-scripts` 的隔离源 iframe，不在宿主页面执行；相对 css/js 经 `file-content` 端点读出后在 iframe 内改写为 blob URL（`html-pack.ts`，ADR-0020），打包失败回落原始字节。
+- 全屏阅读器（`files.fullscreen`）是面板里那份预览换样式成弹窗，**不能**在弹窗里重新渲染文件：重建 iframe 会重跑页面脚本（同一份报告再等约 12 s），代码视图也会丢滚动与查找。它也不能搬进 portal——搬动 DOM 就会重载 iframe（ADR-0016）。
+- HTML 预览在渲染期间覆盖一层遮罩（`.gp-files__html-mask`），`ready` 由页面自己回报（`withReadyPing`：`load` 后再过两帧 `postMessage`），父侧 `load` + 超时只作兜底；遮罩退出后保持挂载但透明且 `pointer-events:none`。
+- HTML 交互预览的 iframe 必须用 `blob:` URL（`URL.createObjectURL`），**不能用 `srcdoc`**：带自身 URL 的沙箱 iframe 在 Chromium 里走独立渲染进程，页面脚本再重也不冻结面板；`srcdoc` 与面板同进程，实测同一份报告 12 s 全冻结。iframe 始终不带 `allow-same-origin`；工具栏 `JS` 开关切到静态模式时改用 `srcdoc` + `sandbox=""` + `default-src 'none'` 的 CSP。交互模式把相对 css/js 经 `file-content` 端点读出、以 `data:` URL 内联（≥2 MiB 跳过打包），任何失败回落原始字节（`html-pack.ts`，ADR-0020）。
 
 ## 数据流铁律
 

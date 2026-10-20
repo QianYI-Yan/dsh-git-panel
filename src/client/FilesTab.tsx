@@ -6,13 +6,12 @@
  * binaries show a placeholder. Left column width is drag-resizable.
  */
 import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { JSX } from 'react'
-import { createPortal } from 'react-dom'
+import type { JSX, RefObject } from 'react'
 import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
 import { useResizableColumn } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, languageForPath, MarkdownText, SegmentedControl, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
@@ -24,7 +23,9 @@ import { useViewportTracker } from './use-viewport.js'
 import { canCopyContent } from './copy-content.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
-import { packHtmlDocument } from './html-pack.js'
+import { createStaticHtmlDocument, looksScriptRendered, packHtmlDocument, withReadyPing } from './html-pack.js'
+import { inertAttr } from './inert.js'
+import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { MermaidFigure } from './MermaidFigure.js'
 
 interface FilesTabProps {
@@ -87,9 +88,9 @@ type FileState =
   | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'error'; readonly path: string; readonly code?: string }
 
-/** HTML asset pack for the loaded document: in flight, packed bootstrap
- * srcdoc, or a deliberate fall-back to the plain bytes (no packable assets,
- * a base element, or any pack failure). */
+/** HTML asset pack for the loaded document: in flight, rewritten srcdoc, or a
+ * deliberate fall-back to the plain bytes (no packable assets, a base element,
+ * an oversized document, or any pack failure). */
 type HtmlPackState =
   | { readonly status: 'idle' }
   | { readonly status: 'loading'; readonly file: FileState }
@@ -115,12 +116,24 @@ interface FilesState {
 }
 const FILES_STICKY_MS = 60_000
 const filesCache = new Map<string, { state: FilesState; leftAt: number }>()
+/** Pending eviction per session, so a parked entry never outlives its window. */
+const filesEvict = new Map<string, ReturnType<typeof setTimeout>>()
 
 function stashFilesState(sessionId: string, state: FilesState): void {
   // A mid-flight load can't resume after remount; persist it as idle so the
   // restore path re-selects and refetches the file.
   const file: FileState = state.file.kind === 'loading' ? { kind: 'idle' } : state.file
   filesCache.set(sessionId, { state: { ...state, file }, leftAt: Date.now() })
+  // A parked entry holds the loaded document text (up to the read cap), so it
+  // is dropped when the restore window closes — not whenever some tab happens
+  // to mount again and notice the expiry.
+  const pending = filesEvict.get(sessionId)
+  if (pending !== undefined) clearTimeout(pending)
+  filesEvict.set(sessionId, setTimeout(() => {
+    filesEvict.delete(sessionId)
+    const entry = filesCache.get(sessionId)
+    if (entry !== undefined && Date.now() - entry.leftAt >= FILES_STICKY_MS) filesCache.delete(sessionId)
+  }, FILES_STICKY_MS + 1_000))
 }
 
 function restoreFilesState(sessionId: string): FilesState | null {
@@ -142,12 +155,23 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
+  // Script permission for the rendered HTML view. On by default so a page
+  // renders the way a browser would (the official preview keeps this behind a
+  // developer switch); turning it off gives a static, script-free document.
+  const [htmlScripts, setHtmlScripts] = useState(true)
   const [wrap, setWrap] = useState(() => init?.wrap ?? true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [showProps, setShowProps] = useState(false)
-  // Compact-only fullscreen viewer (rendered with the current source/render mode).
+  // The fullscreen reader restyles this tab's own preview in place instead of
+  // rendering a second copy: a rendered HTML page keeps its document (a new
+  // frame would re-run its scripts) and a code view keeps scroll and find state.
   const [fullscreen, setFullscreen] = useState(false)
+  // Browser fullscreen of the reader card, tracked from the browser's own state.
+  const [screenFull, setScreenFull] = useState(false)
+  const fsCardRef = useRef<HTMLDivElement | null>(null)
+  const fsCloseRef = useRef<HTMLButtonElement | null>(null)
+  const fsTriggerRef = useRef<HTMLButtonElement | null>(null)
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
@@ -186,16 +210,16 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const fileSeq = useRef(0)
 
   // HTML asset pack (ADR-0020): relative css/js is read through the host's
-  // validated file-content route and the iframe receives a bootstrap srcdoc
-  // that rewrites those references to in-document blob URLs. Keyed on the
-  // loaded file object (same identity memo as pathImages/markdownSegments);
-  // a stale in-flight pack is dropped by object identity. Packing runs only
-  // while the rendered view is on — HTML defaults to source, so selection
-  // alone never reads extra files. Any pack failure falls back to the plain
-  // bytes (exactly the previous behaviour).
+  // validated file-content route and rewritten to `data:` URLs before the
+  // document is serialized. Keyed on the loaded file object (same identity
+  // memo as pathImages/markdownSegments); a stale in-flight pack is dropped by
+  // object identity. Packing runs only while the rendered view is on — HTML
+  // defaults to source, so selection alone never reads extra files. Any pack
+  // failure falls back to the plain bytes.
+  const htmlMode: 'static' | 'interactive' = htmlScripts ? 'interactive' : 'static'
   const [htmlPack, setHtmlPack] = useState<HtmlPackState>({ status: 'idle' })
   useEffect(() => {
-    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown) {
+    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown || htmlMode !== 'interactive') {
       setHtmlPack((prev) => (prev.status === 'idle' ? prev : { status: 'idle' }))
       return
     }
@@ -214,7 +238,78 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       if (!cancelled) setHtmlPack({ status: 'plain', file })
     })
     return () => { cancelled = true }
-  }, [file, renderMarkdown, remote, sessionId])
+  }, [file, renderMarkdown, htmlMode, remote, sessionId])
+
+  // Interactive documents are handed to the iframe through a blob: URL, never
+  // srcdoc: a frame with a URL of its own goes into a separate renderer
+  // process, so a heavy page's scripts cannot block the panel.
+  const htmlInteractiveDoc = useMemo<string | undefined>(() => {
+    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown || htmlMode !== 'interactive') return undefined
+    // Only a pack that settled for THIS file yields a document: mounting the
+    // raw bytes first would start the page once, then throw it away when the
+    // packed document arrives (a double script run on a heavy page).
+    if (htmlPack.status === 'idle' || htmlPack.file !== file) return undefined
+    return htmlPack.status === 'ready' ? htmlPack.srcdoc : htmlPack.status === 'plain' ? file.content : undefined
+  }, [file, renderMarkdown, htmlMode, htmlPack])
+  // The blob URL is an effect, not a memo: a render that React throws away
+  // would leak an object URL that pins the whole document. The document it was
+  // built from travels with it, so a stale URL is never handed to the frame.
+  const [htmlBlob, setHtmlBlob] = useState<{ readonly doc: string; readonly url: string } | undefined>(undefined)
+  useEffect(() => {
+    if (htmlInteractiveDoc === undefined) { setHtmlBlob(undefined); return }
+    const url = URL.createObjectURL(new Blob([withReadyPing(htmlInteractiveDoc)], { type: 'text/html' }))
+    setHtmlBlob({ doc: htmlInteractiveDoc, url })
+    return () => { URL.revokeObjectURL(url) }
+  }, [htmlInteractiveDoc])
+
+  // The iframe body for the rendered HTML view: null while a pack is in
+  // flight (hold the source preview instead of flashing an unstyled page),
+  // undefined when this is not a rendered HTML preview.
+  const htmlFrame = useMemo<HtmlFrameSpec | null | undefined>(() => {
+    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown) return undefined
+    if (htmlMode === 'static') return { kind: 'static', srcdoc: createStaticHtmlDocument(file.content) }
+    return htmlBlob !== undefined && htmlBlob.doc === htmlInteractiveDoc ? { kind: 'interactive', src: htmlBlob.url } : null
+  }, [file, renderMarkdown, htmlMode, htmlBlob, htmlInteractiveDoc])
+
+  // A static preview of a script-rendered page is blank, which looks like a
+  // bug. Offer the explicit way back to a running page instead, but only when
+  // the document really renders through its scripts (a styled page with a
+  // small script still shows its content and needs no warning).
+  // Only the static preview needs the verdict, and the scan reads the whole
+  // document: skip it while the page is going to run anyway.
+  const scriptRendered = useMemo(
+    () => htmlMode === 'static' && file.kind === 'text' && isHtmlPath(file.path) && renderMarkdown && looksScriptRendered(file.content),
+    [file, renderMarkdown, htmlMode],
+  )
+  // Present only while a script-rendered document sits in the static preview.
+  const htmlHint = useMemo<{ readonly run: () => void } | undefined>(
+    () => (!scriptRendered || htmlFrame?.kind !== 'static' ? undefined : { run: () => setHtmlScripts(true) }),
+    [scriptRendered, htmlFrame],
+  )
+
+  // Browser fullscreen belongs to the browser: the system UI or Esc can leave
+  // it, so the button mirrors `fullscreenchange` instead of a local flag. Only
+  // this card counts — another element going full screen is not our state.
+  useEffect(() => {
+    const sync = (): void => setScreenFull(document.fullscreenElement === fsCardRef.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+  const closeFullscreen = useCallback(() => {
+    if (document.fullscreenElement !== null && document.fullscreenElement === fsCardRef.current) {
+      void document.exitFullscreen().catch(() => undefined)
+    }
+    setFullscreen(false)
+  }, [])
+  const toggleScreenFull = useCallback(() => {
+    const card = fsCardRef.current
+    if (card === null) return
+    if (document.fullscreenElement === card) { void document.exitFullscreen().catch(() => undefined); return }
+    // A host that denies fullscreen (a Permissions-Policy on an embedded GUI)
+    // rejects here; the button follows the browser's state, so all that is left
+    // is to say the request did not happen.
+    void card.requestFullscreen().catch((error: unknown) => { console.warn('git-panel: full screen was refused', error) })
+  }, [])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
 
@@ -309,6 +404,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     // Rendered view is the default for Markdown; HTML defaults to source so a
     // page never auto-executes on selection — the user opts into the preview.
     setRenderMarkdown(!isHtmlPath(path))
+    setHtmlScripts(true)
     setCopyState('idle')
     setCopyContentState('idle')
     setShowProps(false)
@@ -397,6 +493,11 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     }
   })()
 
+  // The reader card is this same preview element with a dialog role: the body
+  // stays mounted in place, so nothing is re-rendered or reloaded. Everything
+  // beside the card is made inert while it is open, so `aria-modal` is true.
+  const fsActive = fullscreen && selected !== null && file.kind === 'text'
+
   // The refresh control floats at the tree's top-right corner: it re-lists the
   // expanded directories and re-reads the open file (see `refresh`) without a
   // row of its own above the list, and it stays put while the entries scroll
@@ -411,6 +512,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const treeBlock = h('div', {
     key: 'left', className: 'gp-files__tree-wrap',
     style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
+    ...inertAttr(fsActive),
   }, [
     // The control leads in DOM order so keyboard users reach it before walking
     // the entry rows; its absolute position puts it at the box's corner.
@@ -437,10 +539,21 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     : null
   const fullscreenButton = file.kind === 'text'
     ? h('button', {
-      key: 'full', type: 'button', className: 'gp-files__props',
+      key: 'full', ref: fsTriggerRef, type: 'button', className: 'gp-files__props',
       title: t('files.fullscreen'), 'aria-label': t('files.fullscreen'),
       onClick: () => setFullscreen(true),
     }, h(FullscreenIcon, { size: 14 }))
+    : null
+  // Script permission exists only for the rendered HTML view: on by default,
+  // and this button is the only way to turn it off (static preview).
+  const scriptToggle = file.kind === 'text' && isHtmlPath(file.path) && renderMarkdown
+    ? h('button', {
+      key: 'scripts', type: 'button', className: 'gp-files__props gp-files__scripts',
+      title: htmlMode === 'interactive' ? t('files.scriptsOn') : t('files.scriptsOff'),
+      'aria-label': t('files.runScripts'),
+      'aria-pressed': htmlMode === 'interactive',
+      onClick: () => setHtmlScripts(htmlMode !== 'interactive'),
+    }, 'JS')
     : null
   // Word wrap only affects the source/code body (rendered Markdown already wraps).
   // Over the wrap cap the toggle stays visible but disabled — hiding it would
@@ -471,7 +584,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       modeSeg,
       // Trailing icons keep their own right-aligned group: without the mode
       // switcher (plain files) they would otherwise sit next to the back button.
-      h('div', { key: 'end', className: 'gp-files__bar-end' }, [wrapButton, fullscreenButton, propsButton]),
+      h('div', { key: 'end', className: 'gp-files__bar-end' }, [scriptToggle, wrapButton, fullscreenButton, propsButton]),
     ])
     : null
 
@@ -496,46 +609,78 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
           }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
           : null,
       ]),
+      scriptToggle,
       wrapButton,
       fullscreenButton,
       propsButton,
     ])
 
-  // One role=tabpanel per mode in both layouts (the switcher's aria-controls
-  // must always resolve); only the active one mounts the preview body.
+  // The switcher that owns these tabs is hidden in the reader, so the panel
+  // role (and its now-dangling label reference) goes with it; the nodes and
+  // their keys stay, so the preview body is not remounted.
+  const tabPanel = (mode: 'source' | 'render'): Record<string, string> => (fsActive
+    ? { id: `${modeId}-${mode}-panel` }
+    : { id: `${modeId}-${mode}-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-${mode}` })
   const previewContent = richPreview
     ? [
       h('div', {
-        key: 'src', id: `${modeId}-source-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-source`,
+        key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t)),
       h('div', {
-        key: 'rnd', id: `${modeId}-render-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-render`,
+        key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t)
 
-  const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
-    selected !== null ? (compact ? compactBar : wideBar) : null,
-    h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
-    fullscreen && selected !== null && file.kind === 'text'
-      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, onClose: () => setFullscreen(false), t })
+
+  const previewBlock = h('div', {
+    key: 'right',
+    className: `gp-files__preview${fsActive ? ' gp-files__preview--full' : ''}`,
+    ...(fsActive ? { ref: fsCardRef, role: 'dialog', 'aria-modal': true, 'aria-label': file.kind === 'text' ? file.path : '' } : {}),
+  }, [
+    fsActive
+      ? h('div', { key: 'fsbar', className: 'gp-modal__bar gp-files__fsbar' }, [
+        h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
+        h('button', {
+          key: 'screen', type: 'button', className: 'gp-icon-btn gp-files__fs-screen',
+          title: screenFull ? t('files.exitFullscreen') : t('files.enterFullscreen'),
+          'aria-label': t('files.screenFull'),
+          'aria-pressed': screenFull, onClick: toggleScreenFull,
+        }, h(screenFull ? ExitFullscreenIcon : FullscreenIcon, { size: 15 })),
+        h('button', {
+          key: 'close', ref: fsCloseRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
+          title: t('common.close'), 'aria-label': t('common.close'), onClick: closeFullscreen,
+        }, h(CloseIcon, { size: 15 })),
+      ])
       : null,
+    fsActive
+      ? h(FullscreenFocus, { key: 'fsfocus', cardRef: fsCardRef, initialRef: fsCloseRef, restoreRef: fsTriggerRef, onClose: closeFullscreen })
+      : null,
+    selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
+    h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
       : null,
   ])
 
+  // Dims the app behind the reader card. A real node, not a huge spread shadow:
+  // a 100vmax shadow paints a viewport-sized layer for as long as it is open.
+  const fsBackdrop = fsActive
+    ? h('div', { key: 'fs-desk', className: 'gp-files__fs-backdrop', 'aria-hidden': 'true', onClick: closeFullscreen })
+    : null
+
   // Compact: a single column drilling from the tree into the file preview.
   if (compact) {
-    return h('div', { className: 'gp-files gp-files--compact' }, pane === 'preview' ? previewBlock : treeBlock)
+    return h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop])
   }
 
   return h('div', { className: 'gp-files' }, [
     treeBlock,
     leftCol.divider,
     previewBlock,
+    fsBackdrop,
   ])
 }
 
@@ -547,7 +692,8 @@ function renderContent(
   markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string },
   pathImages: PathImages | undefined,
   markdownSegments: MermaidSegment[] | undefined,
-  htmlPack: HtmlPackState,
+  htmlFrame: HtmlFrameSpec | null | undefined,
+  htmlHint: { readonly run: () => void } | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
@@ -562,62 +708,44 @@ function renderContent(
       ? h(MermaidFigure, { key: index, source: segment.source, t })
       : h(MarkdownText, { key: index, text: segment.text, ...markdownProps })))
   }
-  if (file.kind === 'text' && renderMarkdown && isHtmlPath(file.path)) {
-    // Asset packing is in flight: hold the previous body instead of flashing
-    // an unstyled page (the pack resolves in a few local RPC round-trips).
-    if (htmlPack.status === 'loading' && htmlPack.file === file) return renderPreview(file, wrap, t)
-    // Render in a locked-down iframe: allow-scripts lets an interactive page
-    // run, but WITHOUT allow-same-origin the document is a unique opaque
-    // origin — it cannot reach the DSH parent, its storage, or same-origin
-    // network. srcDoc keeps the bytes in-document (no extra fetch); relative
-    // css/js arrives as a bootstrap document that rewrites it to blob URLs
-    // packed from the host file route (ADR-0020), or the plain bytes when
-    // there was nothing to pack.
-    const srcdoc = htmlPack.status === 'ready' && htmlPack.file === file ? htmlPack.srcdoc : file.content
-    return h('iframe', {
-      className: 'gp-files__html', title: file.path, srcDoc: srcdoc,
-      sandbox: 'allow-scripts', referrerPolicy: 'no-referrer',
-    })
+  if (file.kind === 'text' && htmlFrame !== undefined) {
+    // The pack is in flight: hold the source preview instead of flashing an
+    // unstyled page (the pack resolves in a few local RPC round-trips).
+    if (htmlFrame === null) return renderPreview(file, wrap, t)
+    // A static preview is handed no script permission at all and carries a CSP
+    // that blocks the network; the interactive one opts into allow-scripts.
+    return h('div', { className: 'gp-files__html-wrap' }, [
+      htmlHint !== undefined
+        ? h('div', { key: 'hint', className: 'gp-files__html-note' }, [
+          h('span', { key: 'text', className: 'gp-files__html-note-text' }, t('files.scriptsSkipped')),
+          h('button', {
+            key: 'run', type: 'button', className: 'gp-files__html-note-run',
+            title: t('files.scriptsOff'), onClick: htmlHint.run,
+          }, t('files.runScripts')),
+        ])
+        : null,
+      // Keyed on the frame identity: a sandbox attribute updated after the
+      // document loaded does not re-run the scripts it already blocked, so a
+      // permission change must remount the frame (and its loading mask).
+      h(HtmlFrame, { key: `frame:${htmlFrame.kind}:${htmlFrame.kind === 'interactive' ? htmlFrame.src : ''}`, frame: htmlFrame, title: file.path, t }),
+    ])
   }
   return renderPreview(file, wrap, t)
 }
 
 /**
- * Fullscreen reader: the current preview re-rendered in the shell's
- * near-fullscreen modal, with the mode chosen in the panel toolbar. Escape,
- * the backdrop and the close button dismiss it; focus moves into the dialog
- * and returns to the toolbar control (shared dialog lifecycle).
+ * Focus lifecycle of the fullscreen reader. A component of its own so the
+ * shared dialog contract only runs while the reader is open — wrapping the
+ * preview in a conditional component instead would remount it.
  */
-function FileFullscreen(props: {
-  file: FileState
-  renderMarkdown: boolean
-  wrap: boolean
-  markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
-  pathImages: PathImages | undefined
-  markdownSegments: MermaidSegment[] | undefined
-  htmlPack: HtmlPackState
+function FullscreenFocus(props: {
+  cardRef: RefObject<HTMLDivElement | null>
+  initialRef: RefObject<HTMLButtonElement | null>
+  restoreRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
-  t: (key: GitKey, params?: Record<string, string | number>) => string
-}): JSX.Element | null {
-  const { file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, onClose, t } = props
-  const dialogRef = useRef<HTMLDivElement | null>(null)
-  const closeRef = useRef<HTMLButtonElement | null>(null)
-  useDialogFocus(dialogRef, onClose, closeRef)
-  if (typeof document === 'undefined' || file.kind !== 'text') return null
-  return createPortal(h('div', {
-    className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
-  }, h('div', { ref: dialogRef, className: 'gp-modal', role: 'dialog', 'aria-modal': true, 'aria-label': t('files.fullscreen') }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
-      h('button', {
-        key: 'close', ref: closeRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
-        title: t('common.close'), 'aria-label': t('common.close'), onClick: onClose,
-      }, h(CloseIcon, { size: 15 })),
-    ]),
-    h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPack, t))),
-  ])), document.body, 'file-fullscreen')
+}): null {
+  useDialogFocus(props.cardRef, props.onClose, props.initialRef, props.restoreRef)
+  return null
 }
 
 interface TreeCbs {

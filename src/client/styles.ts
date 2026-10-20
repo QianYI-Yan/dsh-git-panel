@@ -266,6 +266,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__props:disabled{opacity:0.5;cursor:default}
 .gp-files__props:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__props[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
+.gp-files__scripts{font:600 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0.02em;padding:5px 6px}
 .gp-files__mode-seg{flex:none}
 /* Compact preview toolbar: the relative path and the two copy buttons are gone
  * (they forced three wrapped rows on a phone). Back + the official source/render
@@ -286,7 +287,19 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-mermaid--loading{min-height:64px;display:flex;align-items:center;justify-content:center;border:1px dashed var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-skeleton);color:var(--dsw-alias-label-tertiary)}
 .gp-mermaid__loading-text{font-size:12px;line-height:20px}
 .gp-mermaid__fallback{overflow:auto;background:var(--dsw-alias-markdown-code-block);border-radius:6px;padding:10px 12px;font-family:var(--dsw-font-mono,monospace);font-size:12px;margin:8px 0}
+.gp-files__html-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
+.gp-files__html-note{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:12px;color:var(--dsw-alias-label-secondary)}
+.gp-files__html-note-run{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:3px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;font-size:12px}
+.gp-files__html-note-run:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.gp-files__html-stage{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
 .gp-files__html{flex:1;min-height:0;width:100%;border:0;background:#fff}
+/* Covers the frame until its load event: a blob: document is drawn by another
+ * renderer process, so the panel shows an empty frame in the meantime. */
+.gp-files__html-mask{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:12px;transition:opacity .18s ease}
+.gp-files__html-mask[data-state="ready"]{opacity:0;pointer-events:none}
+.gp-files__html-mask[data-state="ready"] .gp-spinner{animation:none}
+.gp-files__html-mask .gp-spinner{width:20px;height:20px;border-width:2px}
+.gp-files__html-mask-label{max-width:80%;text-align:center;line-height:1.5}
 .gp-files__code{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;font-family:var(--dsw-font-mono,monospace);font-size:12px;position:relative}
 /* Both sticky axes: the header must also stay put under horizontal scroll
  * (reachable only in nowrap mode), or the find bar slides out of view. */
@@ -795,6 +808,17 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files--compact .gp-files__tree-wrap,
 .gp-files--compact .gp-files__preview{flex:1 1 100%;min-width:0;width:100%}
 
+/* Fullscreen reader: the tab's live preview restyled in place — nothing is
+ * re-rendered, so a rendered HTML document keeps its frame and a code view
+ * keeps its scroll position. The card is fixed rather than portaled (moving
+ * the node would reload the frame), so it depends on no ancestor creating a
+ * containing block (transform, filter, contain: paint) and on the backdrop
+ * sitting below it in document order. */
+.gp-files .gp-files__preview--full{position:fixed;inset:0;margin:auto;z-index:1000;width:min(920px,86vw);height:min(680px,82vh);min-width:0;max-height:100vh;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:14px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.32),0 4px 12px rgba(0,0,0,.18);animation:gp-modal-in .18s cubic-bezier(.16,1,.3,1)}
+.gp-files__fs-backdrop{position:fixed;inset:0;z-index:999;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);animation:gp-fade-in .12s ease}
+.gp-files__fs-screen{flex:none}
+
+
 /* Image compare stacks vertically in compact: two ~195px columns are unusable
  * on a phone. The single-image before/after mode keeps its full-height row.
  * The portaled diff modal lives outside .gp-panel, so it keeps side-by-side
@@ -870,7 +894,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-zl-close:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-zl-close:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:3px}
 @media (prefers-reduced-motion:reduce){
-  .gp-sheet,.gp-sheet-backdrop,.gp-modal,.gp-modal-backdrop,.gp-zl-mask{animation:none}
+  .gp-sheet,.gp-sheet-backdrop,.gp-modal,.gp-modal-backdrop,.gp-zl-mask,.gp-files__html-mask,.gp-files__fs-backdrop,.gp-files__preview--full{animation:none;transition:none}
 }
 `
 

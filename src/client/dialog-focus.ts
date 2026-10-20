@@ -7,7 +7,9 @@
  *
  * `onClose` is read through a ref: callers pass inline arrows, and re-running
  * the effect on every render would re-focus the dialog and restore focus on
- * each cleanup.
+ * each cleanup. `restoreRef` names the control to hand focus back to when the
+ * opener itself is unmounted while the dialog is open; the ref is read after
+ * the commit, so it points at the control that has just been re-rendered.
  */
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { RefObject } from 'react'
@@ -18,6 +20,7 @@ export function useDialogFocus(
   containerRef: RefObject<HTMLElement | null>,
   onClose: () => void,
   initialFocusRef?: RefObject<HTMLElement | null>,
+  restoreRef?: RefObject<HTMLElement | null>,
 ): void {
   const closeRef = useRef(onClose)
   useLayoutEffect(() => { closeRef.current = onClose })
@@ -52,7 +55,10 @@ export function useDialogFocus(
     window.addEventListener('keydown', onKeyDown, true)
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
-      opener?.focus()
+      // Reading the ref here is the point: the named control is re-rendered by
+      // the same commit that closes the dialog, so its node only exists now.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      ;(restoreRef?.current ?? opener)?.focus()
     }
-  }, [containerRef, initialFocusRef])
+  }, [containerRef, initialFocusRef, restoreRef])
 }
