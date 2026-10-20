@@ -1159,13 +1159,29 @@ const out = await page.evaluate(async (snap) => {
   })
   const wideFullBtn = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')
   result.wideHasFullscreen = wideFullBtn !== null
+  // Captured before opening: a second render would replace this node, so an
+  // equal reference afterwards proves the reader reused the live preview.
+  const mdBefore = document.querySelector('[data-markdown-rendered]')
   wideFullBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
-  result.wideFullscreenShown = document.querySelector('.gp-modal-backdrop .gp-modal') !== null
-    && document.querySelector('.gp-modal [data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  // The reader is the tab's own preview restyled, not a second render: the
+  // Markdown shown inside the card is the same node that was already there.
+  result.wideFullscreenShown = document.querySelector('.gp-files__preview--full') !== null
+    && document.querySelector('.gp-files__preview--full [data-markdown-rendered]')?.textContent === 'Hello Markdown'
+    && document.querySelector('.gp-files__preview--full [data-markdown-rendered]') === mdBefore
+    && document.querySelector('.gp-files__preview--full')?.getAttribute('role') === 'dialog'
+    && document.querySelector('.gp-files__preview--full .gp-modal__path')?.textContent === 'README.md'
+  // Its bar carries the browser-fullscreen toggle immediately left of close.
+  const fsBarBtns = [...document.querySelectorAll('.gp-files__preview--full .gp-modal__bar button')]
+  const fsBarLabels = fsBarBtns.map((b) => b.getAttribute('aria-label'))
+  result.wideFullscreenBar = fsBarLabels.length === 2
+    && fsBarLabels[0] === 'files.screenFull' && fsBarLabels[1] === 'common.close'
+    // The toggle keeps a stable name and reports its state instead.
+    && fsBarBtns[0]?.getAttribute('aria-pressed') === 'false'
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
-  result.wideFullscreenClosed = document.querySelector('.gp-modal-backdrop') === null
+  result.wideFullscreenClosed = document.querySelector('.gp-files__preview--full') === null
+    && document.querySelector('[data-markdown-rendered]') === mdBefore
   const sourceBtn = modeTab('files.source')
   if (sourceBtn) { sourceBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownSourceShown = document.querySelector('.gp-files__code') !== null && document.querySelector('[data-markdown-rendered]') === null
@@ -1248,6 +1264,55 @@ const out = await page.evaluate(async (snap) => {
     // Done means click-through and invisible, not just a different label.
     && getComputedStyle(htmlMask).pointerEvents === 'none'
     && getComputedStyle(htmlMask).opacity === '0'
+  // Entering the reader must not reload the page: the frame node is the same,
+  // its document is still loaded (the mask never restarts) and the page never
+  // reported a second load.
+  const pageLoadsBeforeReader = pageLoads
+  const htmlFrameBeforeReader = document.querySelector('.gp-files__html')
+  document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.htmlReaderReusesFrame = htmlFrameBeforeReader !== null
+    && document.querySelector('.gp-files__preview--full .gp-files__html') === htmlFrameBeforeReader
+    && document.querySelector('.gp-files__preview--full .gp-files__html-mask')?.getAttribute('data-state') === 'ready'
+  // The browser-fullscreen toggle follows the browser, not a local flag: a
+  // refused request leaves the reader and the button alone, a granted one
+  // flips it, and pressing it again leaves full screen.
+  const screenBtn = document.querySelector('.gp-files__preview--full [aria-label="files.screenFull"]')
+  const realRequest = Element.prototype.requestFullscreen
+  Element.prototype.requestFullscreen = function () { return Promise.reject(new Error('denied')) }
+  screenBtn?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.screenFullRefused = document.querySelector('.gp-files__preview--full') !== null
+    && screenBtn?.getAttribute('aria-pressed') === 'false'
+  let exits = 0
+  const realExit = document.exitFullscreen
+  Element.prototype.requestFullscreen = function () {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => this })
+    document.dispatchEvent(new Event('fullscreenchange'))
+    return Promise.resolve()
+  }
+  document.exitFullscreen = function () {
+    exits += 1
+    delete document.fullscreenElement
+    document.dispatchEvent(new Event('fullscreenchange'))
+    return Promise.resolve()
+  }
+  screenBtn?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.screenFullGranted = screenBtn?.getAttribute('aria-pressed') === 'true'
+  screenBtn?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.screenFullExited = exits === 1 && screenBtn?.getAttribute('aria-pressed') === 'false'
+  Element.prototype.requestFullscreen = realRequest
+  document.exitFullscreen = realExit
+  delete document.fullscreenElement
+  // Leaving it keeps the same document too, and restores the toolbar.
+  document.querySelector('.gp-files__preview--full .gp-modal__close')?.click()
+  await new Promise((r) => setTimeout(r, 200))
+  result.htmlReaderClosedKeepsFrame = document.querySelector('.gp-files__preview--full') === null
+    && document.querySelector('.gp-files__html') === htmlFrameBeforeReader
+    && document.querySelector('.gp-files__bar') !== null
+  result.htmlReaderKeepsDocument = pageLoads === pageLoadsBeforeReader
   // A page whose own CSP blocks the appended paint report: the mask stays up
   // until the load fallback, ignores a forged report from the panel itself,
   // and only then goes click-through.

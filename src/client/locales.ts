@@ -211,6 +211,9 @@ export const zh = {
   'files.zoomActual': '实际大小（100%）',
   'files.zoomFit': '适应窗口',
   'files.zoomFullscreen': '全屏查看',
+  'files.screenFull': '全屏显示',
+  'files.enterFullscreen': '进入全屏',
+  'files.exitFullscreen': '退出全屏',
   'files.fullscreen': '全屏查看文件',
   'files.gitNotInstalled': '系统未安装 Git，Git 面板不可用，请安装 Git 工具后重试。',
   // file properties dialog
@@ -597,6 +600,9 @@ export const en: Record<GitKey, string> = {
   'files.zoomActual': 'Actual size (100%)',
   'files.zoomFit': 'Fit to window',
   'files.zoomFullscreen': 'View fullscreen',
+  'files.screenFull': 'Full screen',
+  'files.enterFullscreen': 'Enter full screen',
+  'files.exitFullscreen': 'Exit full screen',
   'files.fullscreen': 'View file full screen',
   'files.gitNotInstalled': 'Git is not installed; the Git panel is unavailable. Please install Git and try again.',
   // file properties dialog

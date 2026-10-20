@@ -56,6 +56,16 @@ export function FullscreenIcon({ size }: IconProps): JSX.Element {
   ], size)
 }
 
+/** Leave-fullscreen glyph: the same brackets turned inward. */
+export function ExitFullscreenIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'a', d: 'M6 2v4H2' }),
+    h('path', { key: 'b', d: 'M14 6h-4V2' }),
+    h('path', { key: 'c', d: 'M10 14v-4h4' }),
+    h('path', { key: 'd', d: 'M2 10h4v4' }),
+  ], size)
+}
+
 /** Soft-return arrow: three text lines wrapping onto a fourth. */
 export function WrapIcon({ size }: IconProps): JSX.Element {
   return svg([

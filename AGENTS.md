@@ -68,6 +68,7 @@ Host 半 (Cordis + typert, lib/host)
 - 写操作不越权：push 绝不 `--force` 且仅在严格领先时提供；pull 只走 `--ff-only`；分叉时 push / pull 都不提供；绝不直接检出远程引用（落为同名跟踪分支，避免游离 HEAD）；publish 的 `HEAD`、pull-preview 的 `@{upstream}` 为固定字面量。
 - 放弃未跟踪条目由 host 直接删盘（`git restore` 摸不到）：任何删除失败都汇总成错误返回，绝不静默；条目本身是仓库（嵌套仓库 / 子模块 / bare 布局）时整批拒绝（`nested-repo`），删除循环内逐条复检（竞态命中报 `nested-repo-partial`）；只「包含」仓库的普通目录仍整体删除——这条边界是刻意的（issue #46），单测同时锁住两者。
 - 破坏性操作（discard、reset、stash-drop、删除标签、带贮藏的分支切换等）UI 必须二次确认，硬重置需列出将丢失的改动并额外勾选；「放弃更改」只作用于工作区侧，暂存侧需先取消暂存。
+- 全屏阅读器（`files.fullscreen`）是面板里那份预览换样式成弹窗，**不能**在弹窗里重新渲染文件：重建 iframe 会重跑页面脚本（同一份报告再等约 12 s），代码视图也会丢滚动与查找。它也不能搬进 portal——搬动 DOM 就会重载 iframe（ADR-0016）。
 - HTML 预览在渲染期间覆盖一层遮罩（`.gp-files__html-mask`），`ready` 由页面自己回报（`withReadyPing`：`load` 后再过两帧 `postMessage`），父侧 `load` + 超时只作兜底；遮罩退出后保持挂载但透明且 `pointer-events:none`。
 - HTML 交互预览的 iframe 必须用 `blob:` URL（`URL.createObjectURL`），**不能用 `srcdoc`**：带自身 URL 的沙箱 iframe 在 Chromium 里走独立渲染进程，页面脚本再重也不冻结面板；`srcdoc` 与面板同进程，实测同一份报告 12 s 全冻结。iframe 始终不带 `allow-same-origin`；工具栏 `JS` 开关切到静态模式时改用 `srcdoc` + `sandbox=""` + `default-src 'none'` 的 CSP。交互模式把相对 css/js 经 `file-content` 端点读出、以 `data:` URL 内联（≥2 MiB 跳过打包），任何失败回落原始字节（`html-pack.ts`，ADR-0020）。
 

@@ -439,15 +439,15 @@ const out = await page.evaluate(async (snap) => {
   fullBtn?.focus()
   fullBtn?.click()
   await new Promise((r) => setTimeout(r, 200))
-  result.flFullscreenOpened = document.querySelector('.gp-modal-backdrop .gp-modal') !== null
-  result.flFullscreenCode = document.querySelector('.gp-modal .gp-files__code') !== null
-  result.flFullscreenHasPath = document.querySelector('.gp-modal .gp-modal__path') !== null
+  result.flFullscreenOpened = document.querySelector('.gp-files__preview--full')?.getAttribute('role') === 'dialog'
+  result.flFullscreenCode = document.querySelector('.gp-files__preview--full .gp-files__code') !== null
+  result.flFullscreenHasPath = document.querySelector('.gp-files__preview--full .gp-modal__path')?.textContent === 'a.txt'
   // The dialog owns focus while open (shared dialog lifecycle).
   result.flFullscreenFocusIn = document.activeElement instanceof HTMLElement
-    && document.activeElement.closest('.gp-modal') !== null
+    && document.activeElement.closest('.gp-files__preview--full') !== null
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
-  result.flFullscreenEscClosed = document.querySelector('.gp-modal-backdrop') === null
+  result.flFullscreenEscClosed = document.querySelector('.gp-files__preview--full') === null
   result.flFullscreenFocusRestored = document.activeElement instanceof HTMLElement
     && document.activeElement.getAttribute('aria-label') === 'files.fullscreen'
 
@@ -477,12 +477,11 @@ const out = await page.evaluate(async (snap) => {
     && document.querySelector('.gp-files__preview-content [data-markdown-rendered]') === null
   document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')?.click()
   await new Promise((r) => setTimeout(r, 200))
-  result.flScreenSource = document.querySelector('.gp-modal .gp-files__code') !== null
-    && document.querySelector('.gp-modal [data-markdown-rendered]') === null
-  document.querySelector('.gp-modal-backdrop')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-  document.querySelector('.gp-modal-backdrop')?.click()
+  result.flScreenSource = document.querySelector('.gp-files__preview--full .gp-files__code') !== null
+    && document.querySelector('.gp-files__preview--full [data-markdown-rendered]') === null
+  document.querySelector('.gp-files__fs-backdrop')?.click()
   await new Promise((r) => setTimeout(r, 200))
-  result.flScreenBackdropClosed = document.querySelector('.gp-modal-backdrop') === null
+  result.flScreenBackdropClosed = document.querySelector('.gp-files__preview--full') === null
   // Back in the panel the render mode comes back with the official switcher.
   const renderTab = [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((tab) => (tab.textContent || '') === 'files.render')
   renderTab?.click()
@@ -619,19 +618,19 @@ try {
   assert.equal(out.flPropsRightAligned, true, 'without a mode switcher the properties entry still sits at the right edge')
   assert.equal(out.flIconsOneRow, true, 'the back button and the trailing icons share one row')
   assert.equal(out.flBarEndHeights, true, 'wrap / fullscreen / properties match the 30px bar height')
-  assert.equal(out.flFullscreenOpened, true, 'fullscreen opens the near-fullscreen modal')
-  assert.equal(out.flFullscreenCode, true, 'the fullscreen modal renders the code view')
-  assert.equal(out.flFullscreenHasPath, true, 'the fullscreen modal shows the file path')
-  assert.equal(out.flFullscreenFocusIn, true, 'opening fullscreen moves focus into the dialog')
-  assert.equal(out.flFullscreenEscClosed, true, 'Escape closes the fullscreen modal')
+  assert.equal(out.flFullscreenOpened, true, 'fullscreen turns the live preview into a dialog')
+  assert.equal(out.flFullscreenCode, true, 'the reader keeps the already-rendered code view')
+  assert.equal(out.flFullscreenHasPath, true, 'the reader shows the file path')
+  assert.equal(out.flFullscreenFocusIn, true, 'opening the reader moves focus into the dialog')
+  assert.equal(out.flFullscreenEscClosed, true, 'Escape closes the reader')
   assert.equal(out.flFullscreenFocusRestored, true, 'closing fullscreen restores the toolbar control')
   assert.equal(out.flModeSegShown, true, 'a rich file shows the official two-choice source/render control')
   assert.equal(out.flModePanelsResolve, true, 'each mode tab controls its own tabpanel')
   assert.equal(out.flModePropsRightAligned, true, 'the properties entry stays right-aligned next to the mode switcher')
   assert.equal(out.flRenderDefault, true, 'the rich file previews rendered by default')
   assert.equal(out.flSourceMode, true, 'the source tab swaps the rendered body for the code view')
-  assert.equal(out.flScreenSource, true, 'fullscreen honours the selected source mode')
-  assert.equal(out.flScreenBackdropClosed, true, 'a backdrop click closes the fullscreen modal')
+  assert.equal(out.flScreenSource, true, 'the reader honours the selected source mode')
+  assert.equal(out.flScreenBackdropClosed, true, 'a backdrop click closes the reader')
   assert.equal(out.flRenderModeRestored, true, 'the render tab restores the rendered body')
   assert.equal(out.flBackToTree, true, 'back returns to the file tree')
   assert.equal(out.restoredWide, true, 'widening the panel restores the wide layout')

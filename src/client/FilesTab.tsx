@@ -6,13 +6,12 @@
  * binaries show a placeholder. Left column width is drag-resizable.
  */
 import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { JSX } from 'react'
-import { createPortal } from 'react-dom'
+import type { JSX, RefObject } from 'react'
 import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CloseIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
 import { useResizableColumn } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, languageForPath, MarkdownText, SegmentedControl, useCodeHighlighter, writeClipboard, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FindBar, markContent, matchRangesRaw, useDebounced, FIND_DEBOUNCE_MS, MAX_MATCHES } from './find.js'
@@ -25,6 +24,7 @@ import { canCopyContent } from './copy-content.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { createStaticHtmlDocument, looksScriptRendered, packHtmlDocument, withReadyPing } from './html-pack.js'
+import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { MermaidFigure } from './MermaidFigure.js'
 
@@ -163,8 +163,15 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [showProps, setShowProps] = useState(false)
-  // Compact-only fullscreen viewer (rendered with the current source/render mode).
+  // The fullscreen reader restyles this tab's own preview in place instead of
+  // rendering a second copy: a rendered HTML page keeps its document (a new
+  // frame would re-run its scripts) and a code view keeps scroll and find state.
   const [fullscreen, setFullscreen] = useState(false)
+  // Browser fullscreen of the reader card, tracked from the browser's own state.
+  const [screenFull, setScreenFull] = useState(false)
+  const fsCardRef = useRef<HTMLDivElement | null>(null)
+  const fsCloseRef = useRef<HTMLButtonElement | null>(null)
+  const fsTriggerRef = useRef<HTMLButtonElement | null>(null)
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
@@ -279,6 +286,30 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     () => (!scriptRendered || htmlFrame?.kind !== 'static' ? undefined : { run: () => setHtmlScripts(true) }),
     [scriptRendered, htmlFrame],
   )
+
+  // Browser fullscreen belongs to the browser: the system UI or Esc can leave
+  // it, so the button mirrors `fullscreenchange` instead of a local flag. Only
+  // this card counts — another element going full screen is not our state.
+  useEffect(() => {
+    const sync = (): void => setScreenFull(document.fullscreenElement === fsCardRef.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+  const closeFullscreen = useCallback(() => {
+    if (document.fullscreenElement !== null && document.fullscreenElement === fsCardRef.current) {
+      void document.exitFullscreen().catch(() => undefined)
+    }
+    setFullscreen(false)
+  }, [])
+  const toggleScreenFull = useCallback(() => {
+    const card = fsCardRef.current
+    if (card === null) return
+    if (document.fullscreenElement === card) { void document.exitFullscreen().catch(() => undefined); return }
+    // A host that denies fullscreen (a Permissions-Policy on an embedded GUI)
+    // rejects here; the button follows the browser's state, so all that is left
+    // is to say the request did not happen.
+    void card.requestFullscreen().catch((error: unknown) => { console.warn('git-panel: full screen was refused', error) })
+  }, [])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
 
@@ -462,6 +493,11 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     }
   })()
 
+  // The reader card is this same preview element with a dialog role: the body
+  // stays mounted in place, so nothing is re-rendered or reloaded. Everything
+  // beside the card is made inert while it is open, so `aria-modal` is true.
+  const fsActive = fullscreen && selected !== null && file.kind === 'text'
+
   // The refresh control floats at the tree's top-right corner: it re-lists the
   // expanded directories and re-reads the open file (see `refresh`) without a
   // row of its own above the list, and it stays put while the entries scroll
@@ -476,6 +512,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
   const treeBlock = h('div', {
     key: 'left', className: 'gp-files__tree-wrap',
     style: compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
+    ...inertAttr(fsActive),
   }, [
     // The control leads in DOM order so keyboard users reach it before walking
     // the entry rows; its absolute position puts it at the box's corner.
@@ -502,7 +539,7 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
     : null
   const fullscreenButton = file.kind === 'text'
     ? h('button', {
-      key: 'full', type: 'button', className: 'gp-files__props',
+      key: 'full', ref: fsTriggerRef, type: 'button', className: 'gp-files__props',
       title: t('files.fullscreen'), 'aria-label': t('files.fullscreen'),
       onClick: () => setFullscreen(true),
     }, h(FullscreenIcon, { size: 14 }))
@@ -578,43 +615,72 @@ export function FilesTab({ remote, sessionId, compact, worktreeGen, snapshot, t 
       propsButton,
     ])
 
-  // One role=tabpanel per mode in both layouts (the switcher's aria-controls
-  // must always resolve); only the active one mounts the preview body.
-  // One role=tabpanel per mode in both layouts (the switcher's aria-controls
-  // must always resolve); only the active one mounts the preview body.
+  // The switcher that owns these tabs is hidden in the reader, so the panel
+  // role (and its now-dangling label reference) goes with it; the nodes and
+  // their keys stay, so the preview body is not remounted.
+  const tabPanel = (mode: 'source' | 'render'): Record<string, string> => (fsActive
+    ? { id: `${modeId}-${mode}-panel` }
+    : { id: `${modeId}-${mode}-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-${mode}` })
   const previewContent = richPreview
     ? [
       h('div', {
-        key: 'src', id: `${modeId}-source-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-source`,
+        key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
       }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t)),
       h('div', {
-        key: 'rnd', id: `${modeId}-render-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-render`,
+        key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
       }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t) : null),
     ]
     : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t)
 
-  const previewBlock = h('div', { key: 'right', className: 'gp-files__preview' }, [
-    selected !== null ? (compact ? compactBar : wideBar) : null,
-    h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
-    fullscreen && selected !== null && file.kind === 'text'
-      ? h(FileFullscreen, { key: 'full', file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, onClose: () => setFullscreen(false), t })
+
+  const previewBlock = h('div', {
+    key: 'right',
+    className: `gp-files__preview${fsActive ? ' gp-files__preview--full' : ''}`,
+    ...(fsActive ? { ref: fsCardRef, role: 'dialog', 'aria-modal': true, 'aria-label': file.kind === 'text' ? file.path : '' } : {}),
+  }, [
+    fsActive
+      ? h('div', { key: 'fsbar', className: 'gp-modal__bar gp-files__fsbar' }, [
+        h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
+        h('button', {
+          key: 'screen', type: 'button', className: 'gp-icon-btn gp-files__fs-screen',
+          title: screenFull ? t('files.exitFullscreen') : t('files.enterFullscreen'),
+          'aria-label': t('files.screenFull'),
+          'aria-pressed': screenFull, onClick: toggleScreenFull,
+        }, h(screenFull ? ExitFullscreenIcon : FullscreenIcon, { size: 15 })),
+        h('button', {
+          key: 'close', ref: fsCloseRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
+          title: t('common.close'), 'aria-label': t('common.close'), onClick: closeFullscreen,
+        }, h(CloseIcon, { size: 15 })),
+      ])
       : null,
+    fsActive
+      ? h(FullscreenFocus, { key: 'fsfocus', cardRef: fsCardRef, initialRef: fsCloseRef, restoreRef: fsTriggerRef, onClose: closeFullscreen })
+      : null,
+    selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
+    h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
       : null,
   ])
 
+  // Dims the app behind the reader card. A real node, not a huge spread shadow:
+  // a 100vmax shadow paints a viewport-sized layer for as long as it is open.
+  const fsBackdrop = fsActive
+    ? h('div', { key: 'fs-desk', className: 'gp-files__fs-backdrop', 'aria-hidden': 'true', onClick: closeFullscreen })
+    : null
+
   // Compact: a single column drilling from the tree into the file preview.
   if (compact) {
-    return h('div', { className: 'gp-files gp-files--compact' }, pane === 'preview' ? previewBlock : treeBlock)
+    return h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop])
   }
 
   return h('div', { className: 'gp-files' }, [
     treeBlock,
     leftCol.divider,
     previewBlock,
+    fsBackdrop,
   ])
 }
 
@@ -668,42 +734,18 @@ function renderContent(
 }
 
 /**
- * Fullscreen reader: the current preview re-rendered in the shell's
- * near-fullscreen modal, with the mode chosen in the panel toolbar. Escape,
- * the backdrop and the close button dismiss it; focus moves into the dialog
- * and returns to the toolbar control (shared dialog lifecycle).
+ * Focus lifecycle of the fullscreen reader. A component of its own so the
+ * shared dialog contract only runs while the reader is open — wrapping the
+ * preview in a conditional component instead would remount it.
  */
-function FileFullscreen(props: {
-  file: FileState
-  renderMarkdown: boolean
-  wrap: boolean
-  markdownLabels: { code: { copyLabel: string; copiedLabel: string }; footnotes: string }
-  pathImages: PathImages | undefined
-  markdownSegments: MermaidSegment[] | undefined
-  htmlFrame: HtmlFrameSpec | null | undefined
-  htmlHint: { readonly run: () => void } | undefined
+function FullscreenFocus(props: {
+  cardRef: RefObject<HTMLDivElement | null>
+  initialRef: RefObject<HTMLButtonElement | null>
+  restoreRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
-  t: (key: GitKey, params?: Record<string, string | number>) => string
-}): JSX.Element | null {
-  const { file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, onClose, t } = props
-  const dialogRef = useRef<HTMLDivElement | null>(null)
-  const closeRef = useRef<HTMLButtonElement | null>(null)
-  useDialogFocus(dialogRef, onClose, closeRef)
-  if (typeof document === 'undefined' || file.kind !== 'text') return null
-  return createPortal(h('div', {
-    className: 'gp-modal-backdrop',
-    onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
-  }, h('div', { ref: dialogRef, className: 'gp-modal', role: 'dialog', 'aria-modal': true, 'aria-label': t('files.fullscreen') }, [
-    h('div', { key: 'bar', className: 'gp-modal__bar' }, [
-      h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
-      h('button', {
-        key: 'close', ref: closeRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
-        title: t('common.close'), 'aria-label': t('common.close'), onClick: onClose,
-      }, h(CloseIcon, { size: 15 })),
-    ]),
-    h('div', { key: 'scroll', className: 'gp-modal__scroll' },
-      h('div', { key: 'body', className: 'gp-files__preview-content' }, renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, t))),
-  ])), document.body, 'file-fullscreen')
+}): null {
+  useDialogFocus(props.cardRef, props.onClose, props.initialRef, props.restoreRef)
+  return null
 }
 
 interface TreeCbs {
