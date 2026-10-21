@@ -457,27 +457,18 @@ try {
     })
     await page.waitForTimeout(200)
 
-    // The version cluster in stacked: an icon-only bar (check glyph with its
-    // label on title/aria, plus the update dot when there is one) — the wide
-    // bar's version tag and status text have no room in a sidebar column.
-    const verbar = await page.evaluate(() => {
-      const bar = document.querySelector('.gp-verbar')
-      if (bar === null) return null
-      const btn = bar.querySelector('.gp-verbar__btn')
-      return {
-        icon: bar.classList.contains('gp-verbar--icon'),
-        tag: bar.querySelector('.gp-verbar__tag') !== null,
-        status: bar.querySelector('.gp-verbar__status') !== null,
-        btnAria: btn?.getAttribute('aria-label') ?? null,
-        btnText: (btn?.textContent ?? '').trim(),
-      }
-    })
-    assert.ok(verbar !== null, 'the stacked tab bar keeps the version cluster')
-    assert.equal(verbar.icon, true, 'stacked renders the icon-only form')
-    assert.equal(verbar.tag, false, 'the version tag text is dropped in stacked')
-    assert.equal(verbar.status, false, 'the status text is dropped in stacked')
-    assert.equal(verbar.btnAria, 'version.check', 'the check button carries its label on aria')
-    assert.equal(verbar.btnText, '', 'the check button shows only its glyph')
+    // The version cluster is a wide-layout control. A stacked sidebar bar
+    // spends its row on the tabs plus the font stepper, so the check pill — and
+    // the release dot that only a check could raise — is not mounted at all:
+    // an icon-only pill in that row reads as "refresh this panel".
+    const stackedTrailing = await page.evaluate(() => ({
+      bar: document.querySelector('.gp-verbar') !== null,
+      check: document.querySelector('.gp-verbar__btn') !== null,
+      font: document.querySelector('.gp-font') !== null,
+    }))
+    assert.equal(stackedTrailing.bar, false, 'stacked drops the version cluster')
+    assert.equal(stackedTrailing.check, false, 'stacked has no update-check button')
+    assert.equal(stackedTrailing.font, true, "the font stepper stays as the row's only trailing control")
 
     // Minimum-width sidebar: the tab bar drops to the phone's treatment —
     // short labels and no font stepper — and recovers when widened back.
@@ -490,19 +481,32 @@ try {
     const comfortable = await tabState()
     assert.deepEqual(comfortable.labels, ['tab.overview', 'tab.changes', 'tab.files'], 'a comfortable sidebar keeps the full labels')
     assert.equal(comfortable.font, true, 'a comfortable sidebar keeps the font stepper')
-    assert.equal(comfortable.version, true, 'a comfortable sidebar keeps the version cluster')
+    assert.equal(comfortable.version, false, 'a comfortable sidebar still has no version cluster')
     await page.evaluate(() => { document.getElementById('panel').style.width = '320px' })
     await page.waitForTimeout(200)
     const tight = await tabState()
     assert.deepEqual(tight.labels, ['tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the minimum width switches to short labels')
     assert.equal(tight.font, false, 'the minimum width hides the font stepper')
-    assert.equal(tight.version, false, 'the minimum width drops the version cluster — phone parity')
+    assert.equal(tight.version, false, 'the minimum width has no version cluster either')
     await page.evaluate(() => { document.getElementById('panel').style.width = '420px' })
     await page.waitForTimeout(200)
     const recovered = await tabState()
     assert.deepEqual(recovered.labels, ['tab.overview', 'tab.changes', 'tab.files'], 'widening back restores the full labels')
     assert.equal(recovered.font, true, 'widening back restores the font stepper')
-    assert.equal(recovered.version, true, 'widening back restores the version cluster')
+    assert.equal(recovered.version, false, 'widening back to a stacked width still shows no version cluster')
+
+    // …and a wide sidebar gets it back, tag and label included: the absence
+    // above is the layout rule, not a bar that failed to mount.
+    await page.evaluate(() => { document.getElementById('panel').style.width = '800px' })
+    await page.waitForTimeout(250)
+    const wide = await page.evaluate(() => ({
+      tag: (document.querySelector('.gp-verbar__tag')?.textContent ?? '').trim(),
+      check: (document.querySelector('.gp-verbar__btn')?.textContent ?? '').trim(),
+      font: document.querySelector('.gp-font') !== null,
+    }))
+    assert.equal(wide.tag, 'v1.8.1', 'the wide bar shows the version tag')
+    assert.ok(wide.check.includes('version.check'), `the wide bar labels its check button (${wide.check})`)
+    assert.equal(wide.font, true, 'the wide bar keeps the font stepper')
     await page.close()
   }
 
