@@ -320,6 +320,72 @@ assert.equal(out.a11y.leftInert, true, 'the sibling change list goes inert behin
 assert.equal(out.a11y.focusInCard, true, 'initial focus moves inside the card')
 assert.equal(out.a11y.focusIsClose, true, 'the close button takes the initial focus')
 
+// The card's GEOMETRY, not just its class: `.gp-diff--card` is what turns the
+// inline pane into a centred fixed dialog. Dropping that rule (or any of its
+// declarations) leaves every other assertion green — the class is still there,
+// the dialog contract still holds — so these read the computed box.
+out.cardBox = await page.evaluate(() => {
+  const el = document.querySelector('.gp-diff--card')
+  const bd = document.querySelector('.gp-diff-backdrop')
+  if (el === null || bd === null) return null
+  const s = getComputedStyle(el)
+  const bs = getComputedStyle(bd)
+  const r = el.getBoundingClientRect()
+  const br = bd.getBoundingClientRect()
+  return {
+    position: s.position,
+    zIndex: s.zIndex,
+    // computed width/height are the content box: the 1px border is excluded, so
+    // this compares the declared box directly instead of eating the tolerance.
+    width: Math.round(parseFloat(s.width)),
+    height: Math.round(parseFloat(s.height)),
+    borderBox: { w: Math.round(r.width), h: Math.round(r.height) },
+    radius: s.borderTopLeftRadius,
+    centered: Math.abs((r.left + r.width / 2) - window.innerWidth / 2) <= 2,
+    backdropPosition: bs.position,
+    backdropZ: bs.zIndex,
+    backdropCovers: Math.round(br.width) === window.innerWidth && Math.round(br.height) === window.innerHeight,
+    expectedWidth: Math.round(Math.min(920, window.innerWidth * 0.86)),
+    expectedHeight: Math.round(Math.min(680, window.innerHeight * 0.82)),
+  }
+})
+assert.ok(out.cardBox !== null, 'the card and its backdrop are both up')
+assert.equal(out.cardBox.position, 'fixed', 'the card leaves the flow and pins to the viewport')
+assert.equal(out.cardBox.zIndex, '1000', 'the card sits above the backdrop')
+assert.equal(out.cardBox.width, out.cardBox.expectedWidth, `the card is min(920px,86vw) wide (${out.cardBox.width} vs ${out.cardBox.expectedWidth})`)
+assert.equal(out.cardBox.height, out.cardBox.expectedHeight, `the card is min(680px,82vh) tall (${out.cardBox.height} vs ${out.cardBox.expectedHeight})`)
+assert.equal(out.cardBox.borderBox.w, out.cardBox.width + 2, 'the border box adds the 1px border on each side')
+assert.equal(out.cardBox.radius, '14px', 'the card keeps its rounded corners')
+assert.equal(out.cardBox.centered, true, 'the card is centred horizontally')
+assert.equal(out.cardBox.backdropPosition, 'fixed', 'the backdrop is fixed too')
+assert.equal(out.cardBox.backdropZ, '999', 'the backdrop sits just under the card')
+assert.equal(out.cardBox.backdropCovers, true, 'the backdrop covers the viewport')
+
+// The width clamp has two branches and only one is reachable at 1100px wide
+// (min(920, 86vw) picks the 920 cap). Deleting the vw fallback would leave the
+// card overflowing a narrow window with every other assertion green, so walk
+// the second branch here. 800px is the window that isolates it: 86vw = 688 is
+// under the cap, and the <=640px media query (which re-declares width as 96vw)
+// does not apply yet.
+await page.setViewportSize({ width: 800, height: 800 })
+await page.waitForTimeout(150)
+out.narrowCard = await page.evaluate(() => {
+  const el = document.querySelector('.gp-diff--card')
+  if (el === null) return null
+  const s = getComputedStyle(el)
+  const r = el.getBoundingClientRect()
+  return {
+    width: Math.round(parseFloat(s.width)),
+    expected: Math.round(Math.min(920, window.innerWidth * 0.86)),
+    fits: r.right <= window.innerWidth + 1 && r.left >= -1,
+  }
+})
+assert.ok(out.narrowCard !== null, 'the card survives a narrow viewport')
+assert.equal(out.narrowCard.width, out.narrowCard.expected, `86vw takes over below the cap (${out.narrowCard.width} vs ${out.narrowCard.expected})`)
+assert.equal(out.narrowCard.fits, true, 'and the card still fits inside the viewport')
+await page.setViewportSize({ width: 1100, height: 800 })
+await page.waitForTimeout(150)
+
 // Esc closes; the node survives for the next open.
 await page.keyboard.press('Escape')
 await page.waitForTimeout(250)
@@ -332,6 +398,17 @@ assert.equal(out.afterEsc.card, false, 'Esc closes the card')
 assert.equal(out.afterEsc.backdrop, false, 'Esc removes the backdrop')
 assert.equal(out.afterEsc.sameNode, true, 'the node is still the same instance')
 
+// Focus goes back to the control that opened the card — the dialog contract's
+// other half, and the reason the trigger ref is threaded through the hook.
+out.afterEscFocus = await page.evaluate(() => {
+  const active = document.activeElement
+  return {
+    tag: active?.tagName ?? null,
+    isTrigger: active?.classList.contains('gp-diff__modal-btn') ?? false,
+  }
+})
+assert.equal(out.afterEscFocus.isTrigger, true, `closing returns focus to the toolbar toggle (got ${out.afterEscFocus.tag})`)
+
 // Backdrop click closes as well.
 await page.click('.gp-diff__modal-btn')
 await page.waitForTimeout(250)
@@ -343,6 +420,70 @@ assert.equal(out.afterBackdrop, false, 'a backdrop click closes the card')
 // Rows still single-instance after the round trip.
 out.rowsAfter = await rows()
 assert.equal(out.rowsAfter, out.rowsBefore, 'still exactly one diff instance')
+
+// ── compact: the card must behave the same where the diff is a drilled-in pane
+// The card's visibility depends on the pane as well as the flag (`cardOpen` is
+// false while the list is on screen), and that combination was never exercised:
+// every assertion above runs in the wide layout.
+await page.evaluate(() => {
+  const host = document.getElementById('panel')
+  host.style.width = '400px'
+})
+await page.waitForTimeout(250)
+out.compact = await page.evaluate(() => ({ layout: document.querySelector('.gp-panel')?.getAttribute('data-layout') ?? null }))
+assert.equal(out.compact.layout, 'compact', 'narrowing the panel switches to the compact layout')
+// Drilling in happens on a row click; the diff loads on its own query.
+await page.evaluate(() => {
+  const row = [...document.querySelectorAll('.gp-changes .gp-file-row')]
+    .find((r) => r.querySelector('.gp-tree-name')?.getAttribute('title') === 'src/client/testkit.ts')
+  row?.click()
+})
+await page.waitForTimeout(700)
+out.compactDiff = await page.evaluate(() => ({
+  toolbar: document.querySelector('.gp-diff__toolbar--compact') !== null,
+  card: document.querySelector('.gp-diff--card') !== null,
+}))
+assert.equal(out.compactDiff.toolbar, true, 'the drilled-in diff shows the compact toolbar')
+assert.equal(out.compactDiff.card, false, 'the card is not up just from drilling in')
+await page.click('.gp-diff__modal-btn')
+await page.waitForTimeout(250)
+out.compactCard = await page.evaluate(() => {
+  const el = document.querySelector('.gp-diff--card')
+  const left = document.querySelector('.gp-changes__left')
+  const active = document.activeElement
+  const s = el === null ? null : getComputedStyle(el)
+  return {
+    up: el !== null,
+    position: s?.position ?? null,
+    role: el?.getAttribute('role') ?? null,
+    modal: el?.getAttribute('aria-modal') ?? null,
+    backdrop: document.querySelector('.gp-diff-backdrop') !== null,
+    backdropHidden: document.querySelector('.gp-diff-backdrop')?.getAttribute('aria-hidden') ?? null,
+    focusInCard: el !== null && active !== null && el.contains(active),
+    // compact renders one pane at a time, so there is no sibling to inert
+    leftInert: left === null ? null : left.hasAttribute('inert'),
+  }
+})
+assert.equal(out.compactCard.up, true, 'the card opens in compact too')
+assert.equal(out.compactCard.position, 'fixed', 'and it is the same fixed dialog')
+assert.equal(out.compactCard.role, 'dialog', 'with the dialog role')
+assert.equal(out.compactCard.modal, 'true', 'and aria-modal')
+assert.equal(out.compactCard.backdrop, true, 'and its backdrop')
+assert.equal(out.compactCard.backdropHidden, 'true', 'the backdrop stays out of the a11y tree')
+assert.equal(out.compactCard.focusInCard, true, 'focus still moves inside the card')
+// Escape closes it, and drilling back to the list drops the card with the pane.
+await page.keyboard.press('Escape')
+await page.waitForTimeout(200)
+out.compactEsc = await page.evaluate(() => document.querySelector('.gp-diff--card') === null)
+assert.equal(out.compactEsc, true, 'Esc closes the compact card')
+await page.evaluate(() => document.querySelector('.gp-subhead__back')?.click())
+await page.waitForTimeout(250)
+out.compactBack = await page.evaluate(() => ({
+  list: document.querySelector('.gp-changes .gp-file-row') !== null,
+  diff: document.querySelector('.gp-diff') !== null,
+}))
+assert.equal(out.compactBack.list, true, 'the back control returns to the change list')
+assert.equal(out.compactBack.diff, false, 'and unmounts the diff pane entirely')
 
 assert.deepEqual(errors, [], 'no console errors')
 console.log('e2e/changes-diff-modal: all assertions passed', JSON.stringify(out))

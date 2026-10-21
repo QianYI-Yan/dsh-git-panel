@@ -2,7 +2,7 @@
  * Changes tab: stats bar + uncommitted change list (checkboxes) + commit box
  * (with Amend) on the left; the selected file's diff on the right.
  */
-import { createElement as h, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { createElement as h, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
@@ -14,13 +14,11 @@ import type { GitAction, GitChange, GitErrorCode, GitSnapshot, StashEntry } from
 import type { GitKey } from './locales.js'
 import { ChangeStats } from './ChangeStats.js'
 import { canPublish } from './push-policy.js'
-import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
-import { ArrowLeftIcon, CheckIcon, ChevronIcon, CloseIcon, ExpandAllIcon, ExitFullscreenIcon, FullscreenIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
+import { diffSummary, type DiffMode } from './DiffView.js'
+import { ChevronIcon, CloseIcon, SparkleIcon, StashIcon, TrashIcon, UploadIcon } from './icons.js'
 import { statusChar, statusClass } from './status.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
-import { segButtons } from './seg.js'
 import { renderAiHint, renderConfirmModal, renderModalFooter, renderModalShell } from './ops-modals.js'
-import { useDialogFocus } from './dialog-focus.js'
 import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
@@ -31,6 +29,8 @@ import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
 import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
+import { ChangesDiffPane } from './ChangesDiffPane.js'
+import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -100,14 +100,6 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     remote, sessionId, snapshot, queryVisible, () => setError(t('error.generic')), queryKey,
   )
   const [diffMode, setDiffMode] = useState<DiffMode>(() => snapshot.defaultDiffView)
-  // The working-tree diff enlarged in place (gp-diff--card) — the same
-  // surface the overview uses for a commit's file diff. Close, Escape and the
-  // focus lifecycle run through the shared dialog contract (DiffCardFocus,
-  // mounted only while the card is up), not a private keydown handler.
-  const [diffModalOpen, setDiffModalOpen] = useState(false)
-  const diffCardRef = useRef<HTMLDivElement | null>(null)
-  const diffTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const diffCloseRef = useRef<HTMLButtonElement | null>(null)
   // The toolbar header path doubles as its copy control: click writes the
   // relative path to the clipboard; the confirmation appears in place as a
   // check mark + tint on the path itself (the visible text never swaps to the
@@ -122,6 +114,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Compact drill-in: 'list' shows the change list + commit box, 'diff' the
   // selected file's diff. Ignored by the wide layout (both columns at once).
   const [pane, setPane] = useState<'list' | 'diff'>('list')
+  // The working-tree diff enlarged in place (gp-diff--card) — the same surface
+  // the overview uses for a commit's file diff. State, refs and the focus
+  // lifecycle come from one hook so the card cannot be open here and not a
+  // dialog there.
+  const diffCard = useDiffCard({ hasDiff: diffPath !== null, compact, paneIsDiff: pane === 'diff' })
   // Cramped (narrow and short): the commit editor starts folded into a one-row
   // bar so the change list keeps the panel's scarce height; tapping the bar
   // opens it in place. A narrow-but-tall panel keeps the full editor (the fold
@@ -710,136 +707,26 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     commitBox,
   ]
 
-  // The enlarged card's visibility — shared by the card's dialog attributes,
-  // the backdrop, the focus lifecycle and the sibling pane's inert state so
-  // the four cannot drift apart (compact back-navigation unmounts the diff).
-  const diffCardOpen = diffModalOpen && diffPath !== null && (!compact || pane === 'diff')
-  const diffBlock = diffPath === null
-    ? h('div', { className: 'gp-empty' }, t('changes.selectFile'))
-    : h('div', {
-      className: `gp-diff${diffModalOpen ? ' gp-diff--card' : ''}`,
-      ref: diffCardRef,
-      // In place, not portaled: the card IS the inline pane restyled, so it
-      // takes the dialog contract where it sits (the reader card's pattern).
-      ...(diffCardOpen ? { role: 'dialog', 'aria-modal': true, 'aria-label': diffPath.path } : {}),
-    }, [
-      h('div', { key: 'tb', className: `gp-diff__toolbar${compact ? ' gp-diff__toolbar--compact' : ''}` }, (() => {
-        const back = compact
-          ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('list') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')])
-          : null
-        // The filename must stay whole: the directory shrinks first, eliding
-        // from its left (tail kept, right-to-left run), and the full relative
-        // path rides on the native tooltip instead of the clipped text. The
-        // element is a button: clicking copies that relative path. The path
-        // itself NEVER swaps out for the confirmation (a bare text node wraps
-        // when the toolbar squeezes the button below the phrase's width, which
-        // balloons the row): on success the directory slot trades places with
-        // a check mark, on failure only the color changes — dir/name keep
-        // their nowrap/ellipsis either way. The phrase rides `aria-label`,
-        // `title` (feedback period only) and a visually-hidden live region.
-        const slash = diffPath.path.lastIndexOf('/')
-        const copyState = pathCopy.feedback
-        const copyKey = copyState === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
-        const copyText = t(copyState === 'idle' ? 'files.copyPath' : copyKey)
-        const path = h('button', {
-          key: 'path',
-          type: 'button',
-          className: `gp-diff__path${copyState === 'copied' ? ' gp-diff__path--copied' : copyState === 'error' ? ' gp-diff__path--error' : ''}`,
-          title: copyState === 'idle' ? diffPath.path : `${t(copyKey)} ${diffPath.path}`,
-          'aria-label': `${copyText} ${diffPath.path}`,
-          onClick: () => pathCopy.copy(),
-        }, [
-          copyState === 'copied'
-            ? h(CheckIcon, { key: 'ok', size: 11 })
-            : slash < 0
-              ? null
-              : [
-                h('span', { key: 'd', className: 'gp-diff__path-dir' }, diffPath.path.slice(0, slash)),
-                h('span', { key: 's', className: 'gp-diff__path-sep' }, '/'),
-              ],
-          slash < 0
-            ? diffPath.path
-            : h('span', { key: 'n', className: 'gp-diff__path-name' }, diffPath.path.slice(slash + 1)),
-          h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, copyState === 'idle' ? '' : t(copyKey)),
-        ])
-        const sum = summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
-          h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
-          h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),
-        ]) : null
-        // Icon-only: the text label costs the path the room, and the toggle
-        // state rides the pressed tint (aria-pressed) plus the title swap.
-        const expandLabel = t(expanded ? 'diff.collapse' : 'diff.expandAll')
-        const expand = h('button', {
-          key: 'expand', type: 'button',
-          className: 'gp-icon-btn gp-diff__expand',
-          style: summary || compact ? {} : { marginLeft: 'auto' },
-          disabled: effDiffMode !== 'split' && effDiffMode !== 'unified',
-          'aria-pressed': expanded,
-          title: expandLabel,
-          'aria-label': expandLabel,
-          onClick: () => void showDiff(diffPath.path, diffPath.base, !expanded),
-        }, h(ExpandAllIcon, { size: 14 }))
-        // The enlarged-diff toggle — same glyphs the files preview uses for
-        // its fullscreen control. The "modal" is THIS inline .gp-diff restyled
-        // into a card (gp-diff--card, the reader's in-place trick), so the
-        // DiffView never remounts; pressed state marks the card being up.
-        const modalBtn = h('button', {
-          key: 'modal', ref: diffTriggerRef, type: 'button',
-          className: 'gp-icon-btn gp-diff__modal-btn',
-          title: t('diff.openModal'),
-          'aria-label': t('diff.openModal'),
-          'aria-pressed': diffModalOpen,
-          onClick: () => setDiffModalOpen((v) => !v),
-        }, h(diffModalOpen ? ExitFullscreenIcon : FullscreenIcon, { size: 14 }))
-        const cardClose = diffModalOpen
-          ? h('button', {
-            key: 'cardclose', ref: diffCloseRef, type: 'button',
-            className: 'gp-icon-btn gp-diff__card-close',
-            title: t('common.close'), 'aria-label': t('common.close'),
-            onClick: () => setDiffModalOpen(false),
-          }, h(CloseIcon, { size: 15 }))
-          : null
-        const seg = h('div', { key: 'seg', className: 'gp-seg' },
-          segButtons<DiffMode>(diffModes, effDiffMode, setDiffMode, (m) => t(`diff.${m}` as GitKey)))
-        // One row cannot fit back + path + stats + expand + mode seg at phone
-        // widths (the seg buttons squeezed into stacked wrapping); compact
-        // splits the controls onto a dedicated second row instead.
-        if (compact) {
-          return [
-            h('div', { key: 'row1', className: 'gp-diff__toolbar-row' }, [back, path, sum]),
-            h('div', { key: 'row2', className: 'gp-diff__toolbar-row gp-diff__toolbar-row--controls' }, [expand, modalBtn, seg, cardClose]),
-          ]
-        }
-        return [back, path, sum, expand, modalBtn, seg, cardClose]
-      })()),
-      diffData === null
-        ? h('div', { key: 'scroll', className: 'gp-diff__scroll' }, h('div', { className: 'gp-empty' }, t('common.loading')))
-        : h(DiffView, { key: 'diff', visible: queryVisible, text: diffData.text, mode: effDiffMode, path: diffPath.path, remote, sessionId, base: diffPath.base, expanded, truncated: diffData.truncated === true, newLines: diffData.newLines, t }),
-    ])
+  const diffBlock = h(ChangesDiffPane, {
+    diffPath, diffData, summary,
+    card: diffCard,
+    mode: { options: diffModes, current: effDiffMode, onChange: setDiffMode },
+    copy: { feedback: pathCopy.feedback, onCopy: () => pathCopy.copy() },
+    expanded,
+    compact, queryVisible, remote, sessionId, t,
+    onToggleExpand: () => { if (diffPath !== null) void showDiff(diffPath.path, diffPath.base, !expanded) },
+    onBackToList: () => setPane('list'),
+  })
 
   // Write-op dialogs (stash push / stash drop / batch discard), portaled;
   // rendered by both layouts.
   const modals: (JSX.Element | null)[] = [
-    // The shared dialog lifecycle while the card is up: focus moves to the
-    // close control, Tab cycles inside the card, Escape closes (capture
-    // phase), focus restores to the toolbar trigger. A component of its own so
-    // the contract only runs while the card is open — conditionally wrapping
-    // the diff itself would remount the DiffView.
-    diffCardOpen
-      ? h(DiffCardFocus, { key: 'diff-focus', cardRef: diffCardRef, initialRef: diffCloseRef, restoreRef: diffTriggerRef, onClose: () => setDiffModalOpen(false) })
-      : null,
-    // Backdrop for the in-place enlarged diff (gp-diff--card). Plain fixed
-    // siblings of the diff — no portal, no second DiffView; the card itself
-    // IS the inline pane restyled. `diffCardOpen` mirrors diffBlock's own
-    // mount conditions so a compact back-navigation (which unmounts the diff)
-    // cannot strand a backdrop over the panel; aria-hidden keeps it out of the
-    // accessibility tree (it is a click target, not content).
-    diffCardOpen
-      ? h('div', {
-        key: 'diff-backdrop', className: 'gp-diff-backdrop', 'aria-hidden': 'true',
-        onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) setDiffModalOpen(false) },
-      })
-      : null,
+    // Backdrop for the in-place enlarged diff (gp-diff--card). A plain fixed
+    // sibling of the diff — no portal, no second DiffView; the card itself IS
+    // the inline pane restyled. `card.visible` is the same predicate the card's
+    // dialog attributes use, so a compact back-navigation (which unmounts the
+    // diff) cannot strand a backdrop over the panel.
+    diffCard.visible ? h(DiffCardBackdrop, { key: 'diff-backdrop', onClose: diffCard.close }) : null,
     pushOpen ? h(PushModal, { key: 'remote-push', remote, sessionId, snapshot, onAction, onClose: () => setPushOpen(false), onBusyChange: setPushBusy, t }) : null,
     publishOpen ? h(PublishModal, { key: 'remote-publish', snapshot, onAction, onClose: () => setPublishOpen(false), onBusyChange: setPublishBusy, t }) : null,
     stashPushOpen ? h(StashPushModal, { key: 'push', onClose: () => setStashPushOpen(false), onStash: stashPush, error, t }) : null,
@@ -901,7 +788,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     return h('div', { className: 'gp-changes gp-changes--stacked' }, [
       ...modals,
       tipNode,
-      h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${split.pct}%` }, ...inertAttr(diffCardOpen) }, leftChildren),
+      h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${split.pct}%` }, ...inertAttr(diffCard.visible) }, leftChildren),
       h('div', {
         key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
         'aria-orientation': 'horizontal',
@@ -926,26 +813,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     ...modals,
     tipNode,
     // left
-    h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` }, ...inertAttr(diffCardOpen) }, leftChildren),
+    h('div', { key: 'left', className: 'gp-changes__left', style: { flex: `0 0 ${leftCol.width}px` }, ...inertAttr(diffCard.visible) }, leftChildren),
     leftCol.divider,
     // right diff
     h('div', { key: 'right', className: 'gp-changes__right' }, diffBlock),
   ])
-}
-
-/**
- * Focus lifecycle of the enlarged diff card. A component of its own so the
- * shared dialog contract only runs while the card is open — wrapping the diff
- * in a conditional component instead would remount the DiffView.
- */
-function DiffCardFocus(props: {
-  cardRef: RefObject<HTMLDivElement | null>
-  initialRef: RefObject<HTMLButtonElement | null>
-  restoreRef: RefObject<HTMLButtonElement | null>
-  onClose: () => void
-}): null {
-  useDialogFocus(props.cardRef, props.onClose, props.initialRef, props.restoreRef)
-  return null
 }
 
 interface StashPushCbs {
