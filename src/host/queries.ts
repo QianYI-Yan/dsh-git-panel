@@ -126,6 +126,11 @@ async function queryHistory(
   // Untrusted ref/author filters must never reach an option position: reject a
   // dash-prefixed / metacharacter ref (the `--output=` file-write vector) and
   // pass the ref after `--end-of-options`, which git treats as a bare operand.
+  // The trailing `--` ends the revision list, so an operand that shares its
+  // name with a work-tree path stays a revision instead of becoming an
+  // ambiguous argument (a branch like `observatory` next to `observatory/`, or
+  // the literal HEAD next to a file named `HEAD`). Both the page log and the
+  // count walk need it.
   if (!hexJump) {
     // The same filter set feeds both the page log and the total-count walk.
     const filters: string[] = []
@@ -138,12 +143,14 @@ async function queryHistory(
     } else {
       filters.push(...VISIBLE_REFS)
     }
+    filters.push('--')
     args.push(...filters)
     countArgs.push(...filters)
   } else {
     // Hash jump: `search` is already constrained to [0-9a-f]{7,40} by
-    // isHistoryHashSearch.
-    args.push('--end-of-options', search)
+    // isHistoryHashSearch. The trailing `--` ends the revision list, so a
+    // work-tree file named like the hash cannot make the argument ambiguous.
+    args.push('--end-of-options', search, '--')
   }
   // Run the page log and the total count concurrently (the count is a second
   // full history walk; serializing it roughly doubled the first-page latency).
@@ -157,9 +164,12 @@ async function queryHistory(
   if (res.run.exitCode !== 0) {
     // Only a hash-jump miss or a genuine unknown/empty ref is an empty page;
     // every other non-zero exit surfaces as an error instead of a silent
-    // "no commits" that would also mask malformed input.
+    // "no commits" that would also mask malformed input. "ambiguous argument"
+    // is deliberately not an empty page: with the `--` above it means git
+    // really could not decide what the operand was, and hiding that is what
+    // made a broken ref filter look like a branch without commits.
     const stderr = res.run.stderr.trim()
-    if (hexJump || /unknown revision|bad revision|does not have any commits|ambiguous argument/i.test(stderr)) {
+    if (hexJump || /unknown revision|bad revision|does not have any commits/i.test(stderr)) {
       // A filtered empty page still carries the field, so the client can tell
       // "filtered, no ancestry" from "unfiltered / old host".
       return { ok: true, value: { kind: 'history', commits: [], total: 0, ...(filtered ? { topology: [] } : {}) } }

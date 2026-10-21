@@ -193,6 +193,77 @@ test('history returns commits with parents and refs', async () => {
   assert.ok(head.refs.some((r) => r.head), 'HEAD ref is decorated')
 })
 
+test('history filtered by a ref that is also a work-tree path', async () => {
+  // A tracked directory and a branch sharing one name: without the trailing
+  // `--`, `git log <ref>` is fatal ("both revision and filename") and the page
+  // came back empty with no error.
+  const dir = await freshRepo('gp-ref-path-')
+  try {
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    mkdirSync(join(dir, 'observatory'))
+    writeFileSync(join(dir, 'observatory', 'pkg.py'), 'x = 1\n')
+    await runGit(dir, ['add', '.'])
+    await runGit(dir, ['commit', '-qm', 'feat: add observatory package'])
+    await runGit(dir, ['branch', 'observatory'])
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, {
+      sessionId: SID,
+      query: { kind: 'history', limit: 5, skip: 0, ref: 'observatory' },
+    })
+    assert.equal(res.ok, true, JSON.stringify(res.error ?? {}))
+    assert.equal(res.value.total, 2, 'the count walk resolves the same ref')
+    assert.deepEqual(res.value.commits.map((c) => c.subject), ['feat: add observatory package', 'init'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('unfiltered history survives a tracked file named HEAD', async () => {
+  // The visible-refs walk ends with the literal HEAD operand, so the same
+  // ambiguity hits the default view when a work-tree file is named HEAD.
+  const dir = await freshRepo('gp-head-path-')
+  try {
+    const { writeFileSync } = await import('node:fs')
+    writeFileSync(join(dir, 'HEAD'), 'not a ref\n')
+    await runGit(dir, ['add', 'HEAD'])
+    await runGit(dir, ['commit', '-qm', 'chore: add HEAD file'])
+    const res = await runQuery(depsAt(dir), DEFAULT_CONFIG, {
+      sessionId: SID,
+      query: { kind: 'history', limit: 5, skip: 0 },
+    })
+    assert.equal(res.ok, true, JSON.stringify(res.error ?? {}))
+    assert.equal(res.value.total, 2)
+    assert.equal(res.value.commits.length, 2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('history surfaces a real ambiguous-argument failure instead of an empty page', async () => {
+  // The empty pages are reserved for a hash-jump miss and a genuinely unknown
+  // ref; an ambiguity that survives the `--` is a broken query, not a branch
+  // without commits.
+  const base = deps()
+  const runner = {
+    run: (argv, opts) => (argv.includes('log') && argv.includes('--end-of-options')
+      ? Promise.resolve({
+        exitCode: 128,
+        stdout: '',
+        stderr: "fatal: ambiguous argument 'x': both revision and filename\n",
+        timedOut: false,
+        cancelled: false,
+        stdoutLossy: false,
+      })
+      : base.run.run(argv, opts)),
+  }
+  const res = await runQuery({ ...base, run: runner }, DEFAULT_CONFIG, {
+    sessionId: SID,
+    query: { kind: 'history', limit: 5, skip: 0, ref: 'HEAD' },
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.error.code, 'git-error')
+  assert.match(res.error.message, /ambiguous argument/)
+})
+
 test('branches lists the current branch', async () => {
   const res = await runQuery(deps(), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'branches' } })
   assert.equal(res.ok, true)
