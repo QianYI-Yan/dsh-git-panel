@@ -595,15 +595,17 @@ export type GitQueryResult =
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
   // File-browser file content. Exactly one shape applies:
   //   text  → a UTF-8 text file (`content` is the whole file, `lines` its count)
-  //   image → a browser-renderable image (`dataUrl` is a data: URL)
+  //   image → a browser-renderable image (`dataUrl` is a data: URL); an SVG also
+  //           carries `content`/`lines`, because an SVG is a picture and markup
+  //           and the preview offers both faces from this one read
   //   binary→ neither (no preview); tooLarge → over the byte cap.
   | {
     readonly kind: 'file-content'
     readonly path: string
     readonly variant: 'text' | 'image' | 'binary'
-    /** text variant: the file's full UTF-8 content. */
+    /** text variant, and the image variant of an SVG: the full UTF-8 content. */
     readonly content?: string
-    /** text variant: total line count. */
+    /** text variant, and the image variant of an SVG: total line count. */
     readonly lines?: number
     /** text variant: absolute path of this file — the rendered-Markdown
      * image resolver needs the document's own location to resolve relative
@@ -700,9 +702,12 @@ export type GitSuggestResult =
  * Extensions the image-diff query serves, mapped to MIME types. Part of the
  * query's contract, so both halves gate on this one list and cannot drift.
  */
+/** MIME of an SVG: the one served image whose bytes are also text. */
+export const SVG_MIME = 'image/svg+xml'
+
 export const IMAGE_MIME: Readonly<Record<string, string>> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
-  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: 'image/svg+xml',
+  webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: SVG_MIME,
   ico: 'image/x-icon', tif: 'image/tiff', tiff: 'image/tiff',
 }
 

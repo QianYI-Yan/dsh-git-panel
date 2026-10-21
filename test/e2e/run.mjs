@@ -937,6 +937,26 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 100))
   result.copiedPath = copiedPath
   result.copyFeedback = document.querySelector('.gp-files__copy-path')?.textContent
+  // SVG is a picture and also markup: rendered by default, with a source face,
+  // and both come from the one read (switching must not re-query the host).
+  const svgTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
+  const svgFileRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.svg'))
+  if (svgFileRow) { svgFileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.svgRendersByDefault = document.querySelector('.gp-files__image img') !== null
+    && document.querySelector('.gp-files__code') === null
+  result.svgModeSegShown = svgTab('files.source') !== undefined && svgTab('files.render') !== undefined
+  const svgReadsBefore = fixture.contentQueries.filter((p) => p === 'logo.svg').length
+  svgTab('files.source')?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.svgSourceShowsMarkup = (document.querySelector('.gp-files__code')?.textContent || '').includes('<svg')
+    && document.querySelector('.gp-files__image img') === null
+  // The source face is a code body, so the code-only controls follow it.
+  result.svgSourceWrapOffered = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
+  svgTab('files.render')?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.svgRenderRestoresImage = document.querySelector('.gp-files__image img') !== null
+    && document.querySelector('.gp-files__code') === null
+  result.svgSingleRead = fixture.contentQueries.filter((p) => p === 'logo.svg').length === svgReadsBefore
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null

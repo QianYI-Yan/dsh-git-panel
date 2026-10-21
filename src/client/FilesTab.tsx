@@ -25,8 +25,9 @@ import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
-import { renderPreview, type FileState } from './files-preview.js'
+import { renderPreview, renderSource, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
+import { isSvgPath } from './diff.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -283,7 +284,17 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       if (fc === null) { setFile({ kind: 'error', path, ...(res.ok ? {} : { code: res.error.code }) }); return }
       const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
       if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path, ...stat }); return }
-      if (fc.variant === 'image' && fc.dataUrl !== undefined) { setFile({ kind: 'image', path, dataUrl: fc.dataUrl, ...stat }); return }
+      if (fc.variant === 'image' && fc.dataUrl !== undefined) {
+        // An SVG arrives with its markup beside the picture: one read feeds
+        // both faces of the preview.
+        setFile({
+          kind: 'image', path, dataUrl: fc.dataUrl,
+          ...(fc.content !== undefined ? { content: fc.content } : {}),
+          ...(fc.lines !== undefined ? { lines: fc.lines } : {}),
+          ...stat,
+        })
+        return
+      }
       if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat, ...(fc.absolutePath !== undefined ? { absolutePath: fc.absolutePath } : {}) }); return }
       setFile({ kind: 'binary', path, ...stat })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
@@ -417,9 +428,13 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   ])
 
   const richPreview = file.kind === 'text' && isRichPath(file.path)
+  // An SVG is a picture and also markup, so it renders by default and offers a
+  // source face — the same split the diff view uses for these files.
+  const svgSource = file.kind === 'image' && file.content !== undefined && isSvgPath(file.path)
+  const modeSwitchable = richPreview || svgSource
   // One definition per toolbar control; the compact and wide bars compose the
   // same nodes so a new mode / action cannot land on only one layout.
-  const modeSeg = richPreview
+  const modeSeg = modeSwitchable
     ? h(SegmentedControl, {
       key: 'mode',
       className: 'gp-files__mode-seg',
@@ -456,8 +471,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // Word wrap only affects the source/code body (rendered Markdown already wraps).
   // Over the wrap cap the toggle stays visible but disabled — hiding it would
   // discard the preference with no explanation (the body falls back to nowrap).
-  const isTextSource = file.kind === 'text' && (richPreview ? !renderMarkdown : true)
-  const capOk = file.kind === 'text' ? wrapCapOk(file.content, file.lines) : false
+  const isTextSource = file.kind === 'text'
+    ? (richPreview ? !renderMarkdown : true)
+    : svgSource && !renderMarkdown
+  const sourceText = file.kind === 'text'
+    ? { content: file.content, lines: file.lines }
+    : file.kind === 'image' && file.content !== undefined
+      ? { content: file.content, lines: file.lines ?? 0 }
+      : null
+  const capOk = sourceText === null ? false : wrapCapOk(sourceText.content, sourceText.lines)
   const wrapButton = isTextSource
     ? h('button', {
       key: 'wrap', type: 'button', className: 'gp-files__props',
@@ -519,7 +541,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const tabPanel = (mode: 'source' | 'render'): Record<string, string> => (fsActive
     ? { id: `${modeId}-${mode}-panel` }
     : { id: `${modeId}-${mode}-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-${mode}` })
-  const previewContent = richPreview
+  const previewContent = modeSwitchable
     ? [
       h('div', {
         key: 'src', ...tabPanel('source'),
@@ -618,7 +640,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   ])
 }
 
-/** Preview body: rendered Markdown/HTML when the mode is on, else raw preview. */
+/** Preview body: rendered Markdown/HTML/SVG when the mode is on, else raw preview. */
 function renderContent(
   file: FileState,
   renderMarkdown: boolean,
@@ -631,6 +653,10 @@ function renderContent(
   htmlStop: (() => void) | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
+  // An SVG has both faces in hand: the picture, or its markup as source.
+  if (file.kind === 'image' && file.content !== undefined) {
+    return renderMarkdown ? renderPreview(file, wrap, t) : renderSource(file.content, file.path, wrap, t)
+  }
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
     if (markdownSegments.length === 1 && markdownSegments[0].kind === 'markdown') {

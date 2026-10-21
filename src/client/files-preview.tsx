@@ -37,7 +37,7 @@ export type FileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading'; readonly path: string }
   | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly absolutePath?: string; readonly size?: number; readonly mtimeMs?: number }
-  | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly content?: string; readonly lines?: number; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'error'; readonly path: string; readonly code?: string }
@@ -56,9 +56,17 @@ export function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, p
   }
 }
 
+/**
+ * Source face of a file that also has a rendered face — an SVG's markup. Same
+ * code body as a text preview (virtualized, highlighted, with Find), so the two
+ * faces of one document behave alike.
+ */
+export function renderSource(content: string, path: string, wrap: boolean, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
+  return h(CodePreview, { content, path, wrap, t })
+}
+
 /** A single match location within the code body. */
 interface Match { readonly line: number; readonly start: number; readonly end: number }
-
 /**
  * Substring matches across the (already case-normalized) line array, capped.
  * `hays` and `needle` are both pre-normalized by the caller, so a case-

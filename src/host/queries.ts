@@ -9,7 +9,7 @@ import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
-import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from './types.js'
+import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, SVG_MIME } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -649,11 +649,19 @@ async function queryFileContent(
   }
   if (buf.length > cap) return tooLarge
   if (mime !== null) {
-    return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}`, ...statFields } }
+    // An SVG is a picture and also markup, so this one read answers both faces
+    // of its preview; bytes that are not text leave it image-only.
+    const source = mime === SVG_MIME && !isBinaryBuffer(buf) ? buf.toString('utf8') : undefined
+    return { ok: true, value: {
+      kind: 'file-content', path: q.path, variant: 'image',
+      dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+      ...(source === undefined ? {} : { content: source, lines: countLines(source) }),
+      ...statFields,
+    } }
   }
   if (isBinaryBuffer(buf)) return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary', ...statFields } }
   const content = buf.toString('utf8')
-  const lines = content === '' ? 0 : content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
+  const lines = countLines(content)
   // `absolutePath` feeds the client's Markdown image resolver: relative image
   // destinations join beside the document, so the document's own absolute
   // path is the one fact the browser cannot derive from the relative tree.
