@@ -9,6 +9,7 @@ import type { ConfigFormsFace, SettingsNamespaceView } from './rpc.js'
 /** Volatile fields the settings schema exposes (host `GitPanelService.Config`). */
 export type VolatileField =
   | 'showInputPill'
+  | 'placement'
   | 'defaultDiffView'
   | 'graphStyle'
   | 'fontDelta'
@@ -21,11 +22,27 @@ export type VolatileField =
   | 'suggestModel'
   | 'suggestReasoningEffort'
 
-/** The settings namespace whose schema declares `showInputPill` (ours). */
+/**
+ * Fields whose presence in a namespace's schema marks it as ours. Any one of
+ * them identifies the namespace, so dropping one field cannot break the
+ * discovery for the others.
+ */
+const NAMESPACE_MARKERS = ['showInputPill', 'placement'] as const
+
+/** The settings namespace whose schema declares one of our fields (ours). */
 export function findNamespace(namespaces: readonly SettingsNamespaceView[]): string | undefined {
   for (const row of namespaces) {
     const dict = (row.schema as { dict?: Record<string, unknown> } | undefined)?.dict
-    if (dict !== undefined && 'showInputPill' in dict) return row.ns
+    if (dict !== undefined) {
+      for (const marker of NAMESPACE_MARKERS) {
+        if (marker in dict) return row.ns
+      }
+    }
+    // The dict check above is an exact key match, safe for any name. The
+    // substring fallback below only accepts the unique field name: `placement`
+    // is a common settings word, and another plugin's description mentioning
+    // it would bind this form to that plugin's namespace — then read its
+    // values and write ours into it.
     if (JSON.stringify(row.schema).includes('showInputPill')) return row.ns
   }
   return undefined
