@@ -13,7 +13,9 @@ import { FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
 test('copy content applies only to a loaded text preview', () => {
   assert.equal(canCopyContent({ kind: 'text', size: 24, content: 'const x = 1\n' }), true)
   assert.equal(canCopyContent({ kind: 'binary', size: 5 }), false, 'binary bodies never copy')
-  assert.equal(canCopyContent({ kind: 'image', size: 64 }), false, 'images never copy')
+  assert.equal(canCopyContent({ kind: 'image', size: 64 }), false, 'a content-less image never copies')
+  assert.equal(canCopyContent({ kind: 'image', size: 120, content: '<svg/>\n' }), true, 'an SVG copies its markup')
+  assert.equal(canCopyContent({ kind: 'image', size: FILE_COPY_MAX_BYTES, content: '<svg/>' }), false, 'the envelope still gates an SVG')
   assert.equal(canCopyContent({ kind: 'tooLarge', size: FILE_COPY_MAX_BYTES + 1 }), false, 'unreadable bodies never copy')
   assert.equal(canCopyContent({ kind: 'error' }), false)
   assert.equal(canCopyContent({ kind: 'loading' }), false)

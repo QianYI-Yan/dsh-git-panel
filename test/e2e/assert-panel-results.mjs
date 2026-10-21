@@ -257,6 +257,8 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.svgSourceWrapOffered, true, 'the SVG source face carries the code controls (wrap)')
   assert.equal(out.svgRenderRestoresImage, true, 'switching back restores the rendered SVG')
   assert.equal(out.svgSingleRead, true, 'both SVG faces come from one file-content read')
+  assert.equal(out.svgCopyContentShown, true, 'an SVG offers copy-source beside copy-path')
+  assert.equal(out.svgCopyContentCopiesMarkup, true, 'copying an SVG writes its markup, not the data URL')
   assert.equal(out.zoomDiffBars, 2, 'each diff image pane renders its own zoom bar')
   assert.equal(out.zoomBarShown, true, 'the file preview shows the zoom bar')
   assert.equal(out.zoomPctBefore, '100%', 'the fit label starts at the fit percentage')

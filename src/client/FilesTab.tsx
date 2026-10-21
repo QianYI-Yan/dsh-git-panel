@@ -119,7 +119,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // expires on the same clock as the two diff-header paths (1.6 s) and a late
   // write for a file the user has left cannot repaint the next one.
   const pathCopy = useCopyFeedback(selected)
-  const contentCopy = useCopyFeedback(file.kind === 'text' ? file.path : null)
+  const contentCopy = useCopyFeedback(selected)
   const [showProps, setShowProps] = useState(false)
   // The fullscreen reader restyles this tab's own preview in place instead of
   // rendering a second copy: a rendered HTML page keeps its document (a new
@@ -361,11 +361,13 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // its async Clipboard path is unavailable on a remote plain-HTTP origin
   // (non-secure context, no `navigator.clipboard`), where it falls back to
   // `execCommand('copy')`.
-  // Re-checked at click time: only a loaded text document under the copy
-  // envelope may reach the clipboard, never binary/image/oversized bodies.
+  // Re-checked at click time: only a loaded text document, or an SVG whose
+  // markup came with the picture, may reach the clipboard — never a binary or
+  // oversized body, and never a content-less image.
   const copyContent = (): void => {
-    if (file.kind !== 'text' || !canCopyContent(file)) return
-    contentCopy.copy(file.content)
+    const body = file.kind === 'text' ? file.content : file.kind === 'image' ? file.content : undefined
+    if (body === undefined || !canCopyContent(file)) return
+    contentCopy.copy(body)
   }
 
   // Properties dialog input: the loaded preview already carries path/size/

@@ -1,9 +1,10 @@
 /**
  * Eligibility of the file browser's "copy file content" button. The copy
- * applies only to a loaded text preview — documents and code; binary, image,
- * over-cap, and error states carry no copyable body — and only while the
- * file stays strictly under the shared copy envelope, so oversized or
- * non-text files never reach the clipboard.
+ * applies to a loaded text preview — documents and code — and to an SVG, whose
+ * markup the host returns beside the picture, so its source is copyable too.
+ * Binary, content-less images, over-cap, and error states carry no copyable
+ * body, and the file must stay strictly under the shared copy envelope, so
+ * oversized or non-text files never reach the clipboard.
  */
 import { FILE_COPY_MAX_BYTES } from './types.js'
 
@@ -15,7 +16,9 @@ export interface CopyableFile {
 }
 
 export function canCopyContent(file: CopyableFile): boolean {
-  if (file.kind !== 'text') return false
+  // An SVG is an image whose source text came along with the picture.
+  const copyable = file.kind === 'text' || (file.kind === 'image' && file.content !== undefined)
+  if (!copyable) return false
   // The host stat size is authoritative; without it (older payload) fall
   // back to the loaded body's UTF-8 length so the envelope still holds.
   if (file.size !== undefined) return file.size < FILE_COPY_MAX_BYTES

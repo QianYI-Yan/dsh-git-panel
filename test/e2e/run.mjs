@@ -1024,6 +1024,13 @@ const out = await page.evaluate(async (snap) => {
   result.svgRenderRestoresImage = document.querySelector('.gp-files__image img') !== null
     && document.querySelector('.gp-files__code') === null
   result.svgSingleRead = fixture.contentQueries.filter((p) => p === 'logo.svg').length === svgReadsBefore
+  // An SVG's source is copyable: the control appears and writes the markup (the
+  // same read that carries both faces), not the data URL.
+  result.svgCopyContentShown = document.querySelector('.gp-files__copy-icon') !== null
+  copiedPath = null
+  document.querySelector('.gp-files__copy-icon')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.svgCopyContentCopiesMarkup = typeof copiedPath === 'string' && copiedPath.includes('<svg')
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
