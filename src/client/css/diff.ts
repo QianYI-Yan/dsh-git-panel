@@ -47,10 +47,17 @@ export const CSS = `
 .gp-diff__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-diff__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
 /* Bordered pill only in the segmented context (the overview modal's text
- * button); the toolbar's icon-ified expand is a plain gp-icon-btn like its
- * neighbours, so the two toolbar icons stay visually identical. */
+ * button). */
 .gp-seg__btn.gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
+/* The toolbar's icon controls wear the same bordered box as the files preview's
+ * glyph buttons, and the same height as the mode seg beside them (25px: the seg's
+ * 1px border + 5px padding + 13px line), so the row reads as one control strip.
+ * Pressed (card up / expanded) takes the business tint. */
+.gp-diff__toolbar .gp-icon-btn{width:28px;height:25px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1)}
+.gp-diff__toolbar .gp-icon-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.gp-diff__toolbar .gp-icon-btn:disabled{opacity:.5;cursor:default}
+.gp-diff__toolbar .gp-icon-btn[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 /* The diff enlarged IN PLACE: the same inline .gp-diff node restyled into the
  * card (the fullscreen reader's trick — ADR-0016), so the DiffView never
  * remounts: no second highlight/image pass, no state loss. Geometry mirrors

@@ -281,6 +281,20 @@ out.open = await page.evaluate(() => {
       && eb.borderTopStyle === mb.borderTopStyle
       && eb.width === mb.width
       && eb.height === mb.height,
+    // Both are bordered boxes of the seg's height, not bare glyphs — the same
+    // treatment the files preview's glyph buttons get.
+    boxes: (() => {
+      const seg = document.querySelector('.gp-diff__toolbar .gp-seg')
+      const read = (el) => {
+        if (el === null) return null
+        const cs = getComputedStyle(el)
+        return {
+          borderW: cs.borderTopWidth, borderStyle: cs.borderTopStyle, radius: cs.borderTopLeftRadius,
+          bg: cs.backgroundColor, h: Math.round(el.getBoundingClientRect().height),
+        }
+      }
+      return { expand: read(expand), modal: read(modalBtn), segH: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height) }
+    })(),
   }
 }
 )
@@ -291,6 +305,15 @@ assert.equal(out.open.closeBtn, true, 'a close button appears in the card bar')
 assert.equal(out.open.pressed, 'true', 'the trigger reports its pressed state')
 assert.equal(out.open.expandIsIcon, true, 'expand-all renders as an icon')
 assert.equal(out.open.iconStylesMatch, true, 'the two toolbar icons share one style')
+for (const name of ['expand', 'modal']) {
+  const box = out.open.boxes[name]
+  assert.equal(box.borderW, '1px', `the ${name} control is a bordered button, not a bare glyph`)
+  assert.equal(box.borderStyle, 'solid', `the ${name} border is drawn`)
+  assert.equal(box.radius, '6px', `the ${name} control keeps the icon-button radius`)
+  assert.notEqual(box.bg, 'rgba(0, 0, 0, 0)', `the ${name} control has a surface, like the files toolbar's buttons`)
+  assert.equal(box.h, out.open.boxes.segH, `the ${name} control matches the mode seg height in the same row (${box.h} vs ${out.open.boxes.segH})`)
+}
+assert.notEqual(out.open.boxes.modal.bg, out.open.boxes.expand.bg, 'the open card tints its trigger apart from the resting button')
 out.rowsOpen = await rows()
 assert.equal(out.rowsOpen, out.rowsBefore, 'the diff did not render a second time')
 
