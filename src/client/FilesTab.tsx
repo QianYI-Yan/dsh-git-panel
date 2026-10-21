@@ -19,12 +19,11 @@ import { useDialogFocus } from './dialog-focus.js'
 import { canCopyContent } from './copy-content.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
-import { createStaticHtmlDocument, HTML_HEAVY_SCRIPT_BYTES, inlineScriptBytes, looksScriptRendered, packHtmlDocument, withReadyPing } from './html-pack.js'
 import { formatBytes } from './bytes.js'
-import { canOpenLocally } from './local-origin.js'
 import { renderModalShell } from './ops-modals.js'
 import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
+import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
 import { renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
@@ -53,15 +52,6 @@ function isHtmlPath(path: string): boolean { return /\.(?:html?|xhtml)$/i.test(p
 /** Text files that offer a rendered view beside their source. */
 function isRichPath(path: string): boolean { return isMarkdownPath(path) || isHtmlPath(path) }
 
-
-/** HTML asset pack for the loaded document: in flight, rewritten srcdoc, or a
- * deliberate fall-back to the plain bytes (no packable assets, a base element,
- * an oversized document, or any pack failure). */
-type HtmlPackState =
-  | { readonly status: 'idle' }
-  | { readonly status: 'loading'; readonly file: FileState }
-  | { readonly status: 'ready'; readonly file: FileState; readonly srcdoc: string }
-  | { readonly status: 'plain'; readonly file: FileState }
 
 /**
  * Preserved Files-tab state so a quick return (within the same ~1-minute
@@ -121,10 +111,6 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const [selected, setSelected] = useState<string | null>(() => init?.selected ?? null)
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
-  // Script permission for the rendered HTML view. On by default so a page
-  // renders the way a browser would (the official preview keeps this behind a
-  // developer switch); turning it off gives a static, script-free document.
-  const [htmlScripts, setHtmlScripts] = useState(true)
   const [wrap, setWrap] = useState(() => init?.wrap ?? true)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
   const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
@@ -175,138 +161,19 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   }, [file])
   const fileSeq = useRef(0)
 
-  // HTML asset pack (ADR-0020): relative css/js is read through the host's
-  // validated file-content route and rewritten to `data:` URLs before the
-  // document is serialized. Keyed on the loaded file object (same identity
-  // memo as pathImages/markdownSegments); a stale in-flight pack is dropped by
-  // object identity. Packing runs only while the rendered view is on — HTML
-  // defaults to source, so selection alone never reads extra files. Any pack
-  // failure falls back to the plain bytes.
-  const htmlMode: 'static' | 'interactive' = htmlScripts ? 'interactive' : 'static'
-  // A document whose own scripts weigh more than the panel is willing to wait
-  // for is confirmed before its frame is mounted: the page's scripts run
-  // before it paints, and a multi-megabyte report can hold the frame blank
-  // for a dozen seconds. The frame is isolated, so the panel stays usable —
-  // but the preview looks broken during the wait, and the user should know
-  // that up front rather than watch a mask.
-  const heavyScriptBytes = useMemo(() => {
-    if (file.kind !== 'text' || !isHtmlPath(file.path)) return 0
-    return inlineScriptBytes(file.content)
-  }, [file])
-  const heavyDocument = heavyScriptBytes >= HTML_HEAVY_SCRIPT_BYTES
-  // The user has approved this document's render (or it is light enough to
-  // need no approval). Keyed on the file, so another file asks again.
-  const [heavyApproved, setHeavyApproved] = useState<string | null>(null)
-  // "Open it outside the panel" is only meaningful on the machine that has the
-  // file: a loopback GUI means the server and the reader share a disk.
-  const heavyCanOpen = useMemo(
-    () => canOpenLocally(typeof location === 'undefined' ? '' : location.hostname),
-    [],
-  )
-  const [openExternal, setOpenExternal] = useState<{ readonly busy: boolean; readonly error: string | null }>({ busy: false, error: null })
-  const openFileExternally = useCallback(async (): Promise<void> => {
-    if (file.kind !== 'text') return
-    setOpenExternal({ busy: true, error: null })
-    const res = await remote.openFile({ sessionId, path: file.path })
-    if (res.ok) {
-      // The page now lives in the system browser; leave the source view here so
-      // nothing tries to mount a frame on top of a page that is being painted
-      // somewhere else.
-      setOpenExternal({ busy: false, error: null })
-      setRenderMarkdown(false)
-      return
-    }
-    setOpenExternal({ busy: false, error: t('files.htmlOpenFailed') })
-  }, [file, remote, sessionId, t])
-  const htmlPath = file.kind === 'idle' ? null : file.path
-  const heavyPending = heavyDocument && renderMarkdown && htmlMode === 'interactive' && htmlPath !== null && heavyApproved !== htmlPath
-  // The user stopped the render from the mask: the frame is unmounted and the
-  // source view takes over again, so a page that never paints cannot trap the
-  // panel.
-  const [htmlStopped, setHtmlStopped] = useState<string | null>(null)
-  const [htmlPack, setHtmlPack] = useState<HtmlPackState>({ status: 'idle' })
-  useEffect(() => {
-    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown || htmlMode !== 'interactive' || heavyPending || htmlStopped === file.path) {
-      setHtmlPack((prev) => (prev.status === 'idle' ? prev : { status: 'idle' }))
-      return
-    }
-    let cancelled = false
-    setHtmlPack({ status: 'loading', file })
-    const readText = async (path: string): Promise<string | null> => {
-      const res = await remote.query({ sessionId, query: { kind: 'file-content', path } })
-      const fc = queryAs(res, 'file-content')
-      if (fc === null || fc.variant !== 'text' || fc.content === undefined || fc.tooLarge === true) return null
-      return fc.content
-    }
-    void packHtmlDocument(file.content, file.path, readText).then((srcdoc) => {
-      if (cancelled) return
-      setHtmlPack(srcdoc === null ? { status: 'plain', file } : { status: 'ready', file, srcdoc })
-    }).catch(() => {
-      if (!cancelled) setHtmlPack({ status: 'plain', file })
-    })
-    return () => { cancelled = true }
-  }, [file, renderMarkdown, htmlMode, remote, sessionId, heavyPending, htmlStopped])
-
-  // Interactive documents are handed to the iframe through a blob: URL, never
-  // srcdoc: a frame with a URL of its own goes into a separate renderer
-  // process, so a heavy page's scripts cannot block the panel.
-  const htmlInteractiveDoc = useMemo<string | undefined>(() => {
-    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown || htmlMode !== 'interactive') return undefined
-    // Only a pack that settled for THIS file yields a document: mounting the
-    // raw bytes first would start the page once, then throw it away when the
-    // packed document arrives (a double script run on a heavy page).
-    if (htmlPack.status === 'idle' || htmlPack.file !== file) return undefined
-    return htmlPack.status === 'ready' ? htmlPack.srcdoc : htmlPack.status === 'plain' ? file.content : undefined
-  }, [file, renderMarkdown, htmlMode, htmlPack])
-  // The blob URL is an effect, not a memo: a render that React throws away
-  // would leak an object URL that pins the whole document. The document it was
-  // built from travels with it, so a stale URL is never handed to the frame.
-  const [htmlBlob, setHtmlBlob] = useState<{ readonly doc: string; readonly url: string } | undefined>(undefined)
-  useEffect(() => {
-    if (htmlInteractiveDoc === undefined) { setHtmlBlob(undefined); return }
-    const url = URL.createObjectURL(new Blob([withReadyPing(htmlInteractiveDoc)], { type: 'text/html' }))
-    setHtmlBlob({ doc: htmlInteractiveDoc, url })
-    return () => { URL.revokeObjectURL(url) }
-  }, [htmlInteractiveDoc])
-
-  // The iframe body for the rendered HTML view: null while a pack is in
-  // flight (hold the source preview instead of flashing an unstyled page),
-  // undefined when this is not a rendered HTML preview.
-  const htmlFrame = useMemo<HtmlFrameSpec | null | undefined>(() => {
-    if (file.kind !== 'text' || !isHtmlPath(file.path) || !renderMarkdown) return undefined
-    if (htmlMode === 'static') return { kind: 'static', srcdoc: createStaticHtmlDocument(file.content) }
-    // A heavy document waits for the user's confirmation, and a stopped render
-    // stays stopped: neither may mount a frame.
-    if (heavyPending || htmlStopped === file.path) return undefined
-    return htmlBlob !== undefined && htmlBlob.doc === htmlInteractiveDoc ? { kind: 'interactive', src: htmlBlob.url } : null
-  }, [file, renderMarkdown, htmlMode, htmlBlob, htmlInteractiveDoc, heavyPending, htmlStopped])
-
-  // A static preview of a script-rendered page is blank, which looks like a
-  // bug. Offer the explicit way back to a running page instead, but only when
-  // the document really renders through its scripts (a styled page with a
-  // small script still shows its content and needs no warning).
-  // Only the static preview needs the verdict, and the scan reads the whole
-  // document: skip it while the page is going to run anyway.
-  const scriptRendered = useMemo(
-    () => htmlMode === 'static' && file.kind === 'text' && isHtmlPath(file.path) && renderMarkdown && looksScriptRendered(file.content),
-    [file, renderMarkdown, htmlMode],
-  )
-  // Present only while a script-rendered document sits in the static preview.
-  const htmlHint = useMemo<{ readonly run: () => void } | undefined>(
-    () => (!scriptRendered || htmlFrame?.kind !== 'static' ? undefined : { run: () => setHtmlScripts(true) }),
-    [scriptRendered, htmlFrame],
-  )
-  // Stopping a render unmounts the frame and returns to the source view: the
-  // page's scripts are gone with the frame, and the user gets their document
-  // back instead of an empty preview.
-  const stopHtmlRender = useCallback(() => {
-    if (file.kind !== 'text') return
-    setHtmlStopped(file.path)
-    setRenderMarkdown(false)
-  }, [file])
-  // The stop control belongs to the interactive frame only: a static preview
-  // commits in the same task and has no wait to end.
-  const htmlStop = htmlFrame?.kind === 'interactive' ? stopHtmlRender : undefined
+  // The rendered HTML preview: packing, the blob: URL, the heavy-document
+  // question, the stopped render and the static hint all live in the hook.
+  const htmlPreview = useHtmlPreview({
+    file: file.kind === 'text' && isHtmlPath(file.path) ? file : null,
+    renderMarkdown,
+    onRenderChange: setRenderMarkdown,
+    remote,
+    sessionId,
+    t,
+  })
+  // The selection callback depends on this one stable action, not on the whole
+  // result object, which is rebuilt on every render.
+  const resetHtmlPreview = htmlPreview.resetForSelection
 
   // Browser fullscreen belongs to the browser: the system UI or Esc can leave
   // it, so the button mirrors `fullscreenchange` instead of a local flag. Only
@@ -428,16 +295,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     // Rendered view is the default for Markdown; HTML defaults to source so a
     // page never auto-executes on selection — the user opts into the preview.
     setRenderMarkdown(!isHtmlPath(path))
-    setHtmlScripts(true)
     setCopyState('idle')
     setCopyContentState('idle')
     setShowProps(false)
     // A stopped render and a declined heavy document belong to the file that
-    // was loaded: another file starts from a clean slate.
-    setHtmlStopped(null)
-    setHeavyApproved(null)
+    // was loaded: any selection, including the same path again, starts from a
+    // clean slate.
+    resetHtmlPreview()
     void loadFile(path, true)
-  }, [compact, loadFile])
+  }, [compact, loadFile, resetHtmlPreview])
 
   // Manual refresh (the tree's top-right button): re-list every expanded
   // directory and re-read the selected file, so an edit made outside the panel
@@ -566,10 +432,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       ],
       // Switching back to the rendered view retries a render the user stopped:
       // the frame was unmounted, so a new one starts from scratch.
-      onChange: (next: string) => {
-        if (next === 'render' && htmlStopped !== null) setHtmlStopped(null)
-        setRenderMarkdown(next === 'render')
-      },
+      onChange: (next: string) => htmlPreview.changeView(next === 'render'),
     })
     : null
   const fullscreenButton = file.kind === 'text'
@@ -584,10 +447,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const scriptToggle = file.kind === 'text' && isHtmlPath(file.path) && renderMarkdown
     ? h('button', {
       key: 'scripts', type: 'button', className: 'gp-files__props gp-files__scripts',
-      title: htmlMode === 'interactive' ? t('files.scriptsOn') : t('files.scriptsOff'),
+      title: htmlPreview.mode === 'interactive' ? t('files.scriptsOn') : t('files.scriptsOff'),
       'aria-label': t('files.runScripts'),
-      'aria-pressed': htmlMode === 'interactive',
-      onClick: () => setHtmlScripts(htmlMode !== 'interactive'),
+      'aria-pressed': htmlPreview.mode === 'interactive',
+      onClick: htmlPreview.toggleScripts,
     }, 'JS')
     : null
   // Word wrap only affects the source/code body (rendered Markdown already wraps).
@@ -661,28 +524,29 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       h('div', {
         key: 'src', ...tabPanel('source'),
         style: renderMarkdown ? { display: 'none' } : { display: 'contents' },
-      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, htmlStop, t)),
+      }, renderMarkdown ? null : renderContent(file, false, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t)),
       h('div', {
         key: 'rnd', ...tabPanel('render'),
         style: renderMarkdown ? { display: 'contents' } : { display: 'none' },
-      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, htmlStop, t) : null),
+      }, renderMarkdown ? renderContent(file, true, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t) : null),
     ]
-    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlFrame, htmlHint, htmlStop, t)
+    : renderContent(file, renderMarkdown, wrap, markdownLabels, pathImages, markdownSegments, htmlPreview.frame, htmlPreview.hint, htmlPreview.stop, t)
 
   // A heavy document asks in a modal before its frame is mounted: the choice
   // is about a page that can freeze the whole app while it paints, so it must
   // be deliberate rather than a bar that is easy to click past.
-  const heavyNotice = heavyPending && file.kind === 'text'
+  const heavyQuestion = htmlPreview.heavy
+  const heavyNotice = heavyQuestion !== null && file.kind === 'text'
     ? h(HeavyPreviewModal, {
       key: 'heavy',
-      path: file.path,
-      bytes: heavyScriptBytes,
-      canOpen: heavyCanOpen,
-      opening: openExternal.busy,
-      error: openExternal.error,
-      onOpen: () => { void openFileExternally() },
-      onRender: () => { setHeavyApproved(file.path); setOpenExternal({ busy: false, error: null }) },
-      onCancel: () => { setRenderMarkdown(false); setOpenExternal({ busy: false, error: null }) },
+      path: heavyQuestion.path,
+      bytes: heavyQuestion.bytes,
+      canOpen: heavyQuestion.canOpen,
+      opening: heavyQuestion.opening,
+      error: heavyQuestion.error,
+      onOpen: () => { void heavyQuestion.openExternally() },
+      onRender: heavyQuestion.approve,
+      onCancel: heavyQuestion.cancel,
       t,
     })
     : null
