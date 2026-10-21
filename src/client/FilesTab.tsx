@@ -13,10 +13,12 @@ import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
-import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
 import { useDialogFocus } from './dialog-focus.js'
 import { canCopyContent } from './copy-content.js'
+import { useCopyFeedback } from './copy-feedback.js'
+import { pathCopyButton } from './path-copy-button.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { formatBytes } from './bytes.js'
@@ -113,8 +115,11 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
   const [wrap, setWrap] = useState(() => init?.wrap ?? true)
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
-  const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
+  // Copy feedback comes from the shared hook, so the toolbar's confirmation
+  // expires on the same clock as the two diff-header paths (1.6 s) and a late
+  // write for a file the user has left cannot repaint the next one.
+  const pathCopy = useCopyFeedback(selected)
+  const contentCopy = useCopyFeedback(file.kind === 'text' ? file.path : null)
   const [showProps, setShowProps] = useState(false)
   // The fullscreen reader restyles this tab's own preview in place instead of
   // rendering a second copy: a rendered HTML page keeps its document (a new
@@ -306,8 +311,6 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     // Rendered view is the default for Markdown; HTML defaults to source so a
     // page never auto-executes on selection — the user opts into the preview.
     setRenderMarkdown(!isHtmlPath(path))
-    setCopyState('idle')
-    setCopyContentState('idle')
     setShowProps(false)
     // A stopped render and a declined heavy document belong to the file that
     // was loaded: any selection, including the same path again, starts from a
@@ -354,25 +357,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
 
   const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
 
-  // Both copy actions go through the platform helper: its async Clipboard path
-  // is unavailable on a remote plain-HTTP origin (non-secure context, no
-  // `navigator.clipboard`), where it falls back to `execCommand('copy')`.
-  const copyPath = async (): Promise<void> => {
-    if (selected === null) return
-    const seq = fileSeq.current
-    const ok = await writeClipboard(selected)
-    if (seq !== fileSeq.current) return
-    setCopyState(ok ? 'copied' : 'error')
-  }
-
-  const copyContent = async (): Promise<void> => {
-    // Re-checked at click time: only a loaded text document under the copy
-    // envelope may reach the clipboard, never binary/image/oversized bodies.
+  // Both copy actions go through the platform helper (inside useCopyFeedback):
+  // its async Clipboard path is unavailable on a remote plain-HTTP origin
+  // (non-secure context, no `navigator.clipboard`), where it falls back to
+  // `execCommand('copy')`.
+  // Re-checked at click time: only a loaded text document under the copy
+  // envelope may reach the clipboard, never binary/image/oversized bodies.
+  const copyContent = (): void => {
     if (file.kind !== 'text' || !canCopyContent(file)) return
-    const seq = fileSeq.current
-    const ok = await writeClipboard(file.content)
-    if (seq !== fileSeq.current) return
-    setCopyContentState(ok ? 'copied' : 'error')
+    contentCopy.copy(file.content)
   }
 
   // Properties dialog input: the loaded preview already carries path/size/
@@ -495,45 +488,34 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
     disabled: propsInput === null, onClick: () => setShowProps(true),
   }, h(InfoIcon, { size: 14 }))
-  // The filename is the copy control: clicking it copies the relative path, the
-  // same interaction the diff pane's bottom bar uses. The directory elides from
-  // its left (tail kept) so the name stays whole at any width.
-  const pathParts = (text: string): JSX.Element[] => {
-    const slash = text.lastIndexOf('/')
-    const name = h('span', { key: 'n', className: 'gp-files__path-name' }, slash < 0 ? text : text.slice(slash + 1))
-    if (slash < 0) return [name]
-    return [
-      h('span', { key: 'd', className: 'gp-files__path-dir' }, text.slice(0, slash)),
-      h('span', { key: 's', className: 'gp-files__path-sep' }, '/'),
-      name,
-    ]
-  }
-  const pathPhrase = copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath'
-  const pathButton = h('button', {
-    key: 'path', type: 'button',
-    className: `gp-files__path${copyState === 'copied' ? ' gp-files__path--copied' : copyState === 'error' ? ' gp-files__path--error' : ''}`,
-    title: copyState === 'idle' ? selected ?? '' : `${t(pathPhrase)} ${selected ?? ''}`,
-    'aria-label': `${t(pathPhrase)} ${selected ?? ''}`,
+  // The filename is the copy control: clicking it copies the relative path, in
+  // the same shape and on the same feedback clock as the two diff headers
+  // (path-copy-button.tsx). The directory elides from its left, tail kept, so
+  // the name stays whole at any width.
+  const pathButton = pathCopyButton({
+    elementKey: 'path',
+    path: selected ?? '',
+    feedback: pathCopy.feedback,
+    onCopy: () => pathCopy.copy(),
+    t,
+    rootClass: 'gp-files__path',
+    dirClass: 'gp-files__path-dir',
+    nameClass: 'gp-files__path-name',
     disabled: selected === null,
-    onClick: () => { void copyPath() },
-  }, [
-    copyState === 'copied' ? h(CheckIcon, { key: 'ok', size: 11 }) : null,
-    ...pathParts(selected ?? ''),
-    h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, copyState === 'idle' ? '' : t(pathPhrase)),
-  ])
+  })
   // Icon-only: the label rides title/aria, the confirmation is the check glyph
   // plus a live region (a text label cost the path its room).
   const copyContentButton = canCopyContent(file)
     ? h('button', {
       key: 'copy-content', type: 'button',
-      className: `gp-files__copy-path gp-files__copy-icon${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-      title: t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'),
+      className: `gp-files__copy-path gp-files__copy-icon${contentCopy.feedback === 'copied' ? ' gp-files__copy-path--copied' : contentCopy.feedback === 'error' ? ' gp-files__copy-path--error' : ''}`,
+      title: t(contentCopy.feedback === 'copied' ? 'files.contentCopied' : contentCopy.feedback === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'),
       'aria-label': t('files.copyContent'),
-      onClick: () => { void copyContent() },
+      onClick: copyContent,
     }, [
-      copyContentState === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
+      contentCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
       h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
-        copyContentState === 'idle' ? '' : t(copyContentState === 'copied' ? 'files.contentCopied' : 'files.contentCopyFailed')),
+        contentCopy.feedback === 'idle' ? '' : t(contentCopy.feedback === 'copied' ? 'files.contentCopied' : 'files.contentCopyFailed')),
     ])
     : null
 

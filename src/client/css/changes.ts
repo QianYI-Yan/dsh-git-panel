@@ -43,6 +43,7 @@ export const CSS = `
 .gp-files__copy-path{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__copy-path--copied{color:var(--dsw-alias-state-success-primary)}
 .gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
 /* Icon-only copy control: same box as the neighbouring toolbar glyph buttons
  * (.gp-files__props), so the row keeps one height. */

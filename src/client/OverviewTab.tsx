@@ -13,7 +13,7 @@ import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, CheckIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
 import { layoutFilteredGraph } from './filtered-graph.js'
 import { CommitGraph, GRAPH_LANE_W } from './CommitGraph.js'
@@ -25,6 +25,7 @@ import { statusChar, statusClass } from './status.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks.js'
 import { useCopyFeedback, type CopyFeedback } from './copy-feedback.js'
+import { pathCopyButton } from './path-copy-button.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { segButtons } from './seg.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
@@ -1127,30 +1128,23 @@ function renderFileDiffModal(
   const segEl = h('div', { key: 'seg', className: 'gp-seg' },
     segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey)))
   const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
-  // The header path doubles as its copy control (the changes toolbar works
-  // the same way): clicking writes the relative path. The path NEVER swaps
-  // out for the confirmation — a bare text node wraps when the bar squeezes
-  // the button below the phrase's width — on success the directory slot
-  // trades places with a check mark, on failure only the color changes; the
-  // phrase rides `aria-label`, `title` (feedback period only) and a
-  // visually-hidden live region. `--copy` carries the button affordance
-  // because the bare `.gp-modal__path` class is shared with plain titles.
-  const copyKey = pathFeedback === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
-  const pathParts = renderPathParts(fileDiff.path)
-  const pathEl = h('button', {
-    key: 'path',
-    type: 'button',
-    className: `gp-modal__path gp-modal__path--copy${pathFeedback === 'copied' ? ' gp-modal__path--copied' : pathFeedback === 'error' ? ' gp-modal__path--error' : ''}`,
-    title: pathFeedback === 'idle' ? fileDiff.path : `${t(copyKey)} ${fileDiff.path}`,
-    'aria-label': `${t(pathFeedback === 'idle' ? 'files.copyPath' : copyKey)} ${fileDiff.path}`,
-    onClick: () => onCopyPath(),
-  }, [
-    pathFeedback === 'copied'
-      ? h(CheckIcon, { key: 'ok', size: 12 })
-      : pathParts.slice(0, Math.max(0, pathParts.length - 1)),
-    pathParts[pathParts.length - 1],
-    h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, pathFeedback === 'idle' ? '' : t(copyKey)),
-  ])
+  // The header path doubles as its copy control, in the same shape as the
+  // changes pane's and the files toolbar's (path-copy-button.tsx). `--copy`
+  // carries the button affordance because the bare `.gp-modal__path` class is
+  // shared with plain titles.
+  const pathEl = pathCopyButton({
+    elementKey: 'path',
+    path: fileDiff.path,
+    feedback: pathFeedback,
+    onCopy: onCopyPath,
+    t,
+    rootClass: 'gp-modal__path',
+    extraClass: 'gp-modal__path--copy',
+    dirClass: 'gp-modal__dir',
+    nameClass: 'gp-modal__name',
+    checkSize: 12,
+    separator: 'attached',
+  })
   const barHead = [
     h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
     pathEl,
@@ -1180,12 +1174,3 @@ function renderFileDiffModal(
   return createPortal(modal, document.body, 'file-diff-modal')
 }
 
-/** Split a path into a dimmed directory prefix + emphasized file name. */
-function renderPathParts(path: string): JSX.Element[] {
-  const slash = path.lastIndexOf('/')
-  if (slash < 0) return [h('span', { key: 'n', className: 'gp-modal__name' }, path)]
-  return [
-    h('span', { key: 'd', className: 'gp-modal__dir' }, path.slice(0, slash + 1)),
-    h('span', { key: 'n', className: 'gp-modal__name' }, path.slice(slash + 1)),
-  ]
-}

@@ -980,6 +980,30 @@ const out = await page.evaluate(async (snap) => {
   result.pathCopyIsButton = document.querySelector('.gp-files__path')?.tagName === 'BUTTON'
   result.noSeparatePathButton = [...document.querySelectorAll('.gp-files__copy-path')]
     .every((b) => b.classList.contains('gp-files__copy-icon'))
+  // The filename's confirmation must look and expire like the two diff headers'
+  // (path-copy-button.tsx): the check takes the directory's slot, and the state
+  // clears itself on the shared 1.6 s clock instead of living until the next
+  // selection.
+  result.pathCopyShape = (() => {
+    const btn = document.querySelector('.gp-files__path')
+    if (btn === null) return null
+    return {
+      copied: btn.classList.contains('gp-files__path--copied'),
+      dir: btn.querySelector('.gp-files__path-dir') !== null,
+      check: btn.querySelector('svg') !== null,
+      name: btn.querySelector('.gp-files__path-name')?.textContent ?? '',
+    }
+  })()
+  await new Promise((r) => setTimeout(r, 1750))
+  result.pathCopyReverted = (() => {
+    const btn = document.querySelector('.gp-files__path')
+    if (btn === null) return null
+    return {
+      copied: btn.classList.contains('gp-files__path--copied'),
+      dir: btn.querySelector('.gp-files__path-dir') !== null,
+      aria: btn.getAttribute('aria-label'),
+    }
+  })()
   // SVG is a picture and also markup: rendered by default, with a source face,
   // and both come from the one read (switching must not re-query the host).
   const svgTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
@@ -1703,6 +1727,19 @@ const out = await page.evaluate(async (snap) => {
   await pickFile('a.txt')
   result.copyBtnText = copyBtnLabels()
   result.copyContentIcon = copyIconProbe()
+  // The content control shares the hook's clock: copied for 1.6 s, then idle.
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+  document.querySelector('.gp-files__copy-icon')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.contentCopyShape = (() => {
+    const btn = document.querySelector('.gp-files__copy-icon')
+    return btn === null ? null : { copied: btn.classList.contains('gp-files__copy-path--copied'), check: btn.querySelector('svg') !== null }
+  })()
+  await new Promise((r) => setTimeout(r, 1750))
+  result.contentCopyReverted = (() => {
+    const btn = document.querySelector('.gp-files__copy-icon')
+    return btn !== null && !btn.classList.contains('gp-files__copy-path--copied')
+  })()
   await pickFile('logo.png')
   result.copyBtnImage = copyBtnLabels()
   result.copyContentIconOnImage = copyIconProbe()

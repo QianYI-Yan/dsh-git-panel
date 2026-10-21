@@ -244,6 +244,12 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
   assert.equal(out.pathCopyIsButton, true, 'the filename itself is the copy control')
   assert.equal(out.noSeparatePathButton, true, 'no separate copy-relative-path button is left beside the filename')
+  // Parity with the diff headers: same mark placement (the check takes the
+  // directory's slot) and the same self-expiring confirmation.
+  assert.deepEqual(out.pathCopyShape, { copied: true, dir: false, check: true, name: 'index.ts' }, 'the filename shows a check in the directory slot while copied')
+  assert.deepEqual(out.pathCopyReverted, { copied: false, dir: true, aria: 'files.copyPath src/index.ts' }, 'the filename confirmation clears itself like the diff headers')
+  assert.deepEqual(out.contentCopyShape, { copied: true, check: true }, 'the copy-content icon confirms on the same clock')
+  assert.equal(out.contentCopyReverted, true, 'the copy-content confirmation also clears itself')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
   assert.equal(out.svgRendersByDefault, true, 'an SVG renders as a picture on selection')
   assert.equal(out.svgModeSegShown, true, 'an SVG offers the source/render switcher')
