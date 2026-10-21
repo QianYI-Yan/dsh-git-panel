@@ -495,6 +495,48 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
     disabled: propsInput === null, onClick: () => setShowProps(true),
   }, h(InfoIcon, { size: 14 }))
+  // The filename is the copy control: clicking it copies the relative path, the
+  // same interaction the diff pane's bottom bar uses. The directory elides from
+  // its left (tail kept) so the name stays whole at any width.
+  const pathParts = (text: string): JSX.Element[] => {
+    const slash = text.lastIndexOf('/')
+    const name = h('span', { key: 'n', className: 'gp-files__path-name' }, slash < 0 ? text : text.slice(slash + 1))
+    if (slash < 0) return [name]
+    return [
+      h('span', { key: 'd', className: 'gp-files__path-dir' }, text.slice(0, slash)),
+      h('span', { key: 's', className: 'gp-files__path-sep' }, '/'),
+      name,
+    ]
+  }
+  const pathPhrase = copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath'
+  const pathButton = h('button', {
+    key: 'path', type: 'button',
+    className: `gp-files__path${copyState === 'copied' ? ' gp-files__path--copied' : copyState === 'error' ? ' gp-files__path--error' : ''}`,
+    title: copyState === 'idle' ? selected ?? '' : `${t(pathPhrase)} ${selected ?? ''}`,
+    'aria-label': `${t(pathPhrase)} ${selected ?? ''}`,
+    disabled: selected === null,
+    onClick: () => { void copyPath() },
+  }, [
+    copyState === 'copied' ? h(CheckIcon, { key: 'ok', size: 11 }) : null,
+    ...pathParts(selected ?? ''),
+    h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, copyState === 'idle' ? '' : t(pathPhrase)),
+  ])
+  // Icon-only: the label rides title/aria, the confirmation is the check glyph
+  // plus a live region (a text label cost the path its room).
+  const copyContentButton = canCopyContent(file)
+    ? h('button', {
+      key: 'copy-content', type: 'button',
+      className: `gp-files__copy-path gp-files__copy-icon${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+      title: t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'),
+      'aria-label': t('files.copyContent'),
+      onClick: () => { void copyContent() },
+    }, [
+      copyContentState === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
+      h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+        copyContentState === 'idle' ? '' : t(copyContentState === 'copied' ? 'files.contentCopied' : 'files.contentCopyFailed')),
+    ])
+    : null
+
   // Compact toolbar: back + the official source/render switcher + fullscreen +
   // properties. The relative path and the copy buttons leave the phone row —
   // they are what made it wrap onto three lines.
@@ -511,33 +553,11 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const wideBar = compact
     ? null
     : h('div', { key: 'bar', className: 'gp-files__bar' }, [
-      h('code', { key: 'path', className: 'gp-files__path', title: selected ?? '' }, selected ?? ''),
+      pathButton,
       modeSeg,
-      // The two copy actions form one joined button group (collapsed shared
-      // border); a lone visible button keeps the full pill radius.
-      h('div', { key: 'copy', className: 'gp-files__copy-group' }, [
-        h('button', {
-          key: 'copy-path', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-          'aria-live': 'polite', onClick: () => { void copyPath() },
-        }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
-        // Hidden (not disabled) for binary/image/too-large/error previews and
-        // for documents at/above the copy envelope — no dead control to click.
-        // Icon-only: the label rides title/aria, the confirmation is the check
-        // glyph plus a live region (a text label cost the path its room).
-        canCopyContent(file)
-          ? h('button', {
-            key: 'copy-content', type: 'button',
-            className: `gp-files__copy-path gp-files__copy-icon${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-            title: t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'),
-            'aria-label': t('files.copyContent'),
-            onClick: () => { void copyContent() },
-          }, [
-            copyContentState === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
-            h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
-              copyContentState === 'idle' ? '' : t(copyContentState === 'copied' ? 'files.contentCopied' : 'files.contentCopyFailed')),
-          ])
-          : null,
-      ]),
+      // Hidden (not disabled) for binary/image/too-large/error previews and for
+      // documents at/above the copy envelope — no dead control to click.
+      copyContentButton,
       scriptToggle,
       wrapButton,
       fullscreenButton,

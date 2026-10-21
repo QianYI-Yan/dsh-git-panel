@@ -228,11 +228,11 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.refreshContentUpdated, true, 'file content changed outside the panel is picked up by refresh')
   assert.equal(out.refreshReenabled, true, 'the refresh control re-enables once the re-reads settle')
   assert.equal(out.copiedPath, 'src/index.ts', 'preview copies the selected file path relative to browse root')
-  assert.equal(out.copyFeedback, 'files.pathCopied', 'copy button confirms successful clipboard write')
+  assert.equal(out.copyFeedback, 'files.pathCopied src/index.ts', 'the filename button confirms the clipboard write on its label')
   assert.equal(out.copyFeedbackReset, true, 'late copy of previous file cannot change current file feedback')
   assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
-  assert.equal(out.copyGroupJoined, true, 'the path/content copy buttons form one joined group')
-  assert.equal(out.copyGroupRadii, true, 'only the outer corners of the copy group stay rounded')
+  assert.equal(out.pathCopyIsButton, true, 'the filename itself is the copy control')
+  assert.equal(out.noSeparatePathButton, true, 'no separate copy-relative-path button is left beside the filename')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
   assert.equal(out.svgRendersByDefault, true, 'an SVG renders as a picture on selection')
   assert.equal(out.svgModeSegShown, true, 'an SVG offers the source/render switcher')
@@ -359,10 +359,10 @@ export function assertPanelResults(out, realInput, errors) {
   assert.deepEqual(out.propsImageBadges, ['files.propsTrackedYes'], 'an unchanged tracked image carries no working-tree chip')
   assert.equal(out.propsSizeKiB, '1.5 KB', 'a rounded size steps to the display unit')
   assert.equal(out.propsSizeKiBSub, 'files.propsSizeBytes', 'a rounded size carries the raw byte count parenthetical')
-  assert.deepEqual(out.copyBtnText, ['files.copyPath', '<icon>'], 'a text document offers copy content (icon) beside copy path')
-  assert.deepEqual(out.copyBtnImage, ['files.copyPath'], 'an image hides the copy-content button')
-  assert.deepEqual(out.copyBtnBinary, ['files.copyPath'], 'a binary file hides the copy-content button')
-  assert.deepEqual(out.copyBtnTooLarge, ['files.copyPath'], 'a document over the copy envelope hides the copy-content button')
+  assert.deepEqual(out.copyBtnText, ['<icon>'], 'a text document offers copy content (icon) and no path text button')
+  assert.deepEqual(out.copyBtnImage, [], 'an image shows no copy buttons at all (the filename still copies)')
+  assert.deepEqual(out.copyBtnBinary, [], 'a binary file shows no copy-content button')
+  assert.deepEqual(out.copyBtnTooLarge, [], 'a document over the copy envelope shows no copy-content button')
   // The content control is a glyph, not a phrase: label on aria, no text, and
   // it must line up with the text button it is joined to.
   assert.deepEqual(
@@ -371,7 +371,7 @@ export function assertPanelResults(out, realInput, errors) {
     'the copy-content control is an icon button with its label on aria',
   )
   assert.ok(out.copyContentIcon?.width <= 32, `the copy-content button is a square icon, not a text pill (${out.copyContentIcon?.width}px wide)`)
-  assert.equal(out.copyContentIcon?.height, out.copyContentIcon?.pathHeight, 'the icon button matches the text button height in the joined group')
+  assert.equal(out.copyContentIcon?.height, out.copyContentIcon?.peerHeight, "the copy glyph matches the toolbar's other icon buttons")
   assert.equal(out.copyContentIconOnImage, null, 'an image preview shows no copy-content control at all')
   assert.equal(out.placeholderBinary, 'files.binary', 'a binary file says so in the preview')
   assert.equal(out.placeholderTooLarge, 'files.tooLarge', 'an over-cap document says why it is not shown')

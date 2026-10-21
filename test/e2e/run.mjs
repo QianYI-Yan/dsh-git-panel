@@ -933,10 +933,15 @@ const out = await page.evaluate(async (snap) => {
   fixture.textOverrides = {}
   let copiedPath = null
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { copiedPath = text } } })
-  document.querySelector('.gp-files__copy-path')?.click()
+  document.querySelector('.gp-files__path')?.click()
   await new Promise((r) => setTimeout(r, 100))
   result.copiedPath = copiedPath
-  result.copyFeedback = document.querySelector('.gp-files__copy-path')?.textContent
+  result.copyFeedback = document.querySelector('.gp-files__path')?.getAttribute('aria-label')
+  // The filename is the whole copy control: it is a button, it carries the
+  // phrase, and no separate "copy relative path" button is left in the bar.
+  result.pathCopyIsButton = document.querySelector('.gp-files__path')?.tagName === 'BUTTON'
+  result.noSeparatePathButton = [...document.querySelectorAll('.gp-files__copy-path')]
+    .every((b) => b.classList.contains('gp-files__copy-icon'))
   // SVG is a picture and also markup: rendered by default, with a source face,
   // and both come from the one read (switching must not re-query the host).
   const svgTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
@@ -1148,30 +1153,19 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 120))
   let finishCopy
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
-  document.querySelector('.gp-files__copy-path')?.click()
+  document.querySelector('.gp-files__path')?.click()
   const mdRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
   if (mdRow) { mdRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   finishCopy?.()
   await new Promise((r) => setTimeout(r, 50))
-  result.copyFeedbackReset = document.querySelector('.gp-files__copy-path')?.textContent === 'files.copyPath'
+  // A late copy of the previous file must not colour the new file's name.
+  result.copyFeedbackReset = document.querySelector('.gp-files__path--copied') === null
+    && (document.querySelector('.gp-files__path')?.getAttribute('aria-label') ?? '').startsWith('files.copyPath')
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied') } } })
-  document.querySelector('.gp-files__copy-path')?.click()
+  document.querySelector('.gp-files__path')?.click()
   await new Promise((r) => setTimeout(r, 50))
-  result.copyDeniedFeedback = document.querySelector('.gp-files__copy-path')?.textContent === 'files.pathCopyFailed'
-  // The two copy actions form one joined button group: adjacent borders
-  // collapse onto a single 1px line and only the outer corners stay rounded.
-  const copyGroup = document.querySelector('.gp-files__copy-group')
-  const copyBtns = [...(copyGroup?.querySelectorAll('.gp-files__copy-path') ?? [])]
-  const copyRects = copyBtns.map((b) => b.getBoundingClientRect())
-  const copyRadii = copyBtns.map((b) => {
-    const cs = getComputedStyle(b)
-    return [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].join(' ')
-  })
-  result.copyGroupJoined = copyGroup !== null && copyBtns.length === 2
-    // The -1px margin must actually overlap: allowing a 1px tolerance would
-    // also accept two plain adjacent buttons (left === right, difference 1).
-    && Math.abs(copyRects[1].left - (copyRects[0].right - 1)) <= 0.25
-  result.copyGroupRadii = copyRadii.join('|') === '6px 0px 0px 6px|0px 6px 6px 0px'
+  result.copyDeniedFeedback = document.querySelector('.gp-files__path--error') !== null
+    && (document.querySelector('.gp-files__path [aria-live]')?.textContent ?? '') === 'files.pathCopyFailed'
   // Markdown defaults to the rendered view; switch to source, then back.
   result.markdownRenderedDefault = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown' && document.querySelector('.gp-files__code') === null
   // The wide toolbar uses the same official SegmentedControl as compact.
@@ -1613,13 +1607,14 @@ const out = await page.evaluate(async (snap) => {
   const copyIconProbe = () => {
     const btn = document.querySelector('.gp-files__copy-icon')
     if (btn === null) return null
-    const pathBtn = document.querySelector('.gp-files__copy-path:not(.gp-files__copy-icon)')
+    // The neighbouring glyph button the copy control has to line up with.
+    const peer = document.querySelector('.gp-files__bar .gp-files__props:not(.gp-files__copy-icon)')
     return {
       aria: btn.getAttribute('aria-label'),
       text: (btn.textContent ?? '').trim(),
       glyph: btn.querySelector('svg') !== null,
       height: Math.round(btn.getBoundingClientRect().height),
-      pathHeight: pathBtn === null ? 0 : Math.round(pathBtn.getBoundingClientRect().height),
+      peerHeight: peer === null ? 0 : Math.round(peer.getBoundingClientRect().height),
       width: Math.round(btn.getBoundingClientRect().width),
     }
   }

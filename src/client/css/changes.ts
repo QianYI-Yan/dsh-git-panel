@@ -28,22 +28,25 @@ export const CSS = `
 .gp-files__preview{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__preview-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-files__path{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font:inherit}
+/* The filename is the copy control: the directory elides from its left (tail
+ * kept), the name stays whole, and clicking copies the relative path. */
+.gp-files__path{flex:1 1 120px;min-width:0;display:flex;align-items:baseline;overflow:hidden;background:none;border:0;padding:0;margin:0;font:inherit;color:var(--dsw-alias-label-secondary);text-align:left;cursor:pointer;border-radius:4px}
+.gp-files__path:hover .gp-files__path-name{text-decoration:underline}
+.gp-files__path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__path:disabled{cursor:default}
+.gp-files__path--copied{color:var(--dsw-alias-state-success-primary)}
+.gp-files__path--copied svg{margin-right:2px;flex:none}
+.gp-files__path--error{color:var(--dsw-alias-state-error-primary)}
+.gp-files__path-dir{direction:rtl;unicode-bidi:isolate;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
+.gp-files__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-files__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
 .gp-files__copy-path{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
-/* The path/content copy actions read as one joined button group: the shared
- * border collapses (1px overlap) and only the outer corners stay rounded. */
-.gp-files__copy-group{flex:none;display:flex;align-items:center}
-.gp-files__copy-group .gp-files__copy-path{border-radius:0;margin-left:-1px}
-.gp-files__copy-group .gp-files__copy-path:first-child{border-radius:6px 0 0 6px;margin-left:0}
-.gp-files__copy-group .gp-files__copy-path:last-child{border-radius:0 6px 6px 0}
-.gp-files__copy-group .gp-files__copy-path:only-child{border-radius:6px}
-.gp-files__copy-group .gp-files__copy-path:hover,.gp-files__copy-group .gp-files__copy-path:focus-visible{position:relative;z-index:1}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
-/* Icon-only variant of the copy button (copy content): square glyph, stretched
- * to the height of the text button it joins so the group keeps one box. */
-.gp-files__copy-group .gp-files__copy-path.gp-files__copy-icon{display:inline-flex;align-items:center;justify-content:center;align-self:stretch;width:26px;padding:0}
+/* Icon-only copy control: same box as the neighbouring toolbar glyph buttons
+ * (.gp-files__props), so the row keeps one height. */
+.gp-files__copy-path.gp-files__copy-icon{display:inline-flex;align-items:center;padding:4px 6px}
 /* Icon-only properties entry at the toolbar's far right. The path's flex-grow
  * already pins the trailing cluster to the right edge; a margin-left:auto here
  * would steal that free space and collapse the path to its 120px basis. */
