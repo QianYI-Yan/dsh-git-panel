@@ -41,6 +41,9 @@ export const CSS = `
 .gp-files__copy-group .gp-files__copy-path:hover,.gp-files__copy-group .gp-files__copy-path:focus-visible{position:relative;z-index:1}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
+/* Icon-only variant of the copy button (copy content): square glyph, stretched
+ * to the height of the text button it joins so the group keeps one box. */
+.gp-files__copy-group .gp-files__copy-path.gp-files__copy-icon{display:inline-flex;align-items:center;justify-content:center;align-self:stretch;width:26px;padding:0}
 /* Icon-only properties entry at the toolbar's far right. The path's flex-grow
  * already pins the trailing cluster to the right edge; a margin-left:auto here
  * would steal that free space and collapse the path to its 120px basis. */

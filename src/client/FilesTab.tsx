@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
@@ -522,11 +522,20 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
         }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
         // Hidden (not disabled) for binary/image/too-large/error previews and
         // for documents at/above the copy envelope — no dead control to click.
+        // Icon-only: the label rides title/aria, the confirmation is the check
+        // glyph plus a live region (a text label cost the path its room).
         canCopyContent(file)
           ? h('button', {
-            key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-            'aria-live': 'polite', onClick: () => { void copyContent() },
-          }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
+            key: 'copy-content', type: 'button',
+            className: `gp-files__copy-path gp-files__copy-icon${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
+            title: t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'),
+            'aria-label': t('files.copyContent'),
+            onClick: () => { void copyContent() },
+          }, [
+            copyContentState === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
+            h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+              copyContentState === 'idle' ? '' : t(copyContentState === 'copied' ? 'files.contentCopied' : 'files.contentCopyFailed')),
+          ])
           : null,
       ]),
       scriptToggle,

@@ -1605,11 +1605,30 @@ const out = await page.evaluate(async (snap) => {
 
   // Copy-content button: only a loaded text document under the copy envelope
   // shows it; image, binary, and over-cap previews keep just copy-path.
-  const copyBtnLabels = () => [...document.querySelectorAll('.gp-files__copy-path')].map((b) => b.textContent)
+  // Icon-only controls contribute a marker instead of their (empty) text.
+  const copyBtnLabels = () => [...document.querySelectorAll('.gp-files__copy-path')]
+    .map((b) => (b.classList.contains('gp-files__copy-icon') ? '<icon>' : b.textContent))
+  // The content-copy control is icon-only: no visible text, label on aria, a
+  // decorative glyph inside, and the same height as the text button it joins.
+  const copyIconProbe = () => {
+    const btn = document.querySelector('.gp-files__copy-icon')
+    if (btn === null) return null
+    const pathBtn = document.querySelector('.gp-files__copy-path:not(.gp-files__copy-icon)')
+    return {
+      aria: btn.getAttribute('aria-label'),
+      text: (btn.textContent ?? '').trim(),
+      glyph: btn.querySelector('svg') !== null,
+      height: Math.round(btn.getBoundingClientRect().height),
+      pathHeight: pathBtn === null ? 0 : Math.round(pathBtn.getBoundingClientRect().height),
+      width: Math.round(btn.getBoundingClientRect().width),
+    }
+  }
   await pickFile('a.txt')
   result.copyBtnText = copyBtnLabels()
+  result.copyContentIcon = copyIconProbe()
   await pickFile('logo.png')
   result.copyBtnImage = copyBtnLabels()
+  result.copyContentIconOnImage = copyIconProbe()
   await pickFile('blob.bin')
   result.copyBtnBinary = copyBtnLabels()
   // The placeholder text each unrenderable kind shows. Without it a swapped

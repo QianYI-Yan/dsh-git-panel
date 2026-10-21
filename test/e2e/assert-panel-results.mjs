@@ -359,10 +359,20 @@ export function assertPanelResults(out, realInput, errors) {
   assert.deepEqual(out.propsImageBadges, ['files.propsTrackedYes'], 'an unchanged tracked image carries no working-tree chip')
   assert.equal(out.propsSizeKiB, '1.5 KB', 'a rounded size steps to the display unit')
   assert.equal(out.propsSizeKiBSub, 'files.propsSizeBytes', 'a rounded size carries the raw byte count parenthetical')
-  assert.deepEqual(out.copyBtnText, ['files.copyPath', 'files.copyContent'], 'a text document offers copy content beside copy path')
+  assert.deepEqual(out.copyBtnText, ['files.copyPath', '<icon>'], 'a text document offers copy content (icon) beside copy path')
   assert.deepEqual(out.copyBtnImage, ['files.copyPath'], 'an image hides the copy-content button')
   assert.deepEqual(out.copyBtnBinary, ['files.copyPath'], 'a binary file hides the copy-content button')
   assert.deepEqual(out.copyBtnTooLarge, ['files.copyPath'], 'a document over the copy envelope hides the copy-content button')
+  // The content control is a glyph, not a phrase: label on aria, no text, and
+  // it must line up with the text button it is joined to.
+  assert.deepEqual(
+    { aria: out.copyContentIcon?.aria, text: out.copyContentIcon?.text, glyph: out.copyContentIcon?.glyph },
+    { aria: 'files.copyContent', text: '', glyph: true },
+    'the copy-content control is an icon button with its label on aria',
+  )
+  assert.ok(out.copyContentIcon?.width <= 32, `the copy-content button is a square icon, not a text pill (${out.copyContentIcon?.width}px wide)`)
+  assert.equal(out.copyContentIcon?.height, out.copyContentIcon?.pathHeight, 'the icon button matches the text button height in the joined group')
+  assert.equal(out.copyContentIconOnImage, null, 'an image preview shows no copy-content control at all')
   assert.equal(out.placeholderBinary, 'files.binary', 'a binary file says so in the preview')
   assert.equal(out.placeholderTooLarge, 'files.tooLarge', 'an over-cap document says why it is not shown')
   assert.equal(out.preUnmountFilesActive, true, 'before the switch the Files tab is active')

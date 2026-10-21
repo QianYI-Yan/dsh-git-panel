@@ -55,6 +55,15 @@ export function CheckIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M3 8.4l3.3 3.3L13 4.8' })], size, true)
 }
 
+/** Copy glyph: a sheet behind another, on the same 16px stroke grid as the rest.
+ * Decorative — the button that carries it owns the label and the live text. */
+export function CopyIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('rect', { key: 'a', x: 5.5, y: 2, width: 8, height: 9, rx: 1.6 }),
+    h('path', { key: 'b', d: 'M10.5 13v.6A1.4 1.4 0 0 1 9.1 15H3.9A1.4 1.4 0 0 1 2.5 13.6V6.9A1.4 1.4 0 0 1 3.9 5.5h1.6' }),
+  ], size, true)
+}
+
 /** Expand-to-fullscreen glyph: four corner brackets. */
 export function FullscreenIcon({ size }: IconProps): JSX.Element {
   return svg([
