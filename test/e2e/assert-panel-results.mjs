@@ -290,6 +290,14 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.wideSourceHasWrap, true, 'the wide source toolbar carries the word-wrap toggle')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
+  // A stuck code banner must sit flush: the pane's inset lives on the inner body,
+  // never on the scroll box (padding there leaves a band above the banner).
+  // Symptom first, mechanism second: the leak is what the user sees, and the
+  // padding split is only the way it is prevented.
+  assert.equal(out.markdownStickyBanner?.scrolled, true, 'the probe actually scrolled the markdown pane')
+  assert.equal(out.markdownStickyBanner?.rowsAboveBanner, 0, 'no code row paints above a stuck code banner')
+  assert.equal(out.markdownStickyBanner?.scPaddingTop, '0px', 'the markdown scroll box carries no padding')
+  assert.equal(out.markdownStickyBanner?.bodyPaddingTop, '16px', 'the inset lives on the inner markdown body')
   assert.equal(out.mermaidRendered, true, 'a mermaid fence renders the diagram via the lazy chunk with surrounding markdown intact')
   assert.equal(out.mermaidFallback, true, 'a diagram the engine rejects falls back to the plain code block')
   assert.equal(out.htmlSourceDefault, true, 'HTML defaults to the source view, never auto-rendered')

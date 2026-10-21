@@ -1248,6 +1248,50 @@ const out = await page.evaluate(async (snap) => {
   const renderBtn = modeTab('files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  // A sticky code banner (the platform's code-block header) sticks to the
+  // scrollport's CONTENT edge, so the inset has to live on an inner box: padding
+  // on the scroll container leaves a band above the stuck banner that scrolling
+  // code shows through. The harness stubs MarkdownText, so the platform's block
+  // shape is reproduced here and the pane must show nothing above the banner.
+  result.markdownStickyBanner = (() => {
+    const sc = document.querySelector('.gp-files__markdown')
+    const body = document.querySelector('.gp-files__markdown-body')
+    if (sc === null || body === null) return null
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:relative;margin:16px 0;background:#f4f4f4'
+    const bannerWrap = document.createElement('div')
+    bannerWrap.style.cssText = 'position:sticky;top:0;z-index:6;background:#fff'
+    const banner = document.createElement('div')
+    banner.style.cssText = 'background:#eee;padding:9px 14px'
+    banner.textContent = 'probe-banner'
+    bannerWrap.appendChild(banner)
+    probe.appendChild(bannerWrap)
+    for (let i = 0; i < 40; i += 1) {
+      const row = document.createElement('div')
+      row.style.cssText = 'padding:0 14px;line-height:20px;white-space:pre'
+      row.textContent = `probe line ${i + 1}`
+      probe.appendChild(row)
+    }
+    body.appendChild(probe)
+    sc.scrollTop = 120
+    const scBox = sc.getBoundingClientRect()
+    const bannerTop = bannerWrap.getBoundingClientRect().top
+    const rows = [...probe.children].slice(1)
+    const out = {
+      scPaddingTop: getComputedStyle(sc).paddingTop,
+      bodyPaddingTop: getComputedStyle(body).paddingTop,
+      scrolled: sc.scrollTop > 0,
+      // Rows straddling the band between the scrollport's top edge and the
+      // banner's top edge — the leak. A flush banner intersects none.
+      rowsAboveBanner: rows.filter((row) => {
+        const b = row.getBoundingClientRect()
+        return Math.max(b.top, scBox.top) < Math.min(b.bottom, bannerTop) - 0.5
+      }).length,
+    }
+    probe.remove()
+    sc.scrollTop = 0
+    return out
+  })()
   // Mermaid: a document with a mermaid fence renders the diagram through the
   // lazy chunk, keeps the surrounding markdown in order, and a diagram the
   // engine rejects falls back to the plain code block.

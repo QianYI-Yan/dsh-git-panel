@@ -689,14 +689,15 @@ function renderContent(
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
     if (markdownSegments.length === 1 && markdownSegments[0].kind === 'markdown') {
-      return h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps }))
+      return h('div', { className: 'gp-files__markdown' }, h('div', { className: 'gp-files__markdown-body' }, h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps })))
     }
     // Mermaid fences render through the lazy engine chunk; every other
     // segment stays on the official MarkdownText, in document order, with
     // kbd hints already rewritten (see the memoized markdownSegments).
-    return h('div', { className: 'gp-files__markdown' }, markdownSegments.map((segment, index) => segment.kind === 'mermaid'
-      ? h(MermaidFigure, { key: index, source: segment.source, t })
-      : h(MarkdownText, { key: index, text: segment.text, ...markdownProps })))
+    return h('div', { className: 'gp-files__markdown' }, h('div', { className: 'gp-files__markdown-body' },
+      markdownSegments.map((segment, index) => segment.kind === 'mermaid'
+        ? h(MermaidFigure, { key: index, source: segment.source, t })
+        : h(MarkdownText, { key: index, text: segment.text, ...markdownProps }))))
   }
   if (file.kind === 'text' && htmlFrame !== undefined) {
     // The pack is in flight: hold the source preview instead of flashing an

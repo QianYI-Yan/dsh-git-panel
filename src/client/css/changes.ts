@@ -68,7 +68,12 @@ export const CSS = `
  * their 24px inline size (4px padding + 14px glyph). */
 .gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__props{height:30px;box-sizing:border-box;padding:0 6px}
 .gp-files__bar--compact .gp-files__mode-seg button{padding:0 10px;font-size:12px}
-.gp-files__markdown{overflow:auto;overscroll-behavior:contain;padding:16px 24px;color:var(--dsw-alias-label-primary)}
+/* Two boxes on purpose: the outer one scrolls, the inner one carries the inset.
+ * A sticky child (the platform's code-block banner) sticks to the scrollport's
+ * CONTENT edge, so padding on the scroll container would leave a band above the
+ * stuck banner that scrolling code shows through. */
+.gp-files__markdown{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.gp-files__markdown-body{padding:16px 24px;color:var(--dsw-alias-label-primary)}
 /* Mermaid figures: the SVG centers and never overflows the pane width; a
  * parse/load failure falls back to the source as a plain code block. */
 .gp-mermaid{overflow-x:auto;padding:4px 0}
