@@ -110,7 +110,11 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
  * background is opaque so rows pass behind it, not through it. */
 .gp-detail__summary{position:sticky;top:0;z-index:1;display:flex;align-items:baseline;gap:6px;font-size:11px;color:var(--dsw-alias-label-tertiary);padding:6px 10px 7px;margin:0 0 6px;background:var(--dsw-alias-bg-base);border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-detail__summary-sep{color:var(--dsw-alias-label-tertiary);opacity:.6}
-.gp-detail__msg{flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:10px}
+.gp-detail__msg{display:flex;flex-direction:column;flex:1 1 50%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:10px}
+/* The no-message placeholder fills what the subject/meta/ops row leaves behind
+   instead of claiming a full pane height — the full height would stack on top
+   of them and leave the pane scrollable with nothing to reach. */
+.gp-detail__msg>.gp-empty{flex:1 1 auto;height:auto;min-height:0}
 .gp-detail__subject{font-weight:600;margin-bottom:6px}
 .gp-detail__meta{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-bottom:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .gp-detail__body{white-space:pre-wrap;font-size:12px;color:var(--dsw-alias-label-secondary);margin:0;font-family:inherit}

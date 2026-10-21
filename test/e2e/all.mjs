@@ -21,6 +21,9 @@ const RUNNERS = [
   // park, so a stale or in-flight pack is a real race rather than a sleep.
   'html-preview-lifecycle',
   'overview-toolbar-review', 'version-bar-review', 'discard-tip-review',
+  // The commit detail's message pane: no phantom scrollport for a commit
+  // without a body, a real one for a long body.
+  'overview-detail-scroll',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   'sidebar-tab',
   'stacked-detail-sticky',
