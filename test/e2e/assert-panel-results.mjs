@@ -200,6 +200,17 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
+  // 展开全部: the same icon-only control the changes pane uses, in the same box.
+  assert.deepEqual(
+    { text: out.modalExpand?.text, glyph: out.modalExpand?.glyph, aria: out.modalExpand?.aria, pressed: out.modalExpand?.pressed },
+    { text: '', glyph: true, aria: 'diff.expandAll', pressed: 'false' },
+    'the commit-diff modal expands through an icon button, not a text button',
+  )
+  // The drawn box is asserted pixel-by-pixel by changes-diff-modal (this runner
+  // injects no theme variables, so themed borders compute to their initials).
+  assert.ok((out.modalIconBoxRule?.css ?? '').includes('border'), 'the bordered icon-box rule covers the modal bar')
+  assert.ok((out.modalIconBoxRule?.css ?? '').includes('25px'), 'that rule pins the control height to the mode seg line')
+  assert.equal(out.staleSegExpandRule, null, 'the old text-button rule for the expand control is gone')
   assert.equal(out.diffFindOpened, true, 'Ctrl+F opens Find inside the diff modal')
   assert.ok(out.diffFindHits >= 1, 'the diff Find highlights matches')
   assert.equal(out.diffFindActive, 1, 'exactly one diff match is the active hit')

@@ -13,7 +13,7 @@ import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, CheckIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, CheckIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
 import { layoutFilteredGraph } from './filtered-graph.js'
 import { CommitGraph, GRAPH_LANE_W } from './CommitGraph.js'
@@ -1112,13 +1112,18 @@ function renderFileDiffModal(
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effMode: DiffMode = compact && mode === 'split' ? 'unified' : mode
   const sumEl = data !== null && data.text !== '' ? (() => { const s = diffSummary(data.text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null
+  // Icon-only, matching the changes pane's toolbar: the label rides title/aria,
+  // the pressed state marks the expansion.
+  const expandLabel = t(expanded ? 'diff.collapse' : 'diff.expandAll')
   const expandEl = h('button', {
     key: 'expand', type: 'button',
-    className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+    className: 'gp-icon-btn gp-diff__expand',
     disabled: effMode !== 'split' && effMode !== 'unified',
-    title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+    title: expandLabel,
+    'aria-label': expandLabel,
+    'aria-pressed': expanded,
     onClick: () => onExpand(!expanded),
-  }, t(expanded ? 'diff.collapse' : 'diff.expandAll'))
+  }, h(ExpandAllIcon, { size: 14 }))
   const segEl = h('div', { key: 'seg', className: 'gp-seg' },
     segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey)))
   const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))

@@ -822,6 +822,43 @@ const out = await page.evaluate(async (snap) => {
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
+  // 展开全部 in the modal is an icon button like the changes pane's: glyph only,
+  // label on aria, pressed state, and the bordered box its row's seg wears.
+  result.modalExpand = (() => {
+    const btn = document.querySelector('.gp-modal .gp-diff__expand')
+    if (btn === null) return null
+    const cs = getComputedStyle(btn)
+    const seg = document.querySelector('.gp-modal__bar .gp-seg')
+    return {
+      text: (btn.textContent ?? '').trim(),
+      glyph: btn.querySelector('svg') !== null,
+      aria: btn.getAttribute('aria-label'),
+      pressed: btn.getAttribute('aria-pressed'),
+      borderW: cs.borderTopWidth,
+      borderStyle: cs.borderTopStyle,
+      radius: cs.borderTopLeftRadius,
+      height: Math.round(btn.getBoundingClientRect().height),
+      segHeight: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height),
+    }
+  })()
+  // This runner injects no --dsw-alias-* theme, so a themed `border` computes
+  // to its initial values here; the drawn box is pinned pixel-by-pixel by
+  // changes-diff-modal (which does inject the theme). What must hold here is
+  // that the boxed rule covers the modal bar and the old text-button rule is gone.
+  const ruleCss = (needle) => {
+    for (const sheet of document.styleSheets) {
+      let rules
+      try { rules = sheet.cssRules } catch { continue }
+      for (const rule of rules) {
+        const sel = rule.selectorText || ''
+        if (!sel.includes(needle)) continue
+        return { sel, css: rule.style.cssText }
+      }
+    }
+    return null
+  }
+  result.modalIconBoxRule = ruleCss('.gp-modal__bar .gp-icon-btn')
+  result.staleSegExpandRule = ruleCss('.gp-seg__btn.gp-diff__expand')
   // In-diff Find (Ctrl+F) inside the modal: open, search a token present in the
   // fixture diff, assert marks + count, then Esc dismisses Find (not the modal).
   const diffWrap = document.querySelector('.gp-modal .gp-diff__wrap')
@@ -865,7 +902,8 @@ const out = await page.evaluate(async (snap) => {
   // Reopen, then close via the close button.
   const reopenRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
   if (reopenRow) { reopenRow.click(); await new Promise((r) => setTimeout(r, 400)) }
-  const closeBtn = document.querySelector('.gp-modal__bar .gp-icon-btn')
+  // By class, not "the bar's only icon button": the expand control is one too.
+  const closeBtn = document.querySelector('.gp-modal__bar .gp-modal__close')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
   document.querySelector('#pill .gp-pill')?.click()
