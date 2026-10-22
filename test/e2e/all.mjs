@@ -27,6 +27,9 @@ const RUNNERS = [
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   'sidebar-tab',
   'stacked-detail-sticky',
+  // Tight stacked (≤ STACKED_TIGHT_BP): the top-band branch column as a drawer
+  // over the history — collapsed by default; toggle / blank band / Escape close.
+  'stacked-branch-drawer',
   // Served over http://127.0.0.1 so the loopback (local instance) branch of the
   // heavy-preview dialog is exercised; the file:// runners only see the remote one.
   'local-open',

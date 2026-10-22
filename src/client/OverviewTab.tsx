@@ -5,12 +5,13 @@
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
-import { createElement as h, useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
+import { inertAttr } from './inert.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
@@ -77,6 +78,10 @@ interface OverviewProps {
   /** Stacked layout: a tall narrow right sidebar — two columns in the top band
    * (branch list + history), commit detail spanning the width below. */
   readonly stacked: boolean
+  /** Stacked sidebar at or below STACKED_TIGHT_BP: the top band's left column
+   * (branch list + status bar) leaves the flex flow and becomes a drawer over
+   * the history, collapsed by default (Panel measures; panel-fit.ts). */
+  readonly tight?: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -117,7 +122,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
@@ -183,6 +188,44 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   useEffect(() => {
     if (!compact && sheetOpen) setSheetOpen(false)
   }, [compact, sheetOpen])
+  // Tight stacked sidebar: the band's left column is a drawer over the history,
+  // collapsed by default so the graph gets the full band width until the branch
+  // list is asked for (Panel passes tight ⇔ width ≤ STACKED_TIGHT_BP).
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerId = useId()
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
+  const drawerToggleRef = useRef<HTMLButtonElement | null>(null)
+  const drawerEverOpened = useRef(false)
+  // Focus enters the drawer when it opens and returns to the toolbar toggle
+  // when it closes, so a keyboard round trip never lands inside the retracted
+  // column (inert) or on the body.
+  useEffect(() => {
+    if (drawerOpen) {
+      drawerEverOpened.current = true
+      drawerCloseRef.current?.focus()
+    } else if (drawerEverOpened.current) {
+      drawerEverOpened.current = false
+      drawerToggleRef.current?.focus()
+    }
+  }, [drawerOpen])
+  // Escape dismisses the drawer — unless a dialog above it owns the keystroke:
+  // the modal's own document listener closes it in the same dispatch, so
+  // without the backdrop guard one Escape would dismiss both layers.
+  useEffect(() => {
+    if (!drawerOpen || !visible) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('.gp-modal-backdrop, .gp-diff-backdrop, .gp-zl-backdrop, .gp-files__fs-backdrop') !== null) return
+      setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [drawerOpen, visible])
+  // Leaving the tight tier re-attaches the column inline; the overlay state
+  // would otherwise outlive the drawer it belongs to.
+  useEffect(() => {
+    if (!tight && drawerOpen) setDrawerOpen(false)
+  }, [tight, drawerOpen])
 
   // When the pull confirm opens, load the incoming fast-forward scope (local
   // diffstat HEAD..@{upstream}) so the dialog can show commits/files/±lines;
@@ -606,6 +649,18 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
   })
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
+  // Tight stacked: the left column no longer occupies the band, so its entry is
+  // the toolbar's leftmost button — the drawer slides out over the history it
+  // used to sit beside.
+  const drawerToggle = tight
+    ? h('button', {
+      key: 'branches', type: 'button', ref: drawerToggleRef,
+      className: 'gp-icon-btn gp-toolbar__branches',
+      title: t('overview.filterBranch'), 'aria-label': t('overview.filterBranch'),
+      'aria-expanded': drawerOpen, 'aria-controls': drawerId,
+      onClick: () => setDrawerOpen((v) => !v),
+    }, h(FilterIcon, { size: 14 }))
+    : null
   // Compact hides the secondary filters behind the more chevron so the first
   // row fits the branch trigger + search; wide and stacked show everything —
   // stacked wraps it into two clean rows (search full width over the filters)
@@ -623,10 +678,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ? [h('div', { key: 'more', id: moreId, className: 'gp-toolbar__more' }, secondaryFilters)]
         : []),
     ]
-    : [searchInputEl, ...secondaryFilters]
+    : [...(drawerToggle === null ? [] : [drawerToggle]), searchInputEl, ...secondaryFilters]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-    h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}`, ref: setSearchEl }, toolbarChildren),
+    h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0
         ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
@@ -710,24 +765,43 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // top band keeps the wide layout's first two columns — the complete branch
   // list (filter + switch + browse) beside the history — and the commit detail
   // spans the full width below. Selecting a row updates the detail in place.
+  // Tight (≤ STACKED_TIGHT_BP): the branch column leaves the flex flow for a
+  // drawer over the history — collapsed by default, so the history gets the
+  // whole band until the toggle, the backdrop or Escape brings the column back.
   if (stacked) {
+    const branchList = h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+      onFilter: (ref) => setRef(ref),
+      switchOptions,
+      onSwitch: openSwitch,
+      onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+      onRetry: reloadTree,
+      t,
+    }, branchTrees))
+    const status = renderStatusBar(snapshot, statusCbs)
+    const leftChildren: JSX.Element[] = [branchList, status]
+    const topChildren: JSX.Element[] = tight
+      ? [
+        // Backdrop first (click the blank band to dismiss), then the drawer
+        // above it, then the history it covers — z-index lives in stacked.ts.
+        ...(drawerOpen ? [h('div', { key: 'backdrop', className: 'gp-drawer-backdrop', onClick: () => setDrawerOpen(false) })] : []),
+        h('div', {
+          key: 'drawer', id: drawerId, className: 'gp-col gp-col--left gp-drawer',
+          'data-open': drawerOpen ? 'true' : 'false',
+          ...inertAttr(!drawerOpen),
+        }, [
+          h('div', { key: 'bar', className: 'gp-drawer__bar' }, [
+            h('span', { key: 'title', className: 'gp-drawer__title' }, t('overview.filterBranch')),
+            h('button', { key: 'close', type: 'button', ref: drawerCloseRef, className: 'gp-icon-btn gp-drawer__close', title: t('common.close'), onClick: () => setDrawerOpen(false) }, h(CloseIcon, { size: 14 })),
+          ]),
+          ...leftChildren,
+        ]),
+        historyCol,
+      ]
+      : [h('div', { key: 'left', className: 'gp-col gp-col--left' }, leftChildren), historyCol]
     return h('div', { className: 'gp-overview gp-overview--stacked' }, [
       fileDiffModal,
       ...opModals,
-      h('div', { key: 'top', className: 'gp-overview__top', style: { flex: `0 0 ${split.pct}%` } }, [
-        h('div', { key: 'left', className: 'gp-col gp-col--left' }, [
-          h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
-            onFilter: (ref) => setRef(ref),
-            switchOptions,
-            onSwitch: openSwitch,
-            onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
-            onRetry: reloadTree,
-            t,
-          }, branchTrees)),
-          renderStatusBar(snapshot, statusCbs),
-        ]),
-        historyCol,
-      ]),
+      h('div', { key: 'top', className: 'gp-overview__top', style: { flex: `0 0 ${split.pct}%` } }, topChildren),
       h('div', {
         key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
         'aria-orientation': 'horizontal',

@@ -247,7 +247,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const snapshot = view.snapshot
     if (key === 'overview') {
       return visited.current.tabs.has('overview')
-        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, t })
+        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, tight: stackedTight, t })
         : null
     }
     if (key === 'changes') {

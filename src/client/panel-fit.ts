@@ -51,7 +51,9 @@ export const SIDEBAR_WIDE_BP = 760
 
 /**
  * Stacked sidebar width (px) at or below which the tab bar drops to the
- * phone's treatment — short tab labels and no font stepper. The full zh
+ * phone's treatment — short tab labels and no font stepper — and the overview's
+ * branch column leaves the top band for a drawer over the history (collapsed by
+ * default; OverviewTab reads it as `tight`). The full zh
  * labels (Git 总览 / 变更记录 / 文件浏览) plus the stepper need ~360px of
  * row before the cells read as words; flex compresses below that without any
  * overflow signal (the row looks crushed, not clipped). 380 sits above the

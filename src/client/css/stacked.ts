@@ -47,9 +47,11 @@ export const CSS = `
 
 /* Overview: top band (branch list | history) over the full-width detail.
  * The band's flex bases are HEIGHT here (the band is a column child of the
- * stacked root); the left column's clamp inside the band is WIDTH. */
+ * stacked root); the left column's clamp inside the band is WIDTH. The band
+ * is positioned: it is the containing block for the tight drawer and its
+ * backdrop that overlay it. */
 .gp-overview--stacked{flex-direction:column}
-.gp-overview__top{display:flex;flex:0 0 55%;min-height:0}
+.gp-overview__top{display:flex;flex:0 0 55%;min-height:0;position:relative}
 .gp-overview--stacked .gp-col--left{flex:0 0 clamp(120px,38%,180px);min-width:0;border-right:1px solid var(--dsw-alias-border-l2)}
 .gp-overview--stacked>.gp-detail{height:auto;flex:1 1 45%;min-height:0}
 
@@ -60,6 +62,26 @@ export const CSS = `
 .gp-toolbar--stacked .gp-search{flex:1 1 100%}
 .gp-toolbar--stacked .gp-select-trigger{flex:1 1 0;min-width:0}
 .gp-toolbar--stacked .gp-icon-btn{flex:none}
+
+/* Tight stacked (≤ STACKED_TIGHT_BP): the band's left column is a drawer over
+ * the history. Collapsed it retracts a full width to the left (clipped by
+ * .gp-body) and goes inert, so the history takes the whole band; the data-open
+ * attribute slides it back in above the backdrop. The backdrop dims just this band — a
+ * click on the blank history counts as the dismissal the spec asks for, while
+ * the detail below stays live. The toolbar's branch toggle opens it (aria-
+ * expanded → aria-controls); its 28px plus the 6px stacked gap is reserved
+ * from the search's full-width basis below, or the input would wrap and strand
+ * the button on a row of its own. */
+.gp-drawer-backdrop{position:absolute;inset:0;z-index:4;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 50%,transparent);animation:gp-fade-in .12s ease}
+.gp-drawer{position:absolute;left:0;top:0;bottom:0;width:clamp(180px,72%,260px);z-index:5;overflow:hidden;background:var(--dsw-alias-bg-layer-2);box-shadow:6px 0 18px rgba(0,0,0,.16);transform:translateX(-100%);transition:transform .18s cubic-bezier(.16,1,.3,1)}
+.gp-drawer[data-open="true"]{transform:none}
+.gp-drawer__bar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
+.gp-drawer__title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-toolbar--stacked.gp-toolbar--drawer .gp-search{flex:1 1 calc(100% - 34px)}
+@media (prefers-reduced-motion:reduce){
+  .gp-drawer{transition:none}
+  .gp-drawer-backdrop{animation:none}
+}
 
 /* Changes: commit editor + change-list band over the diff pane. Two rows
  * for the commit message — stacked already spends less of the band on the
