@@ -28,13 +28,35 @@
  * breaks) — all modern engines ship it.
  */
 import { useLayoutEffect, useState } from 'react'
-import { COMPACT_BP, SHORT_BP, type PanelLayout } from './panel-fit.js'
+import { COMPACT_BP, PHONE_SCREEN_BP, SHORT_BP, type PanelLayout } from './panel-fit.js'
 
 const UNSQUEEZED: PanelLayout = { compact: false, short: false, width: 0 }
+
+/** Whether the DEVICE screen is phone-sized: its shorter edge ≤ PHONE_SCREEN_BP.
+ * Read from `screen`, not the window, so squeezing a desktop window to sidebar
+ * width does not turn it into a phone (and a phone stays one after rotating). */
+function readPhone(): boolean {
+  if (typeof window === 'undefined' || typeof window.screen === 'undefined') return false
+  const shortEdge = Math.min(window.screen.width || 0, window.screen.height || 0)
+  return shortEdge > 0 && shortEdge <= PHONE_SCREEN_BP
+}
 
 /** Measure the panel box; both flags stay false (and width 0) until measured. */
 export function usePanelLayout(el: HTMLElement | null): PanelLayout {
   const [layout, setLayout] = useState<PanelLayout>(UNSQUEEZED)
+  // The screen fact is independent of the panel box; orientation changes can
+  // swap the screen's width/height, so re-read it on resize.
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+    const apply = (): void => setLayout((prev) => (prev.phone === readPhone() ? prev : { ...prev, phone: readPhone() }))
+    apply()
+    window.addEventListener('resize', apply)
+    window.addEventListener('orientationchange', apply)
+    return () => {
+      window.removeEventListener('resize', apply)
+      window.removeEventListener('orientationchange', apply)
+    }
+  }, [])
   useLayoutEffect(() => {
     if (el === null || typeof ResizeObserver === 'undefined') return
     // A collapsed panel (0 wide or tall) has no room in that axis and reports
@@ -47,8 +69,11 @@ export function usePanelLayout(el: HTMLElement | null): PanelLayout {
         compact: width > 0 && width <= COMPACT_BP,
         short: height > 0 && height <= SHORT_BP,
         width,
+        // Carried through: the box measure must not erase the screen fact.
+        phone: prev.phone ?? readPhone(),
       }
-      return prev.compact === next.compact && prev.short === next.short && prev.width === next.width ? prev : next
+      return prev.compact === next.compact && prev.short === next.short
+        && prev.width === next.width && prev.phone === next.phone ? prev : next
     })
     measure()
     const ro = new ResizeObserver(measure)

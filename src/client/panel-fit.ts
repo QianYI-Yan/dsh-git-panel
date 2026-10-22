@@ -10,6 +10,18 @@
 export const COMPACT_BP = 620
 
 /**
+ * Device-screen shorter edge (px) at or below which the device counts as a
+ * phone: both hosts drill in, and the sidebar never takes the stacked
+ * arrangement. Keyed on the SCREEN, not the window or the panel box — a phone
+ * stays drill-in after rotating or after a split narrows the panel, while a
+ * desktop keeps stacked even when its window is squeezed to sidebar width.
+ * 640 sits above the largest phones (430 CSS px portrait, ~930x430 landscape →
+ * shorter edge 430) and below tablet short edges (768), so tablets count as
+ * desktop and keep stacked.
+ */
+export const PHONE_SCREEN_BP = 640
+
+/**
  * Panel height (px) at or below which vertical room is scarce. Only meaningful
  * together with `compact`: the panel must be narrow *and* short before content
  * is traded for room. 520 catches small phones and short windows while leaving
@@ -27,6 +39,11 @@ export interface PanelLayout {
    * stacked→wide switch sits ABOVE COMPACT_BP and needs the number itself —
    * see `SIDEBAR_WIDE_BP`. */
   readonly width: number
+  /** The DEVICE screen is phone-sized (its shorter edge ≤ PHONE_SCREEN_BP).
+   * Measured on `screen`, not the panel box: a phone keeps drill-in no matter
+   * how the panel is sized, while a desktop keeps the stacked arrangement even
+   * after its window is squeezed. Tablets clear the bar and count as desktop. */
+  readonly phone?: boolean
 }
 
 /**
@@ -71,25 +88,28 @@ export type PanelMode = 'wide' | 'stacked' | 'compact'
  * - `wide`: room above COMPACT_BP — the full three-column layout. On a sidebar
  *   that bar is raised to SIDEBAR_WIDE_BP: below it a tall sidebar stays
  *   stacked, because three columns only become comfortable wider than that.
- * - `stacked`: mounted in the right sidebar and narrow — panes keep their
- *   side-by-side order in a top band and stack the third pane below,
- *   spending the sidebar's PC height instead of drilling.
- * - `compact`: narrow and otherwise — the single-column drill-in. Phones stay
- *   here even when tall (a portrait phone panel is not short): the stacked
- *   arrangement is a PC-pointer interaction, while drill-in gives a touch
- *   device the whole width per step.
+ * - `stacked`: mounted in the right sidebar on a DESKTOP-sized screen and
+ *   narrow — panes keep their side-by-side order in a top band and stack the
+ *   third pane below, spending the sidebar's PC height instead of drilling. A
+ *   phone-sized screen never lands here on either host: the two bands and their
+ *   resizers are a desktop arrangement, so a phone drills in exactly like the
+ *   conversation panel. The bar is the device screen (shorter edge), not the
+ *   panel box, so a phone stays drill-in however the panel is sized.
+ * - `compact`: narrow and otherwise — the single-column drill-in. Phones and
+ *   tablets take this on both hosts; a desktop sidebar takes it only when both
+ *   axes are scarce.
  *
  * The host gate keeps every conversation-mounted panel on today's behavior
- * (a split squeezed below COMPACT_BP drills exactly as before). On a sidebar,
- * drill-in is the both-axes case only (≤ COMPACT_BP × ≤ SHORT_BP): merely
- * narrow stacks, and 621–760 stacks even when short — past COMPACT_BP the
- * sidebar is no longer the narrow column drill-in is for, and the two-band
+ * (a split squeezed below COMPACT_BP drills exactly as before). On a desktop
+ * sidebar, drill-in is the both-axes case only (≤ COMPACT_BP × ≤ SHORT_BP):
+ * merely narrow stacks, and 621–760 stacks even when short — past COMPACT_BP
+ * the sidebar is no longer the narrow column drill-in is for, and the two-band
  * split absorbs a short window (the bands share the height). Width 0 (not yet
- * measured) reads as stacked on a sidebar, so the first paint never flashes
- * the three-column layout.
+ * measured) reads as stacked on a desktop sidebar, so the first paint never
+ * flashes the three-column layout.
  */
 export function panelMode(layout: PanelLayout, host: 'conversation' | 'sidebar'): PanelMode {
-  if (host === 'sidebar') {
+  if (host === 'sidebar' && layout.phone !== true) {
     if (layout.compact) return layout.short ? 'compact' : 'stacked'
     return layout.width > SIDEBAR_WIDE_BP ? 'wide' : 'stacked'
   }

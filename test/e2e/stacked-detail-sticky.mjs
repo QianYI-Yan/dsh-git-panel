@@ -43,7 +43,7 @@ const SNAP = {
 }
 
 const browser = await chromium.launch()
-const page = await browser.newPage({ viewport: { width: 560, height: 980 } })
+const page = await browser.newPage({ viewport: { width: 560, height: 980 }, screen: { width: 1440, height: 900 } })
 const errors = []
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
