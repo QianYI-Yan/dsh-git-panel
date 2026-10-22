@@ -150,6 +150,13 @@ const probe = () => page.evaluate(() => {
       focus: document.activeElement === toggle,
       box: box(toggle),
     },
+    // The toggle and the search share one row: measured as overlapping vertical
+    // bands, since a touch device grows the button taller than the input.
+    toggleSharesRowWithSearch: toggle === null || search === null ? null : (() => {
+      const t = toggle.getBoundingClientRect()
+      const s = search.getBoundingClientRect()
+      return t.top < s.bottom && s.top < t.bottom
+    })(),
     controlsResolve: toggle === null ? false : document.getElementById(toggle.getAttribute('aria-controls')) === drawer,
     closeFocus: document.activeElement !== null && document.activeElement.classList.contains('gp-drawer__close'),
     backdrop: backdrop === null ? null : box(backdrop),
@@ -193,11 +200,12 @@ assert.equal(out.tight.drawer.boxShadow, 'none', 'the collapsed drawer paints no
 assert.equal(out.tight.toggle.expanded, 'false', 'the toggle reports the collapsed state')
 assert.equal(out.tight.controlsResolve, true, "the toggle's aria-controls resolves to the drawer")
 assert.ok(Math.abs(out.tight.history.w - out.tight.top.w) <= 2, `the collapsed drawer leaves the history the whole band (${out.tight.history.w} vs ${out.tight.top.w}px)`)
-// The toggle shares the toolbar's first row with the search box: the stacked
-// search basis reserves the button's 28px + 6px gap, or the input's full-width
-// basis would wrap it and strand the button on a row of its own.
-const rowGap = Math.abs((out.tight.toggle.box.y + out.tight.toggle.box.h / 2) - (out.tight.searchBox.y + out.tight.searchBox.h / 2))
-assert.ok(rowGap < 10, `the toggle and the search share the toolbar's first row (${rowGap}px apart)`)
+// The toggle shares the toolbar's first row with the search box. Tested as
+// overlapping vertical bands, not a centre-distance threshold: a wrapped row
+// still sits within a few px of centre once the touch media query makes the
+// button taller than the input, which is exactly how the two-row bug slipped
+// past the old assertion.
+assert.equal(out.tight.toggleSharesRowWithSearch, true, 'the toggle and the search share the toolbar row')
 mkdirSync(REVIEW_DIR, { recursive: true })
 await page.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'branch-drawer-320-collapsed.png') })
 
@@ -292,3 +300,74 @@ assert.equal(out.bootTight.toggle.expanded, 'false', 'the toggle reports the col
 assert.deepEqual(errors, [], 'no console errors')
 console.log('e2e/stacked-branch-drawer: all assertions passed', JSON.stringify(out))
 await browser.close()
+
+// ── Touch device (a phone opens the sidebar): `(hover:none)` grows icon buttons
+//    to 34px, so the toolbar row must still hold the toggle and the search. A
+//    reserved-px budget sized to the desktop 28px button would wrap here. ──
+const touchBrowser = await chromium.launch()
+const touchPage = await touchBrowser.newPage({ viewport: { width: 360, height: 900 }, hasTouch: true })
+await touchPage.goto(harness)
+await touchPage.addStyleTag({ content: THEME })
+await touchPage.addScriptTag({ path: resolve(E2E, 'mock-rpc.mjs') })
+await touchPage.addScriptTag({ path: resolve(E2E, 'client.js') })
+await touchPage.evaluate(async ({ snap, w }) => {
+  const { connection } = window.createGitPanelMock(snap)
+  const ctl = { registered: {} }
+  const settings = {
+    view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value: { showInputPill: true, placement: 'sidebar' } }] },
+    status: 'ready',
+  }
+  const configForms = {
+    describe: () => ({ getSnapshot: () => settings, subscribe: () => () => {}, ensure: async () => {} }),
+    get: () => ({
+      getSnapshot: () => ({ status: 'ready', value: { showInputPill: true, placement: 'sidebar' }, revision: 0, writable: true }),
+      subscribe: () => () => {}, set: async () => true,
+    }),
+  }
+  const dictStore = {}
+  const ctx = {
+    get: (key) => ({ connection, configForms, sidebarRightTabs: { register: () => () => {} }, sidebarRight: { openTab: () => {} } })[key],
+    effect: (cb) => { try { cb() } catch { /* ignore */ } },
+    on: () => () => {},
+    inject: (_d, cb) => cb(ctx),
+    slots: {
+      inject: (_n, p) => p(),
+      register: (reg, component) => { ctl.registered[reg.key === undefined ? reg.name : `${reg.name}::${reg.key}`] = { reg, component }; return () => {} },
+    },
+    locale: {
+      register: (ns, dict) => { dictStore[ns] = dict },
+      bind: (ns) => (key, params) => {
+        const text = dictStore[ns]?.zh?.[key] ?? key
+        return params === undefined ? text : text.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m))
+      },
+    },
+  }
+  window.__getLoaded().apply(ctx)
+  await new Promise((r) => setTimeout(r, 400))
+  const entry = ctl.registered['sidebar.right.pane.tab::@xbzbing/dsh-git-panel']
+  const host = document.getElementById('panel')
+  host.style.width = `${w}px`
+  host.style.height = '900px'
+  window.ReactDOM.createRoot(host).render(entry.component({
+    sessionId: 'sess-1', useTabInfo: () => ({ tab: { visible: true } }),
+  }))
+  await new Promise((r) => setTimeout(r, 800))
+}, { snap: SNAP, w: 360 })
+const touch = await touchPage.evaluate(() => {
+  const toggle = document.querySelector('.gp-toolbar__branches')
+  const search = document.querySelector('.gp-search')
+  if (toggle === null || search === null) return null
+  const t = toggle.getBoundingClientRect()
+  const s = search.getBoundingClientRect()
+  return {
+    buttonW: Math.round(t.width),
+    sameRow: t.top < s.bottom && s.top < t.bottom,
+    toolbarRows: new Set([...toggle.closest('.gp-toolbar').children]
+      .map((n) => Math.round(n.getBoundingClientRect().top))).size,
+  }
+})
+assert.ok(touch !== null, 'the tight toolbar renders on a touch device')
+assert.equal(touch?.buttonW, 34, 'the touch media query grows the toggle to 34px (the size the old budget ignored)')
+assert.equal(touch?.sameRow, true, 'on a touch device the toggle still shares the search row')
+await touchPage.locator('.gp-toolbar').screenshot({ path: resolve(REVIEW_DIR, 'branch-drawer-touch-toolbar.png') })
+await touchBrowser.close()

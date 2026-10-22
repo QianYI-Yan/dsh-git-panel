@@ -668,6 +668,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // row fits the branch trigger + search; wide and stacked show everything —
   // stacked wraps it into two clean rows (search full width over the filters)
   // via its toolbar class rather than hiding anything.
+  //
+  // Tight stacked keeps the drawer toggle and the search on one row. They share
+  // a nowrap row instead of relying on a `calc(100% - 34px)` budget: the touch
+  // media query grows icon buttons to 34px, so any arithmetic that assumes the
+  // desktop 28px + gap strands the search on a row of its own.
   const toolbarChildren: JSX.Element[] = compact
     ? [
       h('button', {
@@ -681,7 +686,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ? [h('div', { key: 'more', id: moreId, className: 'gp-toolbar__more' }, secondaryFilters)]
         : []),
     ]
-    : [...(drawerToggle === null ? [] : [drawerToggle]), searchInputEl, ...secondaryFilters]
+    : [
+      ...(drawerToggle === null
+        ? [searchInputEl]
+        : [h('div', { key: 'row', className: 'gp-toolbar__row' }, [drawerToggle, searchInputEl])]),
+      ...secondaryFilters,
+    ]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),

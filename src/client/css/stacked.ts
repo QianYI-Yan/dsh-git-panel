@@ -69,15 +69,17 @@ export const CSS = `
  * attribute slides it back in above the backdrop. The backdrop dims just this band — a
  * click on the blank history counts as the dismissal the spec asks for, while
  * the detail below stays live. The toolbar's branch toggle opens it (aria-
- * expanded → aria-controls); its 28px plus the 6px stacked gap is reserved
- * from the search's full-width basis below, or the input would wrap and strand
- * the button on a row of its own. */
+ * expanded → aria-controls); the toggle and the search share one nowrap row
+ * below, so the row's width comes from the layout rather than from a reserved
+ * px budget — the touch media query grows icon buttons to 34px, and any
+ * "100% minus the desktop button + gap" arithmetic would strand the search. */
 .gp-drawer-backdrop{position:absolute;inset:0;z-index:4;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 50%,transparent);animation:gp-fade-in .12s ease}
 .gp-drawer{position:absolute;left:0;top:0;bottom:0;width:clamp(180px,72%,260px);z-index:5;overflow:hidden;background:var(--dsw-alias-bg-layer-2);transform:translateX(-100%);transition:transform .18s cubic-bezier(.16,1,.3,1)}
 .gp-drawer[data-open="true"]{transform:none}
 .gp-drawer__bar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-drawer__title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-toolbar--stacked.gp-toolbar--drawer .gp-search{flex:1 1 calc(100% - 34px)}
+.gp-toolbar--drawer .gp-toolbar__row{display:flex;align-items:center;gap:6px;flex:1 1 100%;min-width:0}
+.gp-toolbar--drawer .gp-toolbar__row .gp-search{flex:1 1 auto;min-width:0}
 @media (prefers-reduced-motion:reduce){
   .gp-drawer{transition:none}
   .gp-drawer-backdrop{animation:none}
