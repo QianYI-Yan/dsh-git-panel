@@ -935,7 +935,7 @@ const out = await page.evaluate(async (snap) => {
   result.emptyDirHintShown = Boolean(emptyHint)
   result.emptyDirHintIndented = Boolean(emptyHint && cacheRow)
     && parseInt(getComputedStyle(emptyHint).paddingLeft) > parseInt(getComputedStyle(cacheRow).paddingLeft)
-  result.emptyDirAriaExpanded = cacheRow?.getAttribute('aria-expanded') === 'true'
+  result.dirRowAriaExpanded = cacheRow?.getAttribute('aria-expanded') === 'true'
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
@@ -1754,6 +1754,12 @@ const out = await page.evaluate(async (snap) => {
     const btn = document.querySelector('.gp-files__copy-icon')
     return btn === null ? null : { copied: btn.classList.contains('gp-files__copy-path--copied'), check: btn.querySelector('svg') !== null }
   })()
+  // The confirmation must also reach assistive tech: the icon swaps glyph and
+  // colour, but only the live region says which outcome happened.
+  result.contentCopyLive = (() => {
+    const live = document.querySelector('.gp-files__copy-icon .gp-copy-live')
+    return live === null ? null : { text: live.textContent, aria: live.getAttribute('aria-live') }
+  })()
   await new Promise((r) => setTimeout(r, 1750))
   result.contentCopyReverted = (() => {
     const btn = document.querySelector('.gp-files__copy-icon')
@@ -1968,17 +1974,51 @@ const copyTip = await (async () => {
     const el = document.querySelector('div.gp-tip.gp-tip--sb')
     const btn = document.querySelector('.gp-files__copy-icon')
     if (el === null || btn === null) return null
+    const t = el.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
     return {
       text: el.textContent,
       onBody: el.parentElement === document.body,
       nativeTitle: btn.getAttribute('title'),
+      below: t.top >= b.bottom - 1,
     }
   })
-  // A press/move away dismisses the bubble (no stick after a tap).
+  // A pointer that leaves the control takes the hover tip with it.
   await page.mouse.move(4, 4)
   await page.waitForTimeout(160)
+  const hoverDismissed = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
+  // A press on the control dismisses the bubble it raised (the onClick path).
+  await page.locator('.gp-files__copy-icon').hover()
+  await page.waitForTimeout(200)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+    document.querySelector('.gp-files__copy-icon')?.click()
+  })
+  await page.waitForTimeout(80)
+  const hiddenOnClick = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
+  // Re-hover inside the 1.6 s confirmation window: the tip must report the
+  // outcome, since the live region is screen-reader only.
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(60)
+  await page.locator('.gp-files__copy-icon').hover()
+  await page.waitForTimeout(260)
+  const feedbackTip = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb')?.textContent ?? null)
+  // Let the confirmation expire, then raise the tip from the keyboard: focus is
+  // the compensation for having no native title to fall back on.
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(1400)
+  await page.evaluate(() => document.querySelector('.gp-files__copy-icon')?.focus())
+  await page.waitForTimeout(260)
+  const focused = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb')?.textContent ?? null)
+  // A focus-raised tip ends on blur or a press elsewhere (the documented
+  // dismissal for a bubble the pointer does not own).
+  await page.evaluate(() => {
+    document.querySelector('.gp-files__copy-icon')?.blur()
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  })
+  await page.waitForTimeout(160)
   const dismissed = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
-  return tip === null ? null : { ...tip, dismissed }
+  return tip === null ? null : { ...tip, hoverDismissed, hiddenOnClick, feedbackTip, focused, dismissed }
 })()
 out.copyTip = copyTip
 

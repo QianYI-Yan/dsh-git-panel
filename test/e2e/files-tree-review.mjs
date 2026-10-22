@@ -35,6 +35,9 @@ const SNAP = {
 const TREE = {
   '': [['docs', true], ['src', true], ['README.md', false], ['a.txt', false]],
   docs: [['assets', true], ['local', true]],
+  // Declared empty on purpose: the review shot shows the empty-directory hint
+  // under an expanded folder, so the folder must not borrow the fallback.
+  'docs/assets': [],
   'docs/local': [['bak', true], ['banner', true], ['review', true], ['tasks', true]],
   src: [['index.ts', false]],
 }
@@ -129,7 +132,11 @@ for (const width of [390, 304]) {
 await page.evaluate((w) => { window.__panelHost.style.width = w + 'px' }, 390)
 await page.waitForTimeout(250)
 await page.evaluate(async () => { await window.__expand('docs'); await window.__expand('assets') })
-report.emptyDir = await page.evaluate(() => document.querySelector('.gp-files__tree .gp-tree-row--muted')?.textContent ?? null)
+// Match on the hint's own text, not "the first muted row": a loading row would
+// otherwise be recorded (and screenshotted) as if it were the empty hint.
+report.emptyDir = await page.evaluate(() => [...document.querySelectorAll('.gp-files__tree .gp-tree-row--muted')]
+  .map((r) => (r.textContent || '').trim())
+  .find((text) => text === 'files.emptyDir') ?? null)
 await page.locator('.gp-files__tree-wrap').screenshot({ path: resolve(OUT, 'files-tree-empty-dir.png') })
 
 console.log(JSON.stringify(report, null, 2))

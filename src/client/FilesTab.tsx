@@ -125,6 +125,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // (fast + themed, like the toolbar controls) instead of a native title —
   // the two stacked when both were present.
   const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'below' })
+  // A tip is anchored where its button stood when hovered, so a selection change
+  // (the button can even be swapped out for the next file's) would strand the
+  // bubble at the old spot; drop it instead of re-measuring.
+  useEffect(() => { hideTip() }, [selected, hideTip])
   const [showProps, setShowProps] = useState(false)
   // The fullscreen reader restyles this tab's own preview in place instead of
   // rendering a second copy: a rendered HTML page keeps its document (a new
@@ -510,14 +514,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     nameClass: 'gp-files__path-name',
     disabled: selected === null,
   })
-  // Icon-only: the label rides aria-label + the hover tip, the confirmation is
-  // the check glyph plus a live region (a text label cost the path its room).
+  // Icon-only: the label rides aria-label, the outcome rides the hover tip (the
+  // live region is screen-reader only, so a sighted user needs the tip to say
+  // which of the two happened) and the check glyph on success.
   const copyContentButton = canCopyContent(file)
     ? h('button', {
       key: 'copy-content', type: 'button',
       className: `gp-files__copy-path gp-files__copy-icon${contentCopy.feedback === 'copied' ? ' gp-files__copy-path--copied' : contentCopy.feedback === 'error' ? ' gp-files__copy-path--error' : ''}`,
       'aria-label': t('files.copyContent'),
-      ...tipProps(t('files.copyContent')),
+      ...tipProps(t(contentCopy.feedback === 'copied' ? 'files.contentCopied' : contentCopy.feedback === 'error' ? 'files.contentCopyFailed' : 'files.copyContent')),
       onClick: () => { hideTip(); copyContent() },
     }, [
       contentCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
@@ -617,8 +622,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
     heavyNotice,
-    // Hover tip for the copy-content icon; portaled, so it lives with the bar
-    // that can raise it (the compact bar carries no copy button).
+    // Hover tip for the copy-content icon, next to the only bar that can raise
+    // it (the compact bar carries no copy button); portaled, so it is not
+    // clipped here.
     tipNode,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
@@ -801,7 +807,8 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
   }
   // An expanded directory that lists nothing says so, one level under the dir
   // — flipping only the folder glyph is the sole sign otherwise. The root's
-  // empty listing stays blank (its loading state is already a centered pane).
+  // empty listing stays blank (its loading state is already a centered pane);
+  // a truncated listing always carries entries, so it never reaches here.
   if (loaded.entries.length === 0 && !loaded.truncated) {
     if (depth === 0) return []
     return [h('div', { key: `empty${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.emptyDir'))]

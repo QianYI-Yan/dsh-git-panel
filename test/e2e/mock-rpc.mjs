@@ -145,6 +145,11 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             if (q.path === 'vendored') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'vendored', truncated: false, entries: [
               { name: 'note.txt', dir: false, size: 10 },
             ] } } }
+            // `cache` is the fixture's empty directory: the empty-listing hint
+            // is asserted on it, so its emptiness is declared here instead of
+            // riding the fallback (a future entry would silently change what
+            // that assertion means).
+            if (q.path === 'cache') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'cache', truncated: false, entries: [] } } }
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
           }
           if (q.kind === 'file-content') {
