@@ -174,6 +174,25 @@ const out = await page.evaluate(async (snap) => {
   const moreHeights = [...(moreGroup?.querySelectorAll('.gp-select-trigger, button[title="overview.fetch"]') ?? [])]
     .map((n) => Math.round(n.getBoundingClientRect().height))
   result.ovMoreHeights = moreHeights.length === 3 && moreHeights.every((v) => v === 30)
+  // The author / since pickers arrive wrapped by the platform's menu root, which
+  // stretches inside a flex row — the harness stub does not, so the stretch is
+  // emulated to keep this assertion honest: the group must stay content-sized,
+  // flushed left, one even gap apart.
+  result.ovMoreFlushLeft = await (async () => {
+    if (moreGroup === null) return null
+    const style = document.createElement('style')
+    style.textContent = '.gp-toolbar__more>.dsh-menu-root{flex:1 1 0}'
+    document.head.appendChild(style)
+    await new Promise((r) => setTimeout(r, 150))
+    const box = moreGroup.getBoundingClientRect()
+    const kids = [...moreGroup.children].map((n) => n.getBoundingClientRect())
+    const gaps = kids.slice(1).map((k, i) => Math.round(k.left - (kids[i].left + kids[i].width)))
+    const flush = Math.round(kids[0].left - box.left)
+    const contentSized = kids.length === 3 && kids.every((k) => k.width < box.width / 2.5)
+    style.remove()
+    await new Promise((r) => setTimeout(r, 150))
+    return flush === 0 && gaps.length === 2 && gaps.every((g) => g === 8) && contentSized
+  })()
   result.ovfToolbar = rootFits(tb)
   tbToggle?.click()
   await new Promise((r) => setTimeout(r, 200))
@@ -617,6 +636,7 @@ try {
   assert.equal(out.ovMoreAriaControlsExpanded, true, 'expanded: the toggle controls the revealed group')
   assert.equal(out.ovMoreSecondRow, true, 'the revealed filters take a second row below the toggle')
   assert.equal(out.ovMoreHeights, true, 'the revealed controls match the first row height')
+  assert.equal(out.ovMoreFlushLeft, true, 'the revealed filters stay content-sized and flushed left, one even gap apart')
   assert.equal(out.ovfToolbar, true, 'the compact toolbar never overflows horizontally')
   assert.equal(out.ovMoreRecollapsed, true, 'the chevron folds the second row again')
   assert.equal(out.flTreeShown, true, 'files shows the tree full width in compact')

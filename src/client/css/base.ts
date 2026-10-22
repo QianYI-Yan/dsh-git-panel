@@ -81,7 +81,13 @@ export const CSS = `
 .gp-toolbar__chev{display:inline-flex;transition:transform .12s ease}
 .gp-toolbar__chev--up{transform:rotate(180deg)}
 .gp-toolbar__more{flex:1 1 100%;display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
-.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-toolbar__more .gp-filter{flex:1 1 0;min-width:0;max-width:calc(50% - 23px)}
+/* Compact secondary filters: the author / since pickers and the refresh button
+ * sit as one content-sized group flushed left, 8px apart. The pickers arrive
+ * wrapped by the platform menu root, which stretches when the row is a flex
+ * container — a stretched picker keeps its label left-aligned and leaves the
+ * rest of the box empty, so the gaps read uneven. */
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-toolbar__more>*{flex:0 0 auto}
+.gp-panel[data-layout="compact"] .gp-history .gp-toolbar .gp-toolbar__more{justify-content:flex-start}
 .gp-changes__toolbar .gp-icon-btn:disabled{opacity:.4;cursor:default}
 .gp-changes__toolbar .gp-icon-btn:hover:disabled{background:transparent}
 .gp-changes__toolbar .gp-icon-btn:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
