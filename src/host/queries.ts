@@ -9,7 +9,7 @@ import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 import type { DirEntry, GitBranch, GitFileStat, GitQueryRequest, GitQueryResponse, GraphCommit, ModelCatalogFailure, ModelCatalogGroup, ModelCatalogModel, StashEntry } from './types.js'
-import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from './types.js'
+import { imageMimeFor, isHistoryHashSearch, isHistoryFiltered, DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, SVG_MIME } from './types.js'
 
 const GRAPH_FORMAT = '--format=%H%x1f%h%x1f%P%x1f%an%x1f%aI%x1f%D%x1f%s%x1e'
 
@@ -606,9 +606,10 @@ async function ignoredEntries(deps: SnapshotDeps, root: string, parent: string, 
 /**
  * Read one working-tree file for preview. Images (by extension) return a base64
  * data URL; otherwise a UTF-8/binary probe decides between a text body and a
- * bare binary marker. Over the byte cap (text reads floor at the copy
- * envelope) → `tooLarge`. Path is validated and confirmed inside the root
- * (symlink-guarded) before any read.
+ * bare binary marker. Text reads floor at the copy envelope; an SVG — markup as
+ * well as picture — uses the same floor and above the image cap is served as
+ * source instead of a data URL. Over the byte cap → `tooLarge`. Path is
+ * validated and confirmed inside the root (symlink-guarded) before any read.
  */
 async function queryFileContent(
   deps: SnapshotDeps,
@@ -630,10 +631,11 @@ async function queryFileContent(
     return { ok: false, error: { code: isMissingPath(error) ? 'file-not-found' : 'git-error', message: error instanceof Error ? error.message : 'stat failed' } }
   }
   const mime = imageMimeFor(q.path)
-  // Non-image reads floor at the copy envelope: every document the copy
-  // button may copy must load even when the profile's stdout cap is smaller;
-  // images keep config.maxBytes because they are never copyable content.
-  const cap = mime !== null ? config.maxBytes : Math.max(config.maxBytes, FILE_COPY_MAX_BYTES)
+  // An SVG is markup, so it is copyable content like any document: it floors at
+  // the copy envelope too, and only the data URL is held to config.maxBytes.
+  // Every other image keeps config.maxBytes as its whole cap.
+  const isSvg = mime === SVG_MIME
+  const cap = mime === null || isSvg ? Math.max(config.maxBytes, FILE_COPY_MAX_BYTES) : config.maxBytes
   // Same over-cap response whether the size trips at stat or after read (the
   // post-read length guards a grow-during-read race). size/mtimeMs ride along
   // on every variant (incl. tooLarge) — the properties dialog needs them and
@@ -649,11 +651,30 @@ async function queryFileContent(
   }
   if (buf.length > cap) return tooLarge
   if (mime !== null) {
-    return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:${mime};base64,${buf.toString('base64')}`, ...statFields } }
+    // An SVG is a picture and also markup, so this one read answers both faces
+    // of its preview; bytes that are not text leave it image-only.
+    const source = isSvg && !isBinaryBuffer(buf) ? buf.toString('utf8') : undefined
+    // Past the image cap a picture is not worth base64-inlining into the
+    // response — but an SVG's markup is still readable and copyable, so it
+    // degrades to the source face instead of failing the preview outright.
+    if (isSvg && buf.length > config.maxBytes) {
+      if (source === undefined) return tooLarge
+      return { ok: true, value: {
+        kind: 'file-content', path: q.path, variant: 'text',
+        content: source, lines: countLines(source), absolutePath: file,
+        ...statFields,
+      } }
+    }
+    return { ok: true, value: {
+      kind: 'file-content', path: q.path, variant: 'image',
+      dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+      ...(source === undefined ? {} : { content: source, lines: countLines(source) }),
+      ...statFields,
+    } }
   }
   if (isBinaryBuffer(buf)) return { ok: true, value: { kind: 'file-content', path: q.path, variant: 'binary', ...statFields } }
   const content = buf.toString('utf8')
-  const lines = content === '' ? 0 : content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
+  const lines = countLines(content)
   // `absolutePath` feeds the client's Markdown image resolver: relative image
   // destinations join beside the document, so the document's own absolute
   // path is the one fact the browser cannot derive from the relative tree.

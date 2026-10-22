@@ -51,8 +51,10 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-detail__summary--inline{margin:0 0 0 auto;padding:0;border-bottom:0;min-width:0;overflow:hidden}
 .gp-panel[data-layout="compact"] .gp-detail__summary--inline>span{white-space:nowrap}
 
-/* Overview: single column, each pane fills width + height. */
-.gp-overview--compact{flex-direction:column}
+/* Overview: single column, each pane fills width + height. position:relative
+ * makes the root the containing block for the phone's branch drawer (see
+ * css/stacked.ts); nothing else inside is absolutely positioned. */
+.gp-overview--compact{flex-direction:column;position:relative}
 .gp-overview--compact .gp-col{width:100%}
 /* The drill pane grows; the footer status bar keeps its own height below it. */
 .gp-overview--compact>.gp-col{flex:1 1 auto;min-height:0;height:auto}
@@ -105,6 +107,13 @@ export const CSS = `
   .gp-file-row__actions{visibility:visible}
   .gp-icon-btn{width:34px;height:34px}
   .gp-btn{height:36px}
+  /* The diff toolbar and the dialog bar size their icon controls with a
+   * two-class selector, which outranks the plain .gp-icon-btn / .gp-btn rules
+   * above no matter which module comes later. Restating the touch size at that
+   * specificity is what keeps those controls tappable; without it they stay at
+   * the pointer-density box (28x25) on every touch device. */
+  .gp-diff__toolbar .gp-icon-btn,.gp-modal__bar .gp-icon-btn{width:34px;height:34px}
+  .gp-modal__bar .gp-files__fs-screen{height:36px}
   .gp-tree-row{padding-top:7px;padding-bottom:7px}
   .gp-branch-row{padding-top:8px;padding-bottom:8px}
   .gp-branch-row__switch{display:inline-block;height:26px;line-height:24px;padding:0 10px;margin-block:-4px}

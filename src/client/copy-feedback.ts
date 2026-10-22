@@ -4,11 +4,13 @@ import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 export type CopyFeedback = 'idle' | 'copied' | 'error'
 
 /** Click-to-copy state for a path control (the two diff-header paths, the
- * changes toolbar, the file-properties rows): the write outcome is carried by
- * the caller's `aria-label`, feedback-period `title` and visually-hidden live
- * region for 1.6 s — the visible path text itself never changes. Switching
- * paths clears the state at once and drops a write that resolves late, so
- * feedback can never repaint over a file the user has since moved to.
+ * changes toolbar, the file-properties rows, the files toolbar's content icon):
+ * the write outcome is carried by the caller's `aria-label`, a visually-hidden
+ * live region for 1.6 s, and whichever visible hint the caller chooses (a
+ * feedback-period `title` for text controls, the hover tip for icon-only ones)
+ * — the visible path text itself never changes. Switching paths clears the
+ * state at once and drops a write that resolves late, so feedback can never
+ * repaint over a file the user has since moved to.
  *
  * `copy()` writes the watched path; `copy(text)` writes something else that
  * still identifies the same entry (the properties dialog copies the absolute

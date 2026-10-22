@@ -255,6 +255,60 @@ async function phoneScenario() {
   return { out, roomy, backToCramped, errors }
 }
 
+/**
+ * A tall phone panel: tapping the field opens the keyboard, which takes the
+ * panel box into cramped territory. The fold must not fire then: it unmounts
+ * the field the caret is in, and a removed field takes the keyboard down with
+ * it, so the panel flickers between the editor and the bar and nothing can be
+ * typed. Folding stays an explicit action.
+ */
+async function keyboardShrinkScenario() {
+  const { page, errors } = await openPanel(SNAP, { viewport: PHONE, width: PHONE.width, height: ROOMY_PANEL })
+  const before = await page.evaluate(() => ({
+    editor: document.querySelector('.gp-commitbox') !== null,
+    bar: document.querySelector('.gp-commitbar') !== null,
+  }))
+  await page.click('.gp-commitbox__msg')
+  const focused = await page.evaluate(() => document.activeElement === document.querySelector('.gp-commitbox__msg'))
+  // The keyboard opening: the panel box gives up the height the keyboard takes.
+  await page.evaluate((h) => { document.getElementById('panel').style.height = `${h}px` }, CRAMPED_PANEL)
+  await page.waitForTimeout(350)
+  const shrunk = await page.evaluate(() => ({
+    editor: document.querySelector('.gp-commitbox') !== null,
+    bar: document.querySelector('.gp-commitbar') !== null,
+    focused: document.activeElement === document.querySelector('.gp-commitbox__msg'),
+    cramped: document.querySelector('.gp-stats') !== null
+      && document.querySelector('.gp-stats .gp-stats__times') === null,
+  }))
+  await page.keyboard.type('feat: typed with the keyboard up')
+  const typed = await page.evaluate(() => document.querySelector('.gp-commitbox__msg')?.value ?? null)
+  // The fold control is still the explicit way out, and it takes the field away.
+  await page.evaluate(() => (document.querySelector('.gp-commitbox__fold'))?.click())
+  await page.waitForTimeout(200)
+  const folded = await page.evaluate(() => ({
+    bar: document.querySelector('.gp-commitbar') !== null,
+    editor: document.querySelector('.gp-commitbox') !== null,
+    draft: document.querySelector('.gp-commitbar__draft')?.textContent ?? null,
+  }))
+  // Reopened from the bar, a press outside folds it again and releases the caret
+  // (on a phone that is what brings the keyboard down).
+  await page.click('.gp-commitbar__open')
+  await page.waitForTimeout(150)
+  const reopened = await page.evaluate(() => document.activeElement === document.querySelector('.gp-commitbox__msg'))
+  await page.evaluate(() => {
+    document.querySelector('.gp-changes__list')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  })
+  await page.waitForTimeout(250)
+  const outsideFold = await page.evaluate(() => ({
+    bar: document.querySelector('.gp-commitbar') !== null,
+    editor: document.querySelector('.gp-commitbox') !== null,
+    draft: document.querySelector('.gp-commitbar__draft')?.textContent ?? null,
+    focused: document.activeElement === document.querySelector('.gp-commitbox__msg'),
+  }))
+  await page.close()
+  return { before, focused, shrunk, typed, folded, reopened, outsideFold, errors }
+}
+
 /** The AI entries follow the setting on both layouts. */
 async function aiSettingScenario() {
   const off = await openPanel({ ...SNAP, suggestEnabled: false }, { viewport: PHONE, width: PHONE.width, height: CRAMPED_PANEL })
@@ -278,6 +332,7 @@ async function aiSettingScenario() {
 
 const squeezed = await squeezedDesktopScenario()
 const phone = await phoneScenario()
+const keyboard = await keyboardShrinkScenario()
 const setting = await aiSettingScenario()
 await browser.close()
 
@@ -327,6 +382,20 @@ try {
     'regaining height unfolds the editor without a remount, however narrow the panel stays')
   assert.deepEqual(phone.backToCramped, { bar: true, editor: false, draft: 'feat: suggested' },
     'losing height again folds it back with the draft intact')
+
+  assert.equal(keyboard.errors.length, 0, 'no console errors: ' + JSON.stringify(keyboard.errors))
+  assert.deepEqual(keyboard.before, { editor: true, bar: false }, 'a tall phone panel opens with the full commit editor')
+  assert.equal(keyboard.focused, true, 'tapping the field puts the caret in it (the keyboard opens)')
+  assert.equal(keyboard.shrunk.cramped, true, 'the shrunk panel really is cramped (the timestamps drop)')
+  assert.equal(keyboard.shrunk.editor, true, 'a keyboard-shrunk panel keeps the editor the caret is in')
+  assert.equal(keyboard.shrunk.bar, false, 'the shrunk panel does not fold the editor away')
+  assert.equal(keyboard.shrunk.focused, true, 'the caret stays in the field, so the keyboard stays up')
+  assert.equal(keyboard.typed, 'feat: typed with the keyboard up', 'typing lands in the field after the shrink')
+  assert.deepEqual(keyboard.folded, { bar: true, editor: false, draft: 'feat: typed with the keyboard up' },
+    'the fold control still folds the editor explicitly, with the draft on the bar')
+  assert.equal(keyboard.reopened, true, 'the bar reopens the editor with the caret in it')
+  assert.deepEqual(keyboard.outsideFold, { bar: true, editor: false, draft: 'feat: typed with the keyboard up', focused: false },
+    'a press outside folds the editor and releases the caret')
 
   assert.equal(setting.off.errors.length, 0, 'no console errors: ' + JSON.stringify(setting.off.errors))
   assert.deepEqual(setting.off.out, { bar: true, ai: false, commit: true },

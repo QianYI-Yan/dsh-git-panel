@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from 'playwright-core'
+import { chromium, devices } from 'playwright-core'
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const SCREENSHOT = resolve(DIR, '../../docs/local/review/changes-toolbar.png')
@@ -51,8 +51,10 @@ async function flush(page) {
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
 }
 
-async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewportWidth = 1440 } = {}) {
-  const page = await browser.newPage({ viewport: { width: viewportWidth, height: 764 } })
+async function openPanel(snapshot, { panelWidth = 1000, leftWidth = 380, viewportWidth = 1440, touch = false } = {}) {
+  // A touch page emulates the phone: the tap sequence it produces (mouse enter
+  // without a leave) is what the hints below have to survive.
+  const page = await browser.newPage(touch ? { ...devices['Pixel 5'] } : { viewport: { width: viewportWidth, height: 764 } })
   page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
   page.on('pageerror', (error) => consoleErrors.push('PAGEERROR ' + error.message))
   await page.goto(new URL('./harness.html', import.meta.url).href)
@@ -567,6 +569,64 @@ async function disabledTipScenario() {
   await page.close()
 }
 
+/**
+ * A finger raises no hint, and never leaves one behind. A tap synthesises a
+ * mouse *enter* but no matching leave — the virtual cursor stays where the
+ * finger was — and it focuses the control too, so both halves of the shared
+ * hint have to stay shut. Press-driven hints are the exception: the two-step
+ * discard still raises its own confirmation on a tap.
+ */
+async function touchHintScenario() {
+  const clean = await openPanel(CLEAN, { touch: true })
+  // A finger press, then focus: the tap's own focus half, reproduced without
+  // its click (a click can disable the control, which hides any bubble and
+  // would mask the regression).
+  await clean.locator('.gp-stats').tap()
+  const focused = await clean.evaluate(() => {
+    const button = document.querySelector('.gp-changes__refresh')
+    button.focus()
+    return document.activeElement === button
+  })
+  await clean.waitForTimeout(400)
+  const afterFocus = await clean.locator('.gp-tip').count()
+  // The mouse half is untouched: hovering still explains the same control.
+  await clean.locator('.gp-changes__refresh').hover()
+  await clean.waitForFunction(() => document.querySelector('.gp-tip')?.textContent === '刷新当前仓库状态')
+  const afterHover = await clean.locator('.gp-tip').textContent()
+  // An empty list must not scroll. The empty pane is full-height AND border-box,
+  // so its 24px padding sits inside that height; as content-box it added 48px
+  // past the list's content box and a phone-sized panel showed a scrollbar for a
+  // pane with nothing in it.
+  await clean.evaluate(() => { document.getElementById('panel').style.width = '364px' })
+  await clean.waitForTimeout(300)
+  const emptyScroll = await clean.evaluate(() => {
+    const list = document.querySelector('.gp-changes__list')
+    if (list === null) return null
+    return {
+      layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
+      clientH: list.clientHeight,
+      scrollH: list.scrollHeight,
+      paneH: Math.round(document.querySelector('.gp-changes__list .gp-empty')?.getBoundingClientRect().height ?? -1),
+    }
+  })
+  await clean.close()
+
+  const dirty = await openPanel({ ...DIRTY, ahead: 5 }, { touch: true })
+  const discard = dirty.locator('.gp-file-row', { hasText: 'a.txt' })
+    .locator('button[aria-label="放弃更改"], button[aria-label="再次点击以确认放弃"]')
+  await discard.tap()
+  await dirty.waitForFunction(() => document.querySelector('.gp-tip') !== null)
+  const armed = await dirty.evaluate(() => ({
+    tip: document.querySelector('.gp-tip')?.textContent ?? null,
+    armedAria: document.querySelector('.gp-file-row button[aria-label="再次点击以确认放弃"]') !== null,
+  }))
+  await dirty.locator('.gp-stats').tap()
+  await dirty.waitForTimeout(250)
+  const dismissed = await dirty.locator('.gp-tip').count()
+  await dirty.close()
+  return { focused, afterFocus, afterHover, emptyScroll, ...armed, dismissed }
+}
+
 try {
   await geometryScenario()
   await tipsAndStageScenario()
@@ -576,6 +636,17 @@ try {
   await refreshScenario()
   await pushScenario()
   await pushFailureAndStaleScenario()
+  const touch = await touchHintScenario()
+  assert.equal(touch.focused, true, 'the finger press leaves focus on the control, so the focus half is exercised')
+  assert.equal(touch.afterFocus, 0, 'a touch press never raises a hover hint')
+  assert.equal(touch.afterHover, '刷新当前仓库状态', 'the mouse half still explains controls on a touch device')
+  // Empty pane, phone width: nothing to scroll, so no scrollbar.
+  assert.equal(touch.emptyScroll?.layout, 'compact', 'the empty-list check runs in the compact layout')
+  assert.equal(touch.emptyScroll?.scrollH, touch.emptyScroll?.clientH, `an empty changes list does not scroll (${touch.emptyScroll?.scrollH} vs ${touch.emptyScroll?.clientH})`)
+  assert.equal(touch.emptyScroll?.paneH, (touch.emptyScroll?.clientH ?? 0) - 8, 'the empty pane fills the list content box exactly (8px = its vertical padding)')
+  assert.ok(touch.tip !== null, `the press-driven confirmation still reaches a finger (got ${JSON.stringify(touch.tip)})`)
+  assert.equal(touch.armedAria, true, 'the first tap arms the two-step discard')
+  assert.equal(touch.dismissed, 0, 'a press elsewhere drops the touch-raised confirmation')
   assert.deepEqual(consoleErrors, [], 'no frontend errors')
   console.log('e2e changes-toolbar.mjs: PASS', JSON.stringify({ screenshot: SCREENSHOT, actions: ACTIONS }))
 } catch (error) {

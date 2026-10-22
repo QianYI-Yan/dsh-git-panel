@@ -46,11 +46,20 @@ export const CSS = `
 .gp-diff__path-dir{direction:rtl;unicode-bidi:isolate;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
 .gp-diff__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-diff__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
-/* Bordered pill only in the segmented context (the overview modal's text
- * button); the toolbar's icon-ified expand is a plain gp-icon-btn like its
- * neighbours, so the two toolbar icons stay visually identical. */
-.gp-seg__btn.gp-diff__expand{border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
+/* Same root-level shape as the files toolbar: the name alone has to shrink. */
+.gp-diff__path-name--root{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
+/* Icon controls in the diff toolbar and the commit-diff modal bar wear the same
+ * bordered box as the files preview's glyph buttons, at the mode seg's height
+ * (25px: its 1px border + 5px padding + the 13px line box the seg pins), so each
+ * row reads as one control strip. Pressed (card up / expanded) takes the
+ * business tint. The seg's line box is explicit in its own rule — left to the
+ * font's default it drifts with whatever mono/sans fallback the platform picks,
+ * and the two controls stop matching. */
+.gp-diff__toolbar .gp-icon-btn,.gp-modal__bar .gp-icon-btn{width:28px;height:25px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1)}
+.gp-diff__toolbar .gp-icon-btn:hover:not(:disabled),.gp-modal__bar .gp-icon-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+.gp-diff__toolbar .gp-icon-btn:disabled,.gp-modal__bar .gp-icon-btn:disabled{opacity:.5;cursor:default}
+.gp-diff__toolbar .gp-icon-btn[aria-pressed="true"],.gp-modal__bar .gp-icon-btn[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 /* The diff enlarged IN PLACE: the same inline .gp-diff node restyled into the
  * card (the fullscreen reader's trick — ADR-0016), so the DiffView never
  * remounts: no second highlight/image pass, no state loss. Geometry mirrors
@@ -61,7 +70,7 @@ export const CSS = `
 .gp-diff--card .gp-diff__toolbar{padding:11px 12px 11px 14px;background:var(--dsw-alias-bg-layer-2)}
 .gp-diff-backdrop{position:fixed;inset:0;z-index:999;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);animation:gp-fade-in .12s ease}
 .gp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
-.gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;white-space:nowrap;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
+.gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:13px;white-space:nowrap;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-seg__btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-seg__btn--active{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}
@@ -74,12 +83,15 @@ export const CSS = `
 /* Height band reserving the rows outside the mounted window; spans every grid
  * column, so it takes a grid row of its own. */
 .gp-diff__spacer{pointer-events:none}
-.gp-diff__side{display:grid;grid-template-columns:38px 1fr 38px 1fr}
+/* Line-number gutters are sized by --gp-gutter-w, set on the scroll container
+ * from the highest line number on screen (gutterWidth): three digits wide by
+ * default, wider only when a side actually reaches four. */
+.gp-diff__side{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 /* unified (inline) layout: old|new line-number gutters + a sign column + one
  * shared code column; add/del tint the whole code cell, not one side. */
-.gp-diff__unified{display:grid;grid-template-columns:38px 38px 18px 1fr}
+.gp-diff__unified{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) var(--gp-gutter-w,calc(3ch + 10px)) 18px 1fr}
 /* before/after single column: one line-number gutter + code */
-.gp-diff__single{display:grid;grid-template-columns:38px 1fr}
+.gp-diff__single{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 .gp-diff-uni__sign{text-align:center;user-select:none;font-size:11px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
 .gp-diff-uni__sign.gp-diff-row--add{color:var(--dsw-alias-state-success-primary)}
 .gp-diff-uni__sign.gp-diff-row--del{color:var(--dsw-alias-state-error-primary)}

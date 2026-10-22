@@ -612,11 +612,38 @@ async function touchScenario() {
       const el = document.querySelector(sel)
       return el === null ? 0 : Math.round(el.getBoundingClientRect().height)
     }
+    // Cascade probe for the two toolbar families that size their icon controls
+    // with a two-class selector: only a node nested under that exact wrapper
+    // answers whether the touch enlargement outsizes them. Built inside
+    // `.gp-panel` (so panel-scoped rules apply), measured, then removed.
+    const boxed = (wrapperClass, childClass) => {
+      const host = document.querySelector('.gp-panel')
+      if (host === null) return null
+      const wrap = document.createElement('div')
+      wrap.className = wrapperClass
+      const el = document.createElement('button')
+      el.className = childClass
+      wrap.appendChild(el)
+      host.appendChild(wrap)
+      const r = el.getBoundingClientRect()
+      const size = { w: Math.round(r.width), h: Math.round(r.height) }
+      wrap.remove()
+      return size
+    }
     return {
       hoverNone: matchMedia('(hover: none)').matches,
+      // The phone predicate keys on this: a touch page must report a coarse
+      // primary pointer, otherwise the size half alone decides the device class.
+      pointerCoarse: matchMedia('(pointer: coarse)').matches,
       layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
       barCommit: height('.gp-commitbar__commit'),
       barOpen: height('.gp-commitbar__open'),
+      // `plain` is the control: the same button with no wrapper must be 34px, so
+      // a 34 elsewhere cannot come from a rule that never matched.
+      diffBarPlain: boxed('', 'gp-icon-btn'),
+      diffBarIcon: boxed('gp-diff__toolbar', 'gp-icon-btn'),
+      modalBarIcon: boxed('gp-modal__bar', 'gp-icon-btn'),
+      modalBarFs: boxed('gp-modal__bar', 'gp-btn gp-files__fs-screen'),
     }
   })
   await page.close()
@@ -1023,9 +1050,18 @@ try {
   const touch = await touchScenario()
   assert.equal(touch.errors.length, 0, 'no console errors: ' + JSON.stringify(touch.errors))
   assert.equal(touch.out.hoverNone, true, 'the touch page really reports (hover: none)')
+  assert.equal(touch.out.pointerCoarse, true, 'the touch page reports a coarse primary pointer (the phone predicate keys on it)')
   assert.equal(touch.out.layout, 'compact', 'the touch page mounts compact')
   assert.equal(touch.out.barCommit, 30, 'compact 30px outranks the touch 36px rule (commit)')
   assert.equal(touch.out.barOpen, 30, 'compact 30px outranks the touch 36px rule (bar)')
+  // The diff toolbar and the dialog bar size their icon controls with a
+  // two-class selector, which outranks the plain touch rule on specificity
+  // alone; the touch sizes are restated at that specificity so a phone does not
+  // get pointer-density controls.
+  assert.deepEqual(touch.out.diffBarPlain, { w: 34, h: 34 }, `the plain icon keeps its touch size (${JSON.stringify(touch.out.diffBarPlain)})`)
+  assert.deepEqual(touch.out.diffBarIcon, { w: 34, h: 34 }, `the diff toolbar icon keeps a touch target (${JSON.stringify(touch.out.diffBarIcon)})`)
+  assert.deepEqual(touch.out.modalBarIcon, { w: 34, h: 34 }, `the dialog bar icon keeps a touch target (${JSON.stringify(touch.out.modalBarIcon)})`)
+  assert.equal(touch.out.modalBarFs?.h, 36, `the reader fullscreen toggle keeps the touch height (${touch.out.modalBarFs?.h}px)`)
 
   // Expand-all: the truncated bar offers the lift, the request carries the
   // flag, the full list arrives, and the group checkbox returns.

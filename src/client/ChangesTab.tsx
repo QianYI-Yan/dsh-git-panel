@@ -124,6 +124,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // opens it in place. A narrow-but-tall panel keeps the full editor (the fold
   // costs the AI entry).
   const [commitOpen, setCommitOpen] = useState(false)
+  // The caret is in the message field. A phone keyboard shrinks the panel box
+  // into cramped territory the moment it opens, so the fold gate below reads
+  // this too: folding then unmounts the field being typed in, which closes the
+  // keyboard and rebounds the panel into the full editor — nothing can be typed.
+  const [msgFocused, setMsgFocused] = useState(false)
   // Stash stack (queried on demand), its collapse state, the push dialog, and
   // the drop-confirm target index.
   const [stashClosed, setStashClosed] = useState(true)
@@ -137,6 +142,13 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     msgRef.current = el
     if (el !== null && cramped && commitOpen) el.focus()
   }, [cramped, commitOpen])
+  // Folding swaps the editor for the one-row bar, taking the field out of the
+  // DOM — and a removed field fires no blur. The fold releases the caret itself,
+  // so the focus flag cannot stay set and hold the editor open.
+  const foldEditor = useCallback((): void => {
+    if (cramped) msgRef.current?.blur()
+    setCommitOpen(false)
+  }, [cramped])
   // Virtualized change-list viewport, tracked by the shared hook (re-attaches
   // across the compact list↔diff remount).
   const { setEl: setListEl, viewport } = useViewportTracker()
@@ -221,14 +233,19 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Path pruning belongs to the data hook even while hidden; keep compact
   // navigation in sync without gating local selection/draft cleanup.
   useEffect(() => { if (diffPath === null) setPane('list') }, [diffPath])
-  // Drilling into a diff hides the list pane; fold the editor so coming back
-  // to the list does not land on a half-screen editor.
-  useEffect(() => { if (pane === 'diff') setCommitOpen(false) }, [pane])
+  // Drilling into a diff hides the list pane, which unmounts the field without a
+  // blur: clear the focus flag too, so coming back to the list does not land on a
+  // half-screen editor.
+  useEffect(() => {
+    if (pane !== 'diff') return
+    setMsgFocused(false)
+    foldEditor()
+  }, [pane, foldEditor])
   // Folded editor: pressing anywhere outside it folds it back (blank list
   // space, the toolbar, another row). The draft stays in state, so folding
   // loses nothing; pointerdown keeps it ahead of the click a row still needs.
   useEffect(() => {
-    if (!cramped || !commitOpen || typeof document === 'undefined') return
+    if (!cramped || (!commitOpen && !msgFocused) || typeof document === 'undefined') return
     const onOutside = (e: PointerEvent): void => {
       // A generation in flight owns the editor: folding it would expose a Commit
       // for the pre-generation draft while the suggestion is still on its way.
@@ -238,11 +255,11 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
       // Notice banners (and their close button) sit right above the editor while
       // AI suggest runs; interacting with them must not fold the editor away.
       if (e.target instanceof Element && e.target.closest('.gp-notice') !== null) return
-      setCommitOpen(false)
+      foldEditor()
     }
     document.addEventListener('pointerdown', onOutside)
     return () => document.removeEventListener('pointerdown', onOutside)
-  }, [cramped, commitOpen, suggesting])
+  }, [cramped, commitOpen, msgFocused, suggesting, foldEditor])
   // Returning from the editor (fold button or a successful commit) must not drop
   // focus to <body>; ring the collapsed bar's open control instead.
   const barOpenRef = useRef<HTMLButtonElement | null>(null)
@@ -309,7 +326,7 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     // Selection keys carry a :s/:w side suffix; commit works on bare paths.
     const paths = selected.size > 0 ? [...new Set([...selected].map((k) => pathOfKey(k)))] : undefined
     const ok = await run({ kind: 'commit', message: text, ...(paths ? { paths } : {}), ...(amend ? { amend: true } : {}) })
-    if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false); setCommitOpen(false) }
+    if (ok) { setMessage(''); setSelected(new Set()); setAmend(false); setAmendPrefilled(false); foldEditor() }
   }
 
   // Stash: push the current changes (optional message), then apply / pop / drop
@@ -438,7 +455,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Commit box. Everywhere but a cramped panel: the full editor. When both axes
   // are scarce the editor folds into one bar (placeholder or the draft's first
   // line, the AI entry, commit) until tapped, which opens it in place — the
-  // change list gets the height back.
+  // change list gets the height back. A field holding the caret never folds: the
+  // keyboard that made the panel cramped would go down with it.
   const draft = message.trim()
   const draftLine = draft.split('\n')[0] ?? ''
   // One guard for both layouts: folding the editor must never expose a Commit
@@ -461,6 +479,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
         // incoming message (readOnly, not disabled: focus() lands on success).
         readOnly: suggesting,
         'aria-busy': suggesting,
+        onFocus: () => setMsgFocused(true),
+        onBlur: () => setMsgFocused(false),
         onChange: (e: { target: { value: string } }) => setMessage(e.target.value),
       }),
       // The platform loader inside the field itself: the lock should read as
@@ -491,13 +511,13 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
             disabled: suggesting,
             title: t('commit.collapse'),
             'aria-label': t('commit.collapse'),
-            onClick: () => setCommitOpen(false),
+            onClick: foldEditor,
           }, h(ChevronIcon, { key: 'i', size: 13, open: true }))
           : null,
       ]),
     ]),
   ])
-  const commitBox = !cramped || commitOpen
+  const commitBox = !cramped || commitOpen || msgFocused
     ? commitEditor
     : h('div', { key: 'box', className: 'gp-commitbar' }, [
       h('button', {

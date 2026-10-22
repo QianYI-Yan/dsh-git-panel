@@ -1,8 +1,9 @@
 /**
- * Review capture: the Files tree now uses the official closed/open folder
- * glyphs (no chevron) — a collapsed directory shows the closed folder, an
- * expanded one the open folder. Run setup.mjs first.
+ * Files tree: the official closed/open folder glyphs (no chevron) at two panel
+ * widths, plus the empty-directory hint — an expanded directory whose listing
+ * resolves to nothing says so one level under itself. Run setup.mjs first.
  */
+import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +36,9 @@ const SNAP = {
 const TREE = {
   '': [['docs', true], ['src', true], ['README.md', false], ['a.txt', false]],
   docs: [['assets', true], ['local', true]],
+  // Declared empty on purpose: the review shot shows the empty-directory hint
+  // under an expanded folder, so the folder must not borrow the fallback.
+  'docs/assets': [],
   'docs/local': [['bak', true], ['banner', true], ['review', true], ['tasks', true]],
   src: [['index.ts', false]],
 }
@@ -124,6 +128,40 @@ for (const width of [390, 304]) {
   await page.evaluate(async () => { await window.__expand('local'); await window.__expand('docs') })
 }
 
-console.log(JSON.stringify(report, null, 2))
+// The empty directory says so: expand docs → assets (a dir whose listing
+// resolves to nothing) and read the hint row indented under it.
+await page.evaluate((w) => { window.__panelHost.style.width = w + 'px' }, 390)
+await page.waitForTimeout(250)
+await page.evaluate(async () => { await window.__expand('docs'); await window.__expand('assets') })
+// Match on the hint's own text, not "the first muted row": a loading row would
+// otherwise be read (and screenshotted) as if it were the empty hint. Every tree
+// row is indented `8 + depth * 16`, so the hint (depth 2, under docs/assets) is
+// at 40 and the assets row itself at 24 — that geometry is what proves the hint
+// belongs to the empty directory rather than floating at the tree's root.
+const EMPTY_LABEL = '空目录' // locales.ts › zh › files.emptyDir
+const treeRows = () => page.evaluate((label) => ({
+  hints: [...document.querySelectorAll('.gp-files__tree .gp-tree-row--muted')]
+    .map((r) => ({ text: (r.textContent || '').trim(), pad: parseFloat(getComputedStyle(r).paddingLeft) }))
+    .filter((r) => r.text === label),
+  assets: (() => {
+    const row = [...document.querySelectorAll('.gp-files__tree .gp-files__entry--dir')]
+      .find((r) => (r.getAttribute('aria-label') || '').trim() === 'assets')
+    return row === undefined ? null : parseFloat(getComputedStyle(row).paddingLeft)
+  })(),
+}), EMPTY_LABEL)
+report.emptyDir = await treeRows()
+assert.equal(report.emptyDir.hints.length, 1, `an expanded empty directory shows exactly one hint (got ${JSON.stringify(report.emptyDir.hints)})`)
+assert.equal(report.emptyDir.hints[0].text, EMPTY_LABEL, 'the hint is the empty-directory label, not a leftover loading row')
+assert.equal(report.emptyDir.assets, 24, `the assets row sits at depth 1 (8 + 16 = 24, got ${report.emptyDir.assets})`)
+assert.equal(report.emptyDir.hints[0].pad, 40, `the hint is indented one level under it (8 + 2*16 = 40, got ${report.emptyDir.hints[0].pad})`)
+await page.locator('.gp-files__tree-wrap').screenshot({ path: resolve(OUT, 'files-tree-empty-dir.png') })
+
+// The negative half: a directory that does list entries never shows the hint —
+// otherwise "always render the row" would pass the assertions above.
+await page.evaluate(async () => { await window.__expand('assets'); await window.__expand('local') })
+report.nonEmptyDir = await treeRows()
+assert.equal(report.nonEmptyDir.hints.length, 0, `a directory with entries shows no empty hint (got ${JSON.stringify(report.nonEmptyDir.hints)})`)
+
+console.log('e2e files-tree-review.mjs: PASS', JSON.stringify(report))
 if (errors.length) console.log('CONSOLE ERRORS:', errors)
 await browser.close()

@@ -281,6 +281,27 @@ out.open = await page.evaluate(() => {
       && eb.borderTopStyle === mb.borderTopStyle
       && eb.width === mb.width
       && eb.height === mb.height,
+    // Both are bordered boxes of the seg's height, not bare glyphs — the same
+    // treatment the files preview's glyph buttons get.
+    boxes: (() => {
+      const seg = document.querySelector('.gp-diff__toolbar .gp-seg')
+      const read = (el) => {
+        if (el === null) return null
+        const cs = getComputedStyle(el)
+        return {
+          borderW: cs.borderTopWidth, borderStyle: cs.borderTopStyle, radius: cs.borderTopLeftRadius,
+          bg: cs.backgroundColor, h: Math.round(el.getBoundingClientRect().height),
+        }
+      }
+      return {
+        expand: read(expand), modal: read(modalBtn),
+        segH: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height),
+        // The seg's line box must be explicit: with the font default a platform
+        // whose fallback font has taller metrics throws the derived height off
+        // and the icon buttons stop matching (that is how CI caught it first).
+        segLineHeight: seg === null ? null : getComputedStyle(seg.querySelector('.gp-seg__btn') ?? seg).lineHeight,
+      }
+    })(),
   }
 }
 )
@@ -291,8 +312,42 @@ assert.equal(out.open.closeBtn, true, 'a close button appears in the card bar')
 assert.equal(out.open.pressed, 'true', 'the trigger reports its pressed state')
 assert.equal(out.open.expandIsIcon, true, 'expand-all renders as an icon')
 assert.equal(out.open.iconStylesMatch, true, 'the two toolbar icons share one style')
+// The shared height is a derived constant, so pin it: 1px borders top+bottom plus
+// 5px padding each side plus the seg's 13px line box. Asserting this separately
+// keeps the failure legible — otherwise a drifted font metric only shows up as
+// the two controls disagreeing, which reads like a border bug.
+assert.equal(out.open.boxes.segH, 25, 'the mode seg is 25px tall (1+1 border, 5+5 padding, 13px line box)')
+assert.equal(out.open.boxes.segLineHeight, '13px', 'the seg pins its line box instead of inheriting the font default')
+for (const name of ['expand', 'modal']) {
+  const box = out.open.boxes[name]
+  assert.equal(box.borderW, '1px', `the ${name} control is a bordered button, not a bare glyph`)
+  assert.equal(box.borderStyle, 'solid', `the ${name} border is drawn`)
+  assert.equal(box.radius, '6px', `the ${name} control keeps the icon-button radius`)
+  assert.notEqual(box.bg, 'rgba(0, 0, 0, 0)', `the ${name} control has a surface, like the files toolbar's buttons`)
+  assert.equal(box.h, out.open.boxes.segH, `the ${name} control matches the mode seg height in the same row (${box.h} vs ${out.open.boxes.segH})`)
+}
+assert.notEqual(out.open.boxes.modal.bg, out.open.boxes.expand.bg, 'the open card tints its trigger apart from the resting button')
 out.rowsOpen = await rows()
 assert.equal(out.rowsOpen, out.rowsBefore, 'the diff did not render a second time')
+// Line-number gutter: three digits by default (the short fixture diff), sized by
+// the container's --gp-gutter-w rather than a fixed column that always reserved
+// four digits' worth of width.
+out.gutter = await page.evaluate(() => {
+  const scroll = document.querySelector('.gp-diff--card .gp-diff__scroll')
+  const grid = document.querySelector('.gp-diff--card .gp-diff__unified, .gp-diff--card .gp-diff__side')
+  const cell = document.querySelector('.gp-diff--card .gp-diff-no')
+  if (scroll === null || grid === null || cell === null) return null
+  return {
+    varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
+    cols: getComputedStyle(grid).gridTemplateColumns.split(' ').map((part) => Math.round(parseFloat(part) * 10) / 10),
+    cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+  }
+})
+assert.equal(out.gutter?.varValue, 'calc(3ch + 10px)', 'a short diff takes the three-digit gutter')
+assert.equal(out.gutter?.cellW, out.gutter?.cols?.[0], 'the gutter cell fills its column exactly')
+assert.ok((out.gutter?.cellW ?? 99) < 38, `the three-digit gutter is narrower than the old fixed 38px (${out.gutter?.cellW}px)`)
+assert.equal(out.gutter?.cols?.length, 4, 'the unified grid keeps its four columns (old | new | sign | code)')
+assert.equal(out.gutter?.cols?.[0], out.gutter?.cols?.[1], 'both line-number columns share one width')
 
 // The card carries the dialog contract: role/aria-modal on the card itself,
 // the backdrop hidden from AT, the sibling change list inert (focus cannot

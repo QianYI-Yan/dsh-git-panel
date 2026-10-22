@@ -200,6 +200,17 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.hasModal, true, 'clicking a file opens the diff modal')
   assert.equal(out.modalHasDiff, true, 'the modal renders a unified diff (default view)')
   assert.equal(out.modalWordSyntax, true, 'word emphasis retains DSH syntax colors')
+  // 展开全部: the same icon-only control the changes pane uses, in the same box.
+  assert.deepEqual(
+    { text: out.modalExpand?.text, glyph: out.modalExpand?.glyph, aria: out.modalExpand?.aria, pressed: out.modalExpand?.pressed },
+    { text: '', glyph: true, aria: 'diff.expandAll', pressed: 'false' },
+    'the commit-diff modal expands through an icon button, not a text button',
+  )
+  // The drawn box is asserted pixel-by-pixel by changes-diff-modal (this runner
+  // injects no theme variables, so themed borders compute to their initials).
+  assert.ok((out.modalIconBoxRule?.css ?? '').includes('border'), 'the bordered icon-box rule covers the modal bar')
+  assert.ok((out.modalIconBoxRule?.css ?? '').includes('25px'), 'that rule pins the control height to the mode seg line')
+  assert.equal(out.staleSegExpandRule, null, 'the old text-button rule for the expand control is gone')
   assert.equal(out.diffFindOpened, true, 'Ctrl+F opens Find inside the diff modal')
   assert.ok(out.diffFindHits >= 1, 'the diff Find highlights matches')
   assert.equal(out.diffFindActive, 1, 'exactly one diff match is the active hit')
@@ -215,6 +226,9 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.folderIcon, 'closed', 'collapsed directory rows use the closed folder glyph')
   assert.equal(out.folderIconOpen, 'open', 'an expanded directory row switches to the open folder glyph')
   assert.ok(out.filesTreeRowsAfterExpand > out.filesTreeRows, 'expanding a directory reveals its children')
+  assert.equal(out.emptyDirHintShown, true, 'an expanded empty directory shows a hint row instead of only flipping the folder glyph')
+  assert.equal(out.emptyDirHintIndented, true, 'the empty-directory hint sits one level under its directory')
+  assert.equal(out.dirRowAriaExpanded, true, 'the expanded directory row reports aria-expanded (the hint row itself carries no state)')
   assert.equal(out.filesCodeShown, true, 'selecting a text file shows the code preview')
   assert.equal(out.txtRowSelected, true, 'the selected file row carries the active class')
   assert.equal(out.selectionStyled, true, 'the active file row has a distinct primary-tinted highlight')
@@ -228,12 +242,48 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.refreshContentUpdated, true, 'file content changed outside the panel is picked up by refresh')
   assert.equal(out.refreshReenabled, true, 'the refresh control re-enables once the re-reads settle')
   assert.equal(out.copiedPath, 'src/index.ts', 'preview copies the selected file path relative to browse root')
-  assert.equal(out.copyFeedback, 'files.pathCopied', 'copy button confirms successful clipboard write')
+  assert.equal(out.copyFeedback, 'files.pathCopied src/index.ts', 'the filename button confirms the clipboard write on its label')
   assert.equal(out.copyFeedbackReset, true, 'late copy of previous file cannot change current file feedback')
   assert.equal(out.copyDeniedFeedback, true, 'clipboard denial shows an actionable failure state')
-  assert.equal(out.copyGroupJoined, true, 'the path/content copy buttons form one joined group')
-  assert.equal(out.copyGroupRadii, true, 'only the outer corners of the copy group stay rounded')
+  assert.equal(out.pathCopyIsButton, true, 'the filename itself is the copy control')
+  assert.equal(out.noSeparatePathButton, true, 'no separate copy-relative-path button is left beside the filename')
+  // Parity with the diff headers: same mark placement (the check takes the
+  // directory's slot) and the same self-expiring confirmation.
+  assert.deepEqual(out.pathCopyShape, { copied: true, dir: false, check: true, name: 'index.ts' }, 'the filename shows a check in the directory slot while copied')
+  assert.deepEqual(out.pathCopyReverted, { copied: false, dir: true, aria: 'files.copyPath src/index.ts' }, 'the filename confirmation clears itself like the diff headers')
+  // Root-level file: the name is an element like the nested shape's, so it can
+  // elide (the button clips) and take the hover underline.
+  // Line-number gutter: three digits by default, four once a file needs them —
+  // the column follows --gp-gutter-w, so it is no longer wider than the numbers.
+  const GUTTER_PAD = 10
+  assert.equal(out.smallGutter?.varValue, 'calc(3ch + 10px)', 'a short file takes the three-digit gutter')
+  // Bounds, not a magic pixel width: the column must fit three digits plus the
+  // cell padding and not reserve much beyond them. The digit width is measured in
+  // the gutter's own font, so a platform with a wider fallback font still passes.
+  assert.ok((out.smallGutter?.cellW ?? 0) >= (out.smallGutter?.digitW ?? 0) + GUTTER_PAD, `the three-digit gutter fits its digits (${out.smallGutter?.cellW} vs ${out.smallGutter?.digitW})`)
+  assert.ok((out.smallGutter?.cellW ?? 99) <= (out.smallGutter?.digitW ?? 0) + GUTTER_PAD + 4, `and reserves no fourth digit (${out.smallGutter?.cellW} vs ${out.smallGutter?.digitW})`)
+  assert.equal(out.bigGutter?.varValue, 'calc(4ch + 10px)', 'a 5101-line file widens the gutter to four digits')
+  assert.equal(out.bigGutter?.cellW, out.bigGutter?.colW, 'the gutter cell fills its column exactly')
+  assert.ok((out.bigGutter?.cellW ?? 0) >= (out.bigGutter?.digitW ?? 0) + GUTTER_PAD, `the four-digit gutter fits its digits too (${out.bigGutter?.cellW} vs ${out.bigGutter?.digitW})`)
+  assert.ok((out.bigGutter?.cellW ?? 0) > (out.smallGutter?.cellW ?? 0), 'and the wide gutter is wider than the short one')
+  assert.equal(out.rootPathShape?.text, 'README.md', `a root-level file shows its name (got ${JSON.stringify(out.rootPathShape)})`)
+  assert.equal(out.rootPathShape?.hasDir, false, 'a root-level file has no directory half')
+  assert.equal(out.rootPathShape?.root, true, 'and its name carries the root modifier')
+  assert.equal(out.rootPathShape?.overflow, 'hidden', 'the name owns its elision')
+  assert.equal(out.rootPathShape?.ellipsis, 'ellipsis', 'long root-level names elide instead of being clipped')
+  assert.equal(out.rootPathShape?.shrinkable, true, 'the name is what shrinks when there is no directory to give way')
+  assert.deepEqual(out.contentCopyShape, { copied: true, check: true }, 'the copy-content icon confirms on the same clock')
+  assert.deepEqual(out.contentCopyLive, { text: 'files.contentCopied', aria: 'polite' }, 'the copy-content confirmation also reaches screen readers through its live region')
+  assert.equal(out.contentCopyReverted, true, 'the copy-content confirmation also clears itself')
   assert.equal(out.filesImageShown, true, 'selecting an image shows the inline image preview')
+  assert.equal(out.svgRendersByDefault, true, 'an SVG renders as a picture on selection')
+  assert.equal(out.svgModeSegShown, true, 'an SVG offers the source/render switcher')
+  assert.equal(out.svgSourceShowsMarkup, true, 'the SVG source face shows the markup instead of the picture')
+  assert.equal(out.svgSourceWrapOffered, true, 'the SVG source face carries the code controls (wrap)')
+  assert.equal(out.svgRenderRestoresImage, true, 'switching back restores the rendered SVG')
+  assert.equal(out.svgSingleRead, true, 'both SVG faces come from one file-content read')
+  assert.equal(out.svgCopyContentShown, true, 'an SVG offers copy-source beside copy-path')
+  assert.equal(out.svgCopyContentCopiesMarkup, true, 'copying an SVG writes its markup, not the data URL')
   assert.equal(out.zoomDiffBars, 2, 'each diff image pane renders its own zoom bar')
   assert.equal(out.zoomBarShown, true, 'the file preview shows the zoom bar')
   assert.equal(out.zoomPctBefore, '100%', 'the fit label starts at the fit percentage')
@@ -268,11 +318,21 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.wideHasFullscreen, true, 'the wide toolbar carries the fullscreen reading entry')
   assert.equal(out.wideFullscreenShown, true, 'the reader shows the live preview restyled as a dialog, not a second render')
   assert.equal(out.wideFullscreenBar, true, 'the reader bar puts the browser-fullscreen toggle immediately left of close')
+  assert.equal(out.readerScreenToggleLabeled, true, 'the reader\'s fullscreen toggle is a labelled button, not a clone of the icon that opened the card')
+  assert.equal(out.readerScreenIconDistinct, true, 'the two fullscreen controls draw different glyphs at the bar row height')
   assert.equal(out.wideFullscreenClosed, true, 'Escape closes the reader and keeps the preview mounted')
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')
   assert.equal(out.wideSourceHasWrap, true, 'the wide source toolbar carries the word-wrap toggle')
   assert.equal(out.markdownRenderRestored, true, 'render button restores official MarkdownText')
+  // A stuck code banner must sit flush: the pane's inset lives on the inner body,
+  // never on the scroll box (padding there leaves a band above the banner).
+  // Symptom first, mechanism second: the leak is what the user sees, and the
+  // padding split is only the way it is prevented.
+  assert.equal(out.markdownStickyBanner?.scrolled, true, 'the probe actually scrolled the markdown pane')
+  assert.equal(out.markdownStickyBanner?.rowsAboveBanner, 0, 'no code row paints above a stuck code banner')
+  assert.equal(out.markdownStickyBanner?.scPaddingTop, '0px', 'the markdown scroll box carries no padding')
+  assert.equal(out.markdownStickyBanner?.bodyPaddingTop, '16px', 'the inset lives on the inner markdown body')
   assert.equal(out.mermaidRendered, true, 'a mermaid fence renders the diagram via the lazy chunk with surrounding markdown intact')
   assert.equal(out.mermaidFallback, true, 'a diagram the engine rejects falls back to the plain code block')
   assert.equal(out.htmlSourceDefault, true, 'HTML defaults to the source view, never auto-rendered')
@@ -314,10 +374,13 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.htmlAssetMissingRead, true, 'the missing asset was actually read and refused, not skipped')
   assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
   assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
-  assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
+  assert.equal(out.bigLineFull, true, 'an over-long line renders in full (no truncation marker anywhere)')
   assert.equal(out.bigWrapDisabled, true, 'a file over the wrap cap keeps the toggle visible but disabled')
   assert.ok(out.bigMountedRows > 0 && out.bigMountedRows < out.bigTotalLines, `virtualized: mounts a window (${out.bigMountedRows}), not all ${out.bigTotalLines} rows`)
   assert.equal(out.bigSpacerHeight, out.bigTotalLines * 20, 'the virtual spacer height reflects the full line count')
+  assert.equal(out.bigSelectionSurvived, true, 'a text selection survives scrolling away from the rows it covers')
+  assert.ok(out.bigSelectionMounted < 200, `only the selected and visible spans mount while selecting (${out.bigSelectionMounted} rows, not the whole file)`)
+  assert.equal(out.bigSelectionScrolled, true, 'the survival check really scrolled the code view away from the selection')
   assert.equal(out.findOpened, true, 'Ctrl+F opens the in-panel find while the preview is visible')
   assert.equal(out.findHitCount, 2, 'the query highlights every match in the file')
   assert.equal(out.findActiveCount, 1, 'exactly one match is the active hit')
@@ -353,10 +416,30 @@ export function assertPanelResults(out, realInput, errors) {
   assert.deepEqual(out.propsImageBadges, ['files.propsTrackedYes'], 'an unchanged tracked image carries no working-tree chip')
   assert.equal(out.propsSizeKiB, '1.5 KB', 'a rounded size steps to the display unit')
   assert.equal(out.propsSizeKiBSub, 'files.propsSizeBytes', 'a rounded size carries the raw byte count parenthetical')
-  assert.deepEqual(out.copyBtnText, ['files.copyPath', 'files.copyContent'], 'a text document offers copy content beside copy path')
-  assert.deepEqual(out.copyBtnImage, ['files.copyPath'], 'an image hides the copy-content button')
-  assert.deepEqual(out.copyBtnBinary, ['files.copyPath'], 'a binary file hides the copy-content button')
-  assert.deepEqual(out.copyBtnTooLarge, ['files.copyPath'], 'a document over the copy envelope hides the copy-content button')
+  assert.deepEqual(out.copyBtnText, ['<icon>'], 'a text document offers copy content (icon) and no path text button')
+  assert.deepEqual(out.copyBtnImage, [], 'an image shows no copy buttons at all (the filename still copies)')
+  assert.deepEqual(out.copyBtnBinary, [], 'a binary file shows no copy-content button')
+  assert.deepEqual(out.copyBtnTooLarge, [], 'a document over the copy envelope shows no copy-content button')
+  // The content control is a glyph, not a phrase: label on aria, no text, and
+  // it must line up with the text button it is joined to.
+  assert.deepEqual(
+    { aria: out.copyContentIcon?.aria, text: out.copyContentIcon?.text, glyph: out.copyContentIcon?.glyph },
+    { aria: 'files.copyContent', text: '', glyph: true },
+    'the copy-content control is an icon button with its label on aria',
+  )
+  assert.ok(out.copyContentIcon?.width <= 32, `the copy-content button is a square icon, not a text pill (${out.copyContentIcon?.width}px wide)`)
+  assert.equal(out.copyContentIcon?.height, out.copyContentIcon?.peerHeight, "the copy glyph matches the toolbar's other icon buttons")
+  assert.equal(out.copyContentIconOnImage, null, 'an image preview shows no copy-content control at all')
+  assert.ok(out.copyTip !== null, 'hovering the content-copy icon raises a tip')
+  assert.equal(out.copyTip?.text, 'files.copyContent', "the tip's label is the copy-content phrase")
+  assert.equal(out.copyTip?.onBody, true, 'the tip is portaled to the body (no clipping ancestor)')
+  assert.equal(out.copyTip?.nativeTitle, null, 'the icon carries no native title (the tip is the one hint)')
+  assert.equal(out.copyTip?.below, true, 'the tip opens below the toolbar control, into the preview area')
+  assert.equal(out.copyTip?.hoverDismissed, true, 'moving off the icon dismisses the hover tip')
+  assert.equal(out.copyTip?.hiddenOnClick, true, 'pressing the control dismisses its own tip')
+  assert.equal(out.copyTip?.feedbackTip, 'files.contentCopied', 'inside the confirmation window the tip reports the outcome (the live region is screen-reader only)')
+  assert.equal(out.copyTip?.focused, 'files.copyContent', 'keyboard focus raises the same hint')
+  assert.equal(out.copyTip?.dismissed, true, 'blur or a press elsewhere dismisses a focus-raised tip')
   assert.equal(out.placeholderBinary, 'files.binary', 'a binary file says so in the preview')
   assert.equal(out.placeholderTooLarge, 'files.tooLarge', 'an over-cap document says why it is not shown')
   assert.equal(out.preUnmountFilesActive, true, 'before the switch the Files tab is active')

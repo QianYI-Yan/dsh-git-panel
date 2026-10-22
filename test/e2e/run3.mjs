@@ -174,6 +174,25 @@ const out = await page.evaluate(async (snap) => {
   const moreHeights = [...(moreGroup?.querySelectorAll('.gp-select-trigger, button[title="overview.fetch"]') ?? [])]
     .map((n) => Math.round(n.getBoundingClientRect().height))
   result.ovMoreHeights = moreHeights.length === 3 && moreHeights.every((v) => v === 30)
+  // The author / since pickers arrive wrapped by the platform's menu root, which
+  // stretches inside a flex row — the harness stub does not, so the stretch is
+  // emulated to keep this assertion honest: the group must stay content-sized,
+  // flushed left, one even gap apart.
+  result.ovMoreFlushLeft = await (async () => {
+    if (moreGroup === null) return null
+    const style = document.createElement('style')
+    style.textContent = '.gp-toolbar__more>.dsh-menu-root{flex:1 1 0}'
+    document.head.appendChild(style)
+    await new Promise((r) => setTimeout(r, 150))
+    const box = moreGroup.getBoundingClientRect()
+    const kids = [...moreGroup.children].map((n) => n.getBoundingClientRect())
+    const gaps = kids.slice(1).map((k, i) => Math.round(k.left - (kids[i].left + kids[i].width)))
+    const flush = Math.round(kids[0].left - box.left)
+    const contentSized = kids.length === 3 && kids.every((k) => k.width < box.width / 2.5)
+    style.remove()
+    await new Promise((r) => setTimeout(r, 150))
+    return flush === 0 && gaps.length === 2 && gaps.every((g) => g === 8) && contentSized
+  })()
   result.ovfToolbar = rootFits(tb)
   tbToggle?.click()
   await new Promise((r) => setTimeout(r, 200))
@@ -257,8 +276,8 @@ const out = await page.evaluate(async (snap) => {
   result.ovBackToList = document.querySelector('.gp-overview--compact .gp-commit-row') !== null
 
   // Left-column status bar (compact renders it at the overview footer): the
-  // GitHub repo link opens the parsed web URL, the branch is 2 behind, and the
-  // pull button opens a fast-forward confirm dialog.
+  // GitHub repo link is dropped at this width (hideRepo = compact || tight),
+  // the branch is 2 behind, and the pull button opens a fast-forward confirm.
   const statusbar = document.querySelector('.gp-overview--compact .gp-statusbar')
   result.statusBarShown = statusbar !== null
   const repoLink = statusbar?.querySelector('a.gp-statusbar__repo')
@@ -372,15 +391,42 @@ const out = await page.evaluate(async (snap) => {
   result.flPreviewHasBack = [...document.querySelectorAll('.gp-files__bar .gp-subhead__back')].some((b) => (b.textContent || '').includes('files.backToTree'))
   result.flBackBtnHeight = Math.round(document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().height)
   result.ovfFilesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
-  // The compact toolbar drops the relative path and both copy buttons; a plain
-  // text file has no source/render switch, only word-wrap + fullscreen +
+  // The compact toolbar drops the relative path but keeps copy-content; a plain
+  // text file has no source/render switch, only word-wrap + fullscreen + copy +
   // properties.
   result.flNoPath = document.querySelector('.gp-files__bar .gp-files__path') === null
-  result.flNoCopy = document.querySelector('.gp-files__bar .gp-files__copy-path') === null
+  const compactCopy = document.querySelector('.gp-files__bar [aria-label="files.copyContent"]')
+  result.flHasCopyContent = compactCopy !== null
+  // It keeps its neighbours' 30px box and stays on the single toolbar row, so
+  // adding it back does not re-introduce the three-line wrap.
+  result.flCopyBtnBox = compactCopy === null ? null : Math.round(compactCopy.getBoundingClientRect().height)
+  result.flCopySameRow = (() => {
+    const back = document.querySelector('.gp-files__bar .gp-subhead__back')
+    if (compactCopy === null || back === null) return null
+    const c = compactCopy.getBoundingClientRect()
+    const b = back.getBoundingClientRect()
+    return Math.abs((c.top + c.height / 2) - (b.top + b.height / 2)) <= 1
+  })()
   result.flPlainNoMode = document.querySelector('.gp-files__bar [role="tablist"]') === null
   result.flHasFullscreen = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]') !== null
   result.flHasProps = document.querySelector('.gp-files__bar [aria-label="files.propsTitle"]') !== null
   result.flHasWrap = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
+  // The button copied the content, not just sat there: the clipboard receives
+  // the file body and the icon flips to its check mark.
+  result.flCopyContentWorks = await (async () => {
+    const btn = document.querySelector('.gp-files__bar [aria-label="files.copyContent"]')
+    if (btn === null) return null
+    let written = null
+    const real = navigator.clipboard?.writeText
+    if (real !== undefined) {
+      navigator.clipboard.writeText = async (text) => { written = text; return undefined }
+    }
+    btn.click()
+    await new Promise((r) => setTimeout(r, 150))
+    const copied = btn.classList.contains('gp-files__copy-path--copied') && btn.querySelector('svg') !== null
+    if (real !== undefined) navigator.clipboard.writeText = real
+    return written !== null && written.length > 0 && copied
+  })()
   result.flWrapDefaultOn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')?.getAttribute('aria-pressed') === 'true'
   result.flWrapDefaultWrapped = (() => {
     const cell = document.querySelector('.gp-files__preview-content .gp-files__code .gp-diff-cell')
@@ -549,8 +595,8 @@ try {
   assert.deepEqual(out.ovDetailActionBtnHeight, [30, 30, 30], 'compact commit ops keep one 30px height')
   assert.equal(out.ovBackToList, true, 'back returns to the commit list')
   assert.equal(out.statusBarShown, true, 'the overview renders a left-column status bar')
-  assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
-  assert.equal(out.statusRepoNewTab, true, 'the repo link opens in a new tab')
+  assert.equal(out.statusRepoHref, null, 'the compact status bar drops the GitHub repo link (narrow-panel rule)')
+  assert.equal(out.statusRepoNewTab, false, 'so there is no repo link to open in a tab')
   assert.equal(out.statusBehindShown, true, 'the status bar reports the behind count')
   assert.equal(out.statusPullShown, true, 'a strictly-behind branch offers a pull button')
   assert.equal(out.statusPullConfirmOpened, true, 'pull opens a fast-forward confirm dialog')
@@ -590,6 +636,7 @@ try {
   assert.equal(out.ovMoreAriaControlsExpanded, true, 'expanded: the toggle controls the revealed group')
   assert.equal(out.ovMoreSecondRow, true, 'the revealed filters take a second row below the toggle')
   assert.equal(out.ovMoreHeights, true, 'the revealed controls match the first row height')
+  assert.equal(out.ovMoreFlushLeft, true, 'the revealed filters stay content-sized and flushed left, one even gap apart')
   assert.equal(out.ovfToolbar, true, 'the compact toolbar never overflows horizontally')
   assert.equal(out.ovMoreRecollapsed, true, 'the chevron folds the second row again')
   assert.equal(out.flTreeShown, true, 'files shows the tree full width in compact')
@@ -603,7 +650,10 @@ try {
   assert.equal(out.flBackBtnHeight, 30, 'the files back button matches the 30px toolbar controls')
   assert.equal(out.ovfFilesDrill, true, 'the compact preview fits without horizontal overflow')
   assert.equal(out.flNoPath, true, 'the compact preview toolbar drops the relative path')
-  assert.equal(out.flNoCopy, true, 'the compact preview toolbar drops both copy buttons')
+  assert.equal(out.flHasCopyContent, true, 'the compact preview toolbar keeps the copy-content button')
+  assert.equal(out.flCopyContentWorks, true, 'the compact copy button writes the file body to the clipboard and shows its check')
+  assert.equal(out.flCopyBtnBox, 30, 'the copy-content button matches the 30px toolbar controls')
+  assert.equal(out.flCopySameRow, true, 'copy-content shares the toolbar row instead of wrapping it')
   assert.equal(out.flPlainNoMode, true, 'a plain text file shows no source/render switch')
   assert.equal(out.flHasFullscreen, true, 'the compact toolbar carries the fullscreen entry')
   assert.equal(out.flHasProps, true, 'the compact toolbar keeps the properties entry')

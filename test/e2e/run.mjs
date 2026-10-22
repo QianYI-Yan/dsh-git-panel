@@ -822,6 +822,43 @@ const out = await page.evaluate(async (snap) => {
   result.hasModal = document.querySelector('.gp-modal') !== null
   result.modalHasDiff = document.querySelector('.gp-modal .gp-diff__unified') !== null
   result.modalWordSyntax = [...document.querySelectorAll('.gp-modal .gp-diff-word span')].some((el) => el.style.color.includes('--shiki-keyword'))
+  // 展开全部 in the modal is an icon button like the changes pane's: glyph only,
+  // label on aria, pressed state, and the bordered box its row's seg wears.
+  result.modalExpand = (() => {
+    const btn = document.querySelector('.gp-modal .gp-diff__expand')
+    if (btn === null) return null
+    const cs = getComputedStyle(btn)
+    const seg = document.querySelector('.gp-modal__bar .gp-seg')
+    return {
+      text: (btn.textContent ?? '').trim(),
+      glyph: btn.querySelector('svg') !== null,
+      aria: btn.getAttribute('aria-label'),
+      pressed: btn.getAttribute('aria-pressed'),
+      borderW: cs.borderTopWidth,
+      borderStyle: cs.borderTopStyle,
+      radius: cs.borderTopLeftRadius,
+      height: Math.round(btn.getBoundingClientRect().height),
+      segHeight: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height),
+    }
+  })()
+  // This runner injects no --dsw-alias-* theme, so a themed `border` computes
+  // to its initial values here; the drawn box is pinned pixel-by-pixel by
+  // changes-diff-modal (which does inject the theme). What must hold here is
+  // that the boxed rule covers the modal bar and the old text-button rule is gone.
+  const ruleCss = (needle) => {
+    for (const sheet of document.styleSheets) {
+      let rules
+      try { rules = sheet.cssRules } catch { continue }
+      for (const rule of rules) {
+        const sel = rule.selectorText || ''
+        if (!sel.includes(needle)) continue
+        return { sel, css: rule.style.cssText }
+      }
+    }
+    return null
+  }
+  result.modalIconBoxRule = ruleCss('.gp-modal__bar .gp-icon-btn')
+  result.staleSegExpandRule = ruleCss('.gp-seg__btn.gp-diff__expand')
   // In-diff Find (Ctrl+F) inside the modal: open, search a token present in the
   // fixture diff, assert marks + count, then Esc dismisses Find (not the modal).
   const diffWrap = document.querySelector('.gp-modal .gp-diff__wrap')
@@ -865,7 +902,8 @@ const out = await page.evaluate(async (snap) => {
   // Reopen, then close via the close button.
   const reopenRow = document.querySelector('.gp-detail__files .gp-tree-row .gp-status-badge')?.closest('.gp-tree-row') ?? null
   if (reopenRow) { reopenRow.click(); await new Promise((r) => setTimeout(r, 400)) }
-  const closeBtn = document.querySelector('.gp-modal__bar .gp-icon-btn')
+  // By class, not "the bar's only icon button": the expand control is one too.
+  const closeBtn = document.querySelector('.gp-modal__bar .gp-modal__close')
   if (closeBtn) { closeBtn.click(); await new Promise((r) => setTimeout(r, 200)) }
   result.modalClosedByBtn = document.querySelector('.gp-modal') === null
   document.querySelector('#pill .gp-pill')?.click()
@@ -886,6 +924,18 @@ const out = await page.evaluate(async (snap) => {
   result.folderIconOpen = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')]
     .find((r) => (r.textContent || '').includes('src'))?.querySelector('svg[data-folder]')?.getAttribute('data-folder')
   result.filesTreeRowsAfterExpand = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
+  // An expanded directory that lists nothing shows a hint row a level under it
+  // instead of leaving only the folder glyph flipped (the ignored `cache`
+  // fixture resolves to an empty listing).
+  cacheRow?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  const emptyHint = [...document.querySelectorAll('.gp-files__tree .gp-tree-row--muted')]
+    .find((r) => (r.textContent || '').trim() === 'files.emptyDir')
+  // `.find` misses with undefined, so the emptiness checks are truthiness based.
+  result.emptyDirHintShown = Boolean(emptyHint)
+  result.emptyDirHintIndented = Boolean(emptyHint && cacheRow)
+    && parseInt(getComputedStyle(emptyHint).paddingLeft) > parseInt(getComputedStyle(cacheRow).paddingLeft)
+  result.dirRowAriaExpanded = cacheRow?.getAttribute('aria-expanded') === 'true'
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
@@ -933,10 +983,107 @@ const out = await page.evaluate(async (snap) => {
   fixture.textOverrides = {}
   let copiedPath = null
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => { copiedPath = text } } })
-  document.querySelector('.gp-files__copy-path')?.click()
+  document.querySelector('.gp-files__path')?.click()
   await new Promise((r) => setTimeout(r, 100))
   result.copiedPath = copiedPath
-  result.copyFeedback = document.querySelector('.gp-files__copy-path')?.textContent
+  result.copyFeedback = document.querySelector('.gp-files__path')?.getAttribute('aria-label')
+  // The filename is the whole copy control: it is a button, it carries the
+  // phrase, and no separate "copy relative path" button is left in the bar.
+  result.pathCopyIsButton = document.querySelector('.gp-files__path')?.tagName === 'BUTTON'
+  result.noSeparatePathButton = [...document.querySelectorAll('.gp-files__copy-path')]
+    .every((b) => b.classList.contains('gp-files__copy-icon'))
+  // The filename's confirmation must look and expire like the two diff headers'
+  // (path-copy-button.tsx): the check takes the directory's slot, and the state
+  // clears itself on the shared 1.6 s clock instead of living until the next
+  // selection.
+  result.pathCopyShape = (() => {
+    const btn = document.querySelector('.gp-files__path')
+    if (btn === null) return null
+    return {
+      copied: btn.classList.contains('gp-files__path--copied'),
+      dir: btn.querySelector('.gp-files__path-dir') !== null,
+      check: btn.querySelector('svg') !== null,
+      name: btn.querySelector('.gp-files__path-name')?.textContent ?? '',
+    }
+  })()
+  // The same gutter contract on a short file: three digits, not four.
+  result.smallGutter = (() => {
+    const scroll = document.querySelector('.gp-files__code')
+    const cell = document.querySelector('.gp-files__code .gp-diff-no')
+    if (scroll === null || cell === null) return null
+    // Digit width measured in the gutter's own font, so the assertions hold on
+    // any platform fallback font instead of pinning this machine's metrics.
+    const span = document.createElement('span')
+    span.style.cssText = 'position:absolute;visibility:hidden;white-space:pre'
+    span.textContent = '000'
+    cell.appendChild(span)
+    const digits = Math.round(span.getBoundingClientRect().width * 10) / 10
+    span.remove()
+    return {
+      varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
+      cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+      digitW: digits,
+    }
+  })()
+  await new Promise((r) => setTimeout(r, 1750))
+  result.pathCopyReverted = (() => {
+    const btn = document.querySelector('.gp-files__path')
+    if (btn === null) return null
+    return {
+      copied: btn.classList.contains('gp-files__path--copied'),
+      dir: btn.querySelector('.gp-files__path-dir') !== null,
+      aria: btn.getAttribute('aria-label'),
+    }
+  })()
+  // A root-level file has no directory half, so the name is the only thing that
+  // can shrink: it must still be its own element, or it is clipped by the
+  // button's overflow with no ellipsis and no hover underline (the nested shape
+  // above is the control that proves the difference is the directory, not the
+  // element).
+  const rootPathRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
+  if (rootPathRow) { rootPathRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.rootPathShape = (() => {
+    const btn = document.querySelector('.gp-files__path')
+    const name = btn === null ? null : btn.querySelector('.gp-files__path-name')
+    if (btn === null || name === null) return null
+    const cs = getComputedStyle(name)
+    return {
+      text: name.textContent,
+      hasDir: btn.querySelector('.gp-files__path-dir') !== null,
+      root: name.classList.contains('gp-files__path-name--root'),
+      overflow: cs.overflow,
+      ellipsis: cs.textOverflow,
+      shrinkable: cs.flexShrink !== '0',
+    }
+  })()
+
+  // SVG is a picture and also markup: rendered by default, with a source face,
+  // and both come from the one read (switching must not re-query the host).
+  const svgTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
+  const svgFileRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.svg'))
+  if (svgFileRow) { svgFileRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.svgRendersByDefault = document.querySelector('.gp-files__image img') !== null
+    && document.querySelector('.gp-files__code') === null
+  result.svgModeSegShown = svgTab('files.source') !== undefined && svgTab('files.render') !== undefined
+  const svgReadsBefore = fixture.contentQueries.filter((p) => p === 'logo.svg').length
+  svgTab('files.source')?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.svgSourceShowsMarkup = (document.querySelector('.gp-files__code')?.textContent || '').includes('<svg')
+    && document.querySelector('.gp-files__image img') === null
+  // The source face is a code body, so the code-only controls follow it.
+  result.svgSourceWrapOffered = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
+  svgTab('files.render')?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.svgRenderRestoresImage = document.querySelector('.gp-files__image img') !== null
+    && document.querySelector('.gp-files__code') === null
+  result.svgSingleRead = fixture.contentQueries.filter((p) => p === 'logo.svg').length === svgReadsBefore
+  // An SVG's source is copyable: the control appears and writes the markup (the
+  // same read that carries both faces), not the data URL.
+  result.svgCopyContentShown = document.querySelector('.gp-files__copy-icon') !== null
+  copiedPath = null
+  document.querySelector('.gp-files__copy-icon')?.click()
+  await new Promise((r) => setTimeout(r, 150))
+  result.svgCopyContentCopiesMarkup = typeof copiedPath === 'string' && copiedPath.includes('<svg')
   const pngRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('logo.png'))
   if (pngRow) { pngRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesImageShown = document.querySelector('.gp-files__image img') !== null
@@ -1128,30 +1275,19 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 120))
   let finishCopy
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => new Promise((resolve) => { finishCopy = resolve }) } })
-  document.querySelector('.gp-files__copy-path')?.click()
+  document.querySelector('.gp-files__path')?.click()
   const mdRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
   if (mdRow) { mdRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   finishCopy?.()
   await new Promise((r) => setTimeout(r, 50))
-  result.copyFeedbackReset = document.querySelector('.gp-files__copy-path')?.textContent === 'files.copyPath'
+  // A late copy of the previous file must not colour the new file's name.
+  result.copyFeedbackReset = document.querySelector('.gp-files__path--copied') === null
+    && (document.querySelector('.gp-files__path')?.getAttribute('aria-label') ?? '').startsWith('files.copyPath')
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied') } } })
-  document.querySelector('.gp-files__copy-path')?.click()
+  document.querySelector('.gp-files__path')?.click()
   await new Promise((r) => setTimeout(r, 50))
-  result.copyDeniedFeedback = document.querySelector('.gp-files__copy-path')?.textContent === 'files.pathCopyFailed'
-  // The two copy actions form one joined button group: adjacent borders
-  // collapse onto a single 1px line and only the outer corners stay rounded.
-  const copyGroup = document.querySelector('.gp-files__copy-group')
-  const copyBtns = [...(copyGroup?.querySelectorAll('.gp-files__copy-path') ?? [])]
-  const copyRects = copyBtns.map((b) => b.getBoundingClientRect())
-  const copyRadii = copyBtns.map((b) => {
-    const cs = getComputedStyle(b)
-    return [cs.borderTopLeftRadius, cs.borderTopRightRadius, cs.borderBottomRightRadius, cs.borderBottomLeftRadius].join(' ')
-  })
-  result.copyGroupJoined = copyGroup !== null && copyBtns.length === 2
-    // The -1px margin must actually overlap: allowing a 1px tolerance would
-    // also accept two plain adjacent buttons (left === right, difference 1).
-    && Math.abs(copyRects[1].left - (copyRects[0].right - 1)) <= 0.25
-  result.copyGroupRadii = copyRadii.join('|') === '6px 0px 0px 6px|0px 6px 6px 0px'
+  result.copyDeniedFeedback = document.querySelector('.gp-files__path--error') !== null
+    && (document.querySelector('.gp-files__path [aria-live]')?.textContent ?? '') === 'files.pathCopyFailed'
   // Markdown defaults to the rendered view; switch to source, then back.
   result.markdownRenderedDefault = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown' && document.querySelector('.gp-files__code') === null
   // The wide toolbar uses the same official SegmentedControl as compact.
@@ -1164,6 +1300,10 @@ const out = await page.evaluate(async (snap) => {
   })
   const wideFullBtn = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')
   result.wideHasFullscreen = wideFullBtn !== null
+  // The bar that carries the opener is gone while the reader is open, so its
+  // glyph and label are captured now for the comparison below.
+  const openerIcon = wideFullBtn?.querySelector('svg')?.innerHTML
+  const openerLabelText = (wideFullBtn?.textContent || '').trim()
   // Captured before opening: a second render would replace this node, so an
   // equal reference afterwards proves the reader reused the live preview.
   const mdBefore = document.querySelector('[data-markdown-rendered]')
@@ -1183,6 +1323,21 @@ const out = await page.evaluate(async (snap) => {
     && fsBarLabels[0] === 'files.screenFull' && fsBarLabels[1] === 'common.close'
     // The toggle keeps a stable name and reports its state instead.
     && fsBarBtns[0]?.getAttribute('aria-pressed') === 'false'
+  // The card's fullscreen toggle must not be a second copy of the button that
+  // opened the card: it carries a visible label, and its glyph is a different
+  // drawing. Two identical corner-bracket icons in a row read as one action.
+  const fsScreenBtn = fsBarBtns[0]
+  const screenIcon = fsScreenBtn?.querySelector('svg')?.innerHTML
+  result.readerScreenToggleLabeled = fsScreenBtn !== undefined
+    && fsScreenBtn.querySelector('.gp-files__fs-screen-label') !== null
+    && (fsScreenBtn.textContent || '').trim() !== ''
+    // Label-in-name: the accessible name is the visible text.
+    && (fsScreenBtn.textContent || '').includes(fsScreenBtn.getAttribute('aria-label') || '\u0000')
+    && openerLabelText === ''
+  result.readerScreenIconDistinct = openerIcon !== undefined && screenIcon !== undefined
+    && openerIcon !== screenIcon
+    // Same box as the bar's other icon buttons, so the row keeps one height.
+    && Math.round(fsScreenBtn.getBoundingClientRect().height) === 25
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
   result.wideFullscreenClosed = document.querySelector('.gp-files__preview--full') === null
@@ -1196,6 +1351,50 @@ const out = await page.evaluate(async (snap) => {
   const renderBtn = modeTab('files.render')
   if (renderBtn) { renderBtn.click(); await new Promise((r) => setTimeout(r, 100)) }
   result.markdownRenderRestored = document.querySelector('[data-markdown-rendered]')?.textContent === 'Hello Markdown'
+  // A sticky code banner (the platform's code-block header) sticks to the
+  // scrollport's CONTENT edge, so the inset has to live on an inner box: padding
+  // on the scroll container leaves a band above the stuck banner that scrolling
+  // code shows through. The harness stubs MarkdownText, so the platform's block
+  // shape is reproduced here and the pane must show nothing above the banner.
+  result.markdownStickyBanner = (() => {
+    const sc = document.querySelector('.gp-files__markdown')
+    const body = document.querySelector('.gp-files__markdown-body')
+    if (sc === null || body === null) return null
+    const probe = document.createElement('div')
+    probe.style.cssText = 'position:relative;margin:16px 0;background:#f4f4f4'
+    const bannerWrap = document.createElement('div')
+    bannerWrap.style.cssText = 'position:sticky;top:0;z-index:6;background:#fff'
+    const banner = document.createElement('div')
+    banner.style.cssText = 'background:#eee;padding:9px 14px'
+    banner.textContent = 'probe-banner'
+    bannerWrap.appendChild(banner)
+    probe.appendChild(bannerWrap)
+    for (let i = 0; i < 40; i += 1) {
+      const row = document.createElement('div')
+      row.style.cssText = 'padding:0 14px;line-height:20px;white-space:pre'
+      row.textContent = `probe line ${i + 1}`
+      probe.appendChild(row)
+    }
+    body.appendChild(probe)
+    sc.scrollTop = 120
+    const scBox = sc.getBoundingClientRect()
+    const bannerTop = bannerWrap.getBoundingClientRect().top
+    const rows = [...probe.children].slice(1)
+    const out = {
+      scPaddingTop: getComputedStyle(sc).paddingTop,
+      bodyPaddingTop: getComputedStyle(body).paddingTop,
+      scrolled: sc.scrollTop > 0,
+      // Rows straddling the band between the scrollport's top edge and the
+      // banner's top edge — the leak. A flush banner intersects none.
+      rowsAboveBanner: rows.filter((row) => {
+        const b = row.getBoundingClientRect()
+        return Math.max(b.top, scBox.top) < Math.min(b.bottom, bannerTop) - 0.5
+      }).length,
+    }
+    probe.remove()
+    sc.scrollTop = 0
+    return out
+  })()
   // Mermaid: a document with a mermaid fence renders the diagram through the
   // lazy chunk, keeps the surrounding markdown in order, and a diagram the
   // engine rejects falls back to the plain code block.
@@ -1423,12 +1622,16 @@ const out = await page.evaluate(async (snap) => {
   // …because the read was attempted and failed, not skipped up front.
   result.htmlAssetMissingRead = fixture.contentQueries.slice(contentQueriesBeforeHtml).includes('missing.css')
   // Large-file source guards: highlighting is skipped (a notice shows, no
-  // syntax spans) and the over-long line is truncated with a marker.
+  // syntax spans) while the content itself is never cut: the giant line keeps
+  // its full length and no truncation marker exists anywhere.
   const bigRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.js'))
   if (bigRow) { bigRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.bigHighlightOff = document.querySelector('.gp-files__note')?.textContent === 'files.highlightOff'
   result.bigNoSyntaxSpans = document.querySelector('.gp-files__code .gp-diff-cell span[style]') === null
-  result.bigLineTruncated = [...document.querySelectorAll('.gp-files__trunc')].some((n) => n.textContent === 'files.lineTruncated')
+  result.bigLineFull = (() => {
+    const cell = document.querySelector('.gp-files__code .gp-diff-cell')
+    return cell !== null && (cell.textContent ?? '').length >= 6000 && document.querySelector('.gp-files__trunc') === null
+  })()
   // Over the wrap cap the toggle stays visible but disabled with a reason,
   // instead of vanishing and silently discarding the preference.
   const bigWrapBtn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')
@@ -1438,8 +1641,59 @@ const out = await page.evaluate(async (snap) => {
   // not all of them, while the spacer height reflects the full line count.
   result.bigMountedRows = document.querySelectorAll('.gp-files__row').length
   result.bigTotalLines = 5101
+  // The gutter grows with the file: 5101 lines need four digits, and every row
+  // column has to agree (each row is its own grid, so the width comes from the
+  // container). A short file keeps the three-digit default — see bigGutterSmall.
+  result.bigGutter = await (async () => {
+    const scroll = document.querySelector('.gp-files__code')
+    const cell = document.querySelector('.gp-files__code .gp-diff-no')
+    const row = document.querySelector('.gp-files__row')
+    if (scroll === null || cell === null || row === null) return null
+    const span = document.createElement('span')
+    span.style.cssText = 'position:absolute;visibility:hidden;white-space:pre'
+    span.textContent = '0000'
+    cell.appendChild(span)
+    const digits = Math.round(span.getBoundingClientRect().width * 10) / 10
+    span.remove()
+    return {
+      varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
+      cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+      digitW: digits,
+      colW: Math.round(parseFloat(getComputedStyle(row).gridTemplateColumns.split(' ')[0]) * 10) / 10,
+      lastNo: (() => {
+        const nos = [...document.querySelectorAll('.gp-files__code .gp-diff-no')]
+        return nos.length === 0 ? null : (nos[nos.length - 1].textContent || '').trim()
+      })(),
+    }
+  })()
   const virtGrid = document.querySelector('.gp-files__single--virt')
   result.bigSpacerHeight = virtGrid ? parseInt(virtGrid.style.height || '0', 10) : 0
+  // A selection must survive scrolling: the rows it covers stay mounted (a
+  // separate span, so the gap to the viewport is not mounted), which is what a
+  // touch drag relies on — the box auto-scrolls while the handles are moved.
+  // The scroll happens inside evaluate, but the kept-alive span arrives with the
+  // selectionchange render, so the survival read waits a frame batch below.
+  const scrollBefore = document.querySelector('.gp-files__code')?.scrollTop ?? 0
+  result.bigSelectionBefore = (() => {
+    const cell = document.querySelector('.gp-files__code .gp-diff-cell')
+    if (cell === null || cell.firstChild === null) return null
+    const range = document.createRange()
+    range.selectNodeContents(cell)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    return (sel?.toString() ?? '').slice(0, 24)
+  })()
+  const selView = document.querySelector('.gp-files__code')
+  if (selView !== null) selView.scrollTop = 20000
+  await new Promise((r) => setTimeout(r, 450))
+  result.bigSelectionSurvived = result.bigSelectionBefore !== null
+    && (window.getSelection()?.toString() ?? '').slice(0, 24) === result.bigSelectionBefore
+  result.bigSelectionMounted = document.querySelectorAll('.gp-files__row').length
+  result.bigSelectionScrolled = (document.querySelector('.gp-files__code')?.scrollTop ?? 0) > 1000
+  window.getSelection()?.removeAllRanges()
+  if (selView !== null) selView.scrollTop = scrollBefore
+  await new Promise((r) => setTimeout(r, 300))
   // In-panel Find (Ctrl+F): open on a text file, type a query, assert match
   // count + highlighted hits + next-match navigation, then Esc closes it.
   const findRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
@@ -1585,11 +1839,50 @@ const out = await page.evaluate(async (snap) => {
 
   // Copy-content button: only a loaded text document under the copy envelope
   // shows it; image, binary, and over-cap previews keep just copy-path.
-  const copyBtnLabels = () => [...document.querySelectorAll('.gp-files__copy-path')].map((b) => b.textContent)
+  // Icon-only controls contribute a marker instead of their (empty) text.
+  const copyBtnLabels = () => [...document.querySelectorAll('.gp-files__copy-path')]
+    .map((b) => (b.classList.contains('gp-files__copy-icon') ? '<icon>' : b.textContent))
+  // The content-copy control is icon-only: no visible text, label on aria, a
+  // decorative glyph inside, and the same height as the text button it joins.
+  const copyIconProbe = () => {
+    const btn = document.querySelector('.gp-files__copy-icon')
+    if (btn === null) return null
+    // The neighbouring glyph button the copy control has to line up with.
+    const peer = document.querySelector('.gp-files__bar .gp-files__props:not(.gp-files__copy-icon)')
+    return {
+      aria: btn.getAttribute('aria-label'),
+      text: (btn.textContent ?? '').trim(),
+      glyph: btn.querySelector('svg') !== null,
+      height: Math.round(btn.getBoundingClientRect().height),
+      peerHeight: peer === null ? 0 : Math.round(peer.getBoundingClientRect().height),
+      width: Math.round(btn.getBoundingClientRect().width),
+    }
+  }
   await pickFile('a.txt')
   result.copyBtnText = copyBtnLabels()
+  result.copyContentIcon = copyIconProbe()
+  // The content control shares the hook's clock: copied for 1.6 s, then idle.
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+  document.querySelector('.gp-files__copy-icon')?.click()
+  await new Promise((r) => setTimeout(r, 80))
+  result.contentCopyShape = (() => {
+    const btn = document.querySelector('.gp-files__copy-icon')
+    return btn === null ? null : { copied: btn.classList.contains('gp-files__copy-path--copied'), check: btn.querySelector('svg') !== null }
+  })()
+  // The confirmation must also reach assistive tech: the icon swaps glyph and
+  // colour, but only the live region says which outcome happened.
+  result.contentCopyLive = (() => {
+    const live = document.querySelector('.gp-files__copy-icon .gp-copy-live')
+    return live === null ? null : { text: live.textContent, aria: live.getAttribute('aria-live') }
+  })()
+  await new Promise((r) => setTimeout(r, 1750))
+  result.contentCopyReverted = (() => {
+    const btn = document.querySelector('.gp-files__copy-icon')
+    return btn !== null && !btn.classList.contains('gp-files__copy-path--copied')
+  })()
   await pickFile('logo.png')
   result.copyBtnImage = copyBtnLabels()
+  result.copyContentIconOnImage = copyIconProbe()
   await pickFile('blob.bin')
   result.copyBtnBinary = copyBtnLabels()
   // The placeholder text each unrenderable kind shows. Without it a swapped
@@ -1778,6 +2071,71 @@ const realInput = await (async () => {
   await page.waitForTimeout(150)
   return { before, after: await read() }
 })()
+
+// Real pointer hover on the content-copy icon: its label rides the plugin's
+// portaled tip (140ms), with no native title underneath doubling the hint.
+const copyTip = await (async () => {
+  const picked = await page.evaluate(async () => {
+    const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
+    if (row === undefined) return false
+    row.click()
+    await new Promise((r) => setTimeout(r, 400))
+    return document.querySelector('.gp-files__copy-icon') !== null
+  })
+  if (!picked) return null
+  await page.locator('.gp-files__copy-icon').hover()
+  await page.waitForTimeout(260)
+  const tip = await page.evaluate(() => {
+    const el = document.querySelector('div.gp-tip.gp-tip--sb')
+    const btn = document.querySelector('.gp-files__copy-icon')
+    if (el === null || btn === null) return null
+    const t = el.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    return {
+      text: el.textContent,
+      onBody: el.parentElement === document.body,
+      nativeTitle: btn.getAttribute('title'),
+      below: t.top >= b.bottom - 1,
+    }
+  })
+  // A pointer that leaves the control takes the hover tip with it.
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(160)
+  const hoverDismissed = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
+  // A press on the control dismisses the bubble it raised (the onClick path).
+  await page.locator('.gp-files__copy-icon').hover()
+  await page.waitForTimeout(200)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } })
+    document.querySelector('.gp-files__copy-icon')?.click()
+  })
+  await page.waitForTimeout(80)
+  const hiddenOnClick = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
+  // Re-hover inside the 1.6 s confirmation window: the tip must report the
+  // outcome, since the live region is screen-reader only.
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(60)
+  await page.locator('.gp-files__copy-icon').hover()
+  await page.waitForTimeout(260)
+  const feedbackTip = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb')?.textContent ?? null)
+  // Let the confirmation expire, then raise the tip from the keyboard: focus is
+  // the compensation for having no native title to fall back on.
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(1400)
+  await page.evaluate(() => document.querySelector('.gp-files__copy-icon')?.focus())
+  await page.waitForTimeout(260)
+  const focused = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb')?.textContent ?? null)
+  // A focus-raised tip ends on blur or a press elsewhere (the documented
+  // dismissal for a bubble the pointer does not own).
+  await page.evaluate(() => {
+    document.querySelector('.gp-files__copy-icon')?.blur()
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  })
+  await page.waitForTimeout(160)
+  const dismissed = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
+  return tip === null ? null : { ...tip, hoverDismissed, hiddenOnClick, feedbackTip, focused, dismissed }
+})()
+out.copyTip = copyTip
 
 await browser.close()
 

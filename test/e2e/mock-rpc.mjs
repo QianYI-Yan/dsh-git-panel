@@ -133,7 +133,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           if (q.kind === 'dir-list') {
             fixture.fileQueries.push(q.path)
             if (q.path === '') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: '', truncated: false, entries: [
-              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'csp.html', dir: false, size: 120 }, { name: 'heavy.html', dir: false, size: 614400 }, { name: 'styled.html', dir: false, size: 90 }, { name: 'styled.css', dir: false, size: 22 }, { name: 'unpacked.html', dir: false, size: 88 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
+              { name: 'src', dir: true }, { name: 'cache', dir: true, ignored: true }, { name: 'newdir', dir: true }, { name: 'vendored', dir: true }, { name: 'a.txt', dir: false, size: 12 }, { name: 'd.txt', dir: false, size: 10 }, { name: 'logo.png', dir: false, size: 64 }, { name: 'logo.svg', dir: false, size: 120 }, { name: 'icon.png', dir: false, size: 64 }, { name: 'big.png', dir: false, size: 3172 }, { name: 'wide.png', dir: false, size: 1600 }, { name: 'README.md', dir: false, size: 18 }, { name: 'diagram.md', dir: false, size: 48 }, { name: 'broken.md', dir: false, size: 24 }, { name: 'page.html', dir: false, size: 60 }, { name: 'csp.html', dir: false, size: 120 }, { name: 'heavy.html', dir: false, size: 614400 }, { name: 'styled.html', dir: false, size: 90 }, { name: 'styled.css', dir: false, size: 22 }, { name: 'unpacked.html', dir: false, size: 88 }, { name: 'big.js', dir: false, size: 60000 }, { name: 'blob.bin', dir: false, size: 5 }, { name: 'huge.txt', dir: false, size: 11534336 }, { name: 'ignored.log', dir: false, ignored: true },
               ...fixture.rootExtraEntries,
             ] } } }
             if (q.path === 'src') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'src', truncated: false, entries: [
@@ -145,6 +145,11 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             if (q.path === 'vendored') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'vendored', truncated: false, entries: [
               { name: 'note.txt', dir: false, size: 10 },
             ] } } }
+            // `cache` is the fixture's empty directory: the empty-listing hint
+            // is asserted on it, so its emptiness is declared here instead of
+            // riding the fallback (a future entry would silently change what
+            // that assertion means).
+            if (q.path === 'cache') return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: 'cache', truncated: false, entries: [] } } }
             return { ok: true, value: { ok: true, value: { kind: 'dir-list', path: q.path, truncated: false, entries: [] } } }
           }
           if (q.kind === 'file-content') {
@@ -189,6 +194,15 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             }
             if (q.path.endsWith('wide.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_WIDE}` } } }
             if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
+            // An SVG is a picture whose markup rides along: the preview's two
+            // faces come from this one response, so switching does not re-read.
+            // `size` plays the stat the host would have run, so it is the
+            // markup's own byte count — every size-gated rule (wrap cap, copy
+            // envelope, properties) must see the number the real wire carries.
+            if (q.path.endsWith('.svg')) {
+              const markup = '<svg xmlns="http://www.w3.org/2000/svg">\n  <rect width="10" height="10"/>\n</svg>\n'
+              return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/svg+xml;base64,${btoa(markup)}`, content: markup, lines: 3, size: markup.length, mtimeMs: MOCK_MTIME } } }
+            }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}`, size: 64, mtimeMs: MOCK_MTIME } } }
             const override = fixture.textOverrides[q.path]
             if (override !== undefined) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'text', content: override, lines: override.split('\n').length - 1, size: override.length, mtimeMs: MOCK_MTIME } } }

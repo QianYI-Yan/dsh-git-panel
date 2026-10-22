@@ -10,13 +10,13 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -95,6 +95,11 @@ before(async () => {
   await runGit(repoImg, ['config', 'user.name', 'Tester'])
   writeFileSync(join(repoImg, 'img.png'), Buffer.from('PNG-v1-bytes'))
   writeFileSync(join(repoImg, 'notes.txt'), 'plain\n')
+  // An SVG is served as an image and also carries its markup, so both faces of
+  // the preview come from one read; the binary-bodied one proves the markup
+  // half is gated on the bytes being text.
+  writeFileSync(join(repoImg, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg">\n  <rect width="10" height="10"/>\n</svg>\n')
+  writeFileSync(join(repoImg, 'blob.svg'), Buffer.from([0x3c, 0x73, 0x76, 0x67, 0x3e, 0x00, 0x3c, 0x2f, 0x73, 0x76, 0x67, 0x3e]))
   await runGit(repoImg, ['add', '.'])
   await runGit(repoImg, ['commit', '-qm', 'img v1'])
   writeFileSync(join(repoImg, 'img.png'), Buffer.from('PNG-v2-bytes'))
@@ -152,6 +157,21 @@ test('placement config normalizes and unwraps volatile refs', () => {
   assert.equal(normalizeConfig({ placement: 'nowhere' }).placement, 'all')
   assert.equal(normalizeConfig({ placement: 42 }).placement, 'all')
   assert.equal(normalizeConfig({ placement: { get: () => 'sidebar' } }).placement, 'sidebar')
+})
+
+test('maxBytes config clamps into the range shared with the shipped row', () => {
+  // The cap doubles as the per-command stdout cap and the image payload cap, so
+  // both ends are bounded: a huge value collects that much into the host per
+  // command, a tiny one turns every command's output lossy (the panel looks
+  // empty). In-range values are kept exactly, and a volatile ref is unwrapped.
+  assert.equal(DEFAULT_CONFIG.maxBytes, MAX_BYTES_LIMITS.default)
+  assert.equal(normalizeConfig({}).maxBytes, MAX_BYTES_LIMITS.default)
+  assert.equal(normalizeConfig({ maxBytes: 8 * 1024 * 1024 }).maxBytes, 8 * 1024 * 1024)
+  assert.equal(normalizeConfig({ maxBytes: Number.MAX_SAFE_INTEGER }).maxBytes, MAX_BYTES_LIMITS.max)
+  assert.equal(normalizeConfig({ maxBytes: 1 }).maxBytes, MAX_BYTES_LIMITS.min)
+  assert.equal(normalizeConfig({ maxBytes: -5 }).maxBytes, MAX_BYTES_LIMITS.min)
+  assert.equal(normalizeConfig({ maxBytes: 'big' }).maxBytes, MAX_BYTES_LIMITS.default)
+  assert.equal(normalizeConfig({ maxBytes: { get: () => 2 * 1024 * 1024 } }).maxBytes, 2 * 1024 * 1024)
 })
 
 test('defaultDiffView config normalizes, unwraps volatile refs, and flows into the snapshot', async () => {
@@ -730,6 +750,54 @@ test('file-content serves an image as a data URL', async () => {
   assert.equal(res.value.size, Buffer.from('PNG-v2-bytes').length)
   assert.ok(Number.isFinite(res.value.mtimeMs) && res.value.mtimeMs > 0)
 })
+
+test('file-content serves an SVG as an image plus its markup', async () => {
+  const res = await runQuery(depsAt(repoImg), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'logo.svg' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'image')
+  assert.ok(res.value.dataUrl.startsWith('data:image/svg+xml;base64,'))
+  // The same read answers the preview's source face — no second round trip.
+  assert.ok(res.value.content.startsWith('<svg xmlns="http://www.w3.org/2000/svg">'))
+  assert.equal(res.value.content.split('\n').length - 1, res.value.lines)
+  assert.equal(res.value.lines, 3)
+})
+
+test('file-content leaves a non-text SVG image-only', async () => {
+  const res = await runQuery(depsAt(repoImg), DEFAULT_CONFIG, { sessionId: SID, query: { kind: 'file-content', path: 'blob.svg' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'image')
+  assert.ok(res.value.dataUrl.startsWith('data:image/svg+xml;base64,'))
+  assert.equal(res.value.content, undefined, 'bytes with a NUL never become source text')
+  assert.equal(res.value.lines, undefined)
+})
+
+test('file-content serves an SVG above the image cap as its source', async () => {
+  // An SVG is markup, so past the image cap it degrades to the text shape
+  // (readable, copyable, source-only) instead of `tooLarge`, which would hide
+  // the file outright. A 4-byte cap puts the fixture over it, and the read still
+  // floors at the copy envelope rather than stopping at the image cap.
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
+  const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'logo.svg' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'text')
+  assert.equal(res.value.tooLarge, undefined)
+  assert.equal(res.value.dataUrl, undefined, 'no picture face past the image cap')
+  assert.ok(res.value.content.startsWith('<svg xmlns="http://www.w3.org/2000/svg">'))
+  assert.equal(res.value.lines, 3)
+  assert.equal(res.value.size, Buffer.byteLength(res.value.content))
+  assert.equal(res.value.absolutePath, join(realpathSync(repoImg), 'logo.svg'))
+})
+
+test('file-content keeps a non-text SVG too large past the image cap', async () => {
+  // NUL-bearing bytes have no trustworthy source face, so this one stays
+  // unreadable rather than being served as text.
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
+  const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'blob.svg' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.tooLarge, true)
+  assert.equal(res.value.variant, 'image')
+})
+
 
 test('file-content marks a NUL-containing file as binary', async () => {
   const { writeFileSync } = await import('node:fs')

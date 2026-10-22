@@ -11,12 +11,15 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CloseIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, FullscreenIcon, InfoIcon, RefreshIcon, ScreenIcon, WrapIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
-import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
 import { useDialogFocus } from './dialog-focus.js'
 import { canCopyContent } from './copy-content.js'
+import { useCopyFeedback } from './copy-feedback.js'
+import { useHoverTip } from './tip.js'
+import { pathCopyButton } from './path-copy-button.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { formatBytes } from './bytes.js'
@@ -25,8 +28,9 @@ import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
-import { renderPreview, type FileState } from './files-preview.js'
+import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
+import { isSvgPath } from './diff.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -112,8 +116,19 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const [file, setFile] = useState<FileState>(() => init?.file ?? { kind: 'idle' })
   const [renderMarkdown, setRenderMarkdown] = useState(() => init?.renderMarkdown ?? true)
   const [wrap, setWrap] = useState(() => init?.wrap ?? true)
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
-  const [copyContentState, setCopyContentState] = useState<'idle' | 'copied' | 'error'>('idle')
+  // Copy feedback comes from the shared hook, so the toolbar's confirmation
+  // expires on the same clock as the two diff-header paths (1.6 s) and a late
+  // write for a file the user has left cannot repaint the next one.
+  const pathCopy = useCopyFeedback(selected)
+  const contentCopy = useCopyFeedback(selected)
+  // The copy-content icon is label-free, so its hint rides the portaled tip
+  // (fast + themed, like the toolbar controls) instead of a native title —
+  // the two stacked when both were present.
+  const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'below' })
+  // A tip is anchored where its button stood when hovered, so a selection change
+  // (the button can even be swapped out for the next file's) would strand the
+  // bubble at the old spot; drop it instead of re-measuring.
+  useEffect(() => { hideTip() }, [selected, hideTip])
   const [showProps, setShowProps] = useState(false)
   // The fullscreen reader restyles this tab's own preview in place instead of
   // rendering a second copy: a rendered HTML page keeps its document (a new
@@ -283,7 +298,17 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       if (fc === null) { setFile({ kind: 'error', path, ...(res.ok ? {} : { code: res.error.code }) }); return }
       const stat = { ...(fc.size !== undefined ? { size: fc.size } : {}), ...(fc.mtimeMs !== undefined ? { mtimeMs: fc.mtimeMs } : {}) }
       if (fc.tooLarge === true) { setFile({ kind: 'tooLarge', path, ...stat }); return }
-      if (fc.variant === 'image' && fc.dataUrl !== undefined) { setFile({ kind: 'image', path, dataUrl: fc.dataUrl, ...stat }); return }
+      if (fc.variant === 'image' && fc.dataUrl !== undefined) {
+        // An SVG arrives with its markup beside the picture: one read feeds
+        // both faces of the preview.
+        setFile({
+          kind: 'image', path, dataUrl: fc.dataUrl,
+          ...(fc.content !== undefined ? { content: fc.content } : {}),
+          ...(fc.lines !== undefined ? { lines: fc.lines } : {}),
+          ...stat,
+        })
+        return
+      }
       if (fc.variant === 'text') { setFile({ kind: 'text', path, content: fc.content ?? '', lines: fc.lines ?? 0, ...stat, ...(fc.absolutePath !== undefined ? { absolutePath: fc.absolutePath } : {}) }); return }
       setFile({ kind: 'binary', path, ...stat })
     }).catch(() => { if (seq === fileSeq.current) setFile({ kind: 'error', path }) })
@@ -295,8 +320,6 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     // Rendered view is the default for Markdown; HTML defaults to source so a
     // page never auto-executes on selection — the user opts into the preview.
     setRenderMarkdown(!isHtmlPath(path))
-    setCopyState('idle')
-    setCopyContentState('idle')
     setShowProps(false)
     // A stopped render and a declined heavy document belong to the file that
     // was loaded: any selection, including the same path again, starts from a
@@ -343,25 +366,19 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
 
   const treeRows = useMemo(() => renderTree('', 0, { dirs, open, selected, toggleDir, selectFile, t }), [dirs, open, selected, toggleDir, selectFile, t])
 
-  // Both copy actions go through the platform helper: its async Clipboard path
-  // is unavailable on a remote plain-HTTP origin (non-secure context, no
-  // `navigator.clipboard`), where it falls back to `execCommand('copy')`.
-  const copyPath = async (): Promise<void> => {
-    if (selected === null) return
-    const seq = fileSeq.current
-    const ok = await writeClipboard(selected)
-    if (seq !== fileSeq.current) return
-    setCopyState(ok ? 'copied' : 'error')
-  }
-
-  const copyContent = async (): Promise<void> => {
-    // Re-checked at click time: only a loaded text document under the copy
-    // envelope may reach the clipboard, never binary/image/oversized bodies.
-    if (file.kind !== 'text' || !canCopyContent(file)) return
-    const seq = fileSeq.current
-    const ok = await writeClipboard(file.content)
-    if (seq !== fileSeq.current) return
-    setCopyContentState(ok ? 'copied' : 'error')
+  // Both copy actions go through the platform helper (inside useCopyFeedback):
+  // its async Clipboard path is unavailable on a remote plain-HTTP origin
+  // (non-secure context, no `navigator.clipboard`), where it falls back to
+  // `execCommand('copy')`.
+  // Re-checked at click time: only a loaded text document, or an SVG whose
+  // markup came with the picture, may reach the clipboard — never a binary or
+  // oversized body, and never a content-less image.
+  const copyContent = (): void => {
+    // Both copyable shapes carry their body in `content` (a text file's own, or
+    // the markup that rides beside an SVG picture).
+    const body = file.kind === 'text' || file.kind === 'image' ? file.content : undefined
+    if (body === undefined || !canCopyContent(file)) return
+    contentCopy.copy(body)
   }
 
   // Properties dialog input: the loaded preview already carries path/size/
@@ -417,9 +434,13 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   ])
 
   const richPreview = file.kind === 'text' && isRichPath(file.path)
+  // An SVG is a picture and also markup, so it renders by default and offers a
+  // source face — the same split the diff view uses for these files.
+  const svgSource = file.kind === 'image' && file.content !== undefined && isSvgPath(file.path)
+  const modeSwitchable = richPreview || svgSource
   // One definition per toolbar control; the compact and wide bars compose the
   // same nodes so a new mode / action cannot land on only one layout.
-  const modeSeg = richPreview
+  const modeSeg = modeSwitchable
     ? h(SegmentedControl, {
       key: 'mode',
       className: 'gp-files__mode-seg',
@@ -456,8 +477,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // Word wrap only affects the source/code body (rendered Markdown already wraps).
   // Over the wrap cap the toggle stays visible but disabled — hiding it would
   // discard the preference with no explanation (the body falls back to nowrap).
-  const isTextSource = file.kind === 'text' && (richPreview ? !renderMarkdown : true)
-  const capOk = file.kind === 'text' ? wrapCapOk(file.content, file.lines) : false
+  const isTextSource = file.kind === 'text'
+    ? (richPreview ? !renderMarkdown : true)
+    : svgSource && !renderMarkdown
+  const sourceText = file.kind === 'text'
+    ? { content: file.content, lines: file.lines }
+    : file.kind === 'image' && file.content !== undefined
+      ? { content: file.content, lines: file.lines ?? 0 }
+      : null
+  const capOk = sourceText === null ? false : wrapCapOk(sourceText.content, sourceText.lines)
   const wrapButton = isTextSource
     ? h('button', {
       key: 'wrap', type: 'button', className: 'gp-files__props',
@@ -473,40 +501,59 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     title: t('files.propsTitle'), 'aria-label': t('files.propsTitle'),
     disabled: propsInput === null, onClick: () => setShowProps(true),
   }, h(InfoIcon, { size: 14 }))
-  // Compact toolbar: back + the official source/render switcher + fullscreen +
-  // properties. The relative path and the copy buttons leave the phone row —
-  // they are what made it wrap onto three lines.
+  // The filename is the copy control: clicking it copies the relative path, in
+  // the same shape and on the same feedback clock as the two diff headers
+  // (path-copy-button.tsx). The directory elides from its left, tail kept, so
+  // the name stays whole at any width.
+  const pathButton = pathCopyButton({
+    elementKey: 'path',
+    path: selected ?? '',
+    feedback: pathCopy.feedback,
+    onCopy: () => pathCopy.copy(),
+    t,
+    rootClass: 'gp-files__path',
+    dirClass: 'gp-files__path-dir',
+    nameClass: 'gp-files__path-name',
+    disabled: selected === null,
+  })
+  // Icon-only: the label rides aria-label, the outcome rides the hover tip (the
+  // live region is screen-reader only, so a sighted user needs the tip to say
+  // which of the two happened) and the check glyph on success.
+  const copyContentButton = canCopyContent(file)
+    ? h('button', {
+      key: 'copy-content', type: 'button',
+      className: `gp-files__copy-path gp-files__copy-icon${contentCopy.feedback === 'copied' ? ' gp-files__copy-path--copied' : contentCopy.feedback === 'error' ? ' gp-files__copy-path--error' : ''}`,
+      'aria-label': t('files.copyContent'),
+      ...tipProps(t(contentCopy.feedback === 'copied' ? 'files.contentCopied' : contentCopy.feedback === 'error' ? 'files.contentCopyFailed' : 'files.copyContent')),
+      onClick: () => { hideTip(); copyContent() },
+    }, [
+      contentCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
+      h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+        contentCopy.feedback === 'idle' ? '' : t(contentCopy.feedback === 'copied' ? 'files.contentCopied' : 'files.contentCopyFailed')),
+    ])
+    : null
+
+  // Compact toolbar: back, the source/render switcher, then the icon group
+  // (wrap / fullscreen / copy-content / properties). The relative path is
+  // wide-only.
   const compactBar = compact
     ? h('div', { key: 'bar', className: 'gp-files__bar gp-files__bar--compact' }, [
       h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('tree') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]),
       modeSeg,
       // Trailing icons keep their own right-aligned group: without the mode
-      // switcher (plain files) they would otherwise sit next to the back button.
-      h('div', { key: 'end', className: 'gp-files__bar-end' }, [scriptToggle, wrapButton, fullscreenButton, propsButton]),
+      // switcher (plain files) they sit next to the back button otherwise.
+      h('div', { key: 'end', className: 'gp-files__bar-end' }, [scriptToggle, wrapButton, fullscreenButton, copyContentButton, propsButton]),
     ])
     : null
 
   const wideBar = compact
     ? null
     : h('div', { key: 'bar', className: 'gp-files__bar' }, [
-      h('code', { key: 'path', className: 'gp-files__path', title: selected ?? '' }, selected ?? ''),
+      pathButton,
       modeSeg,
-      // The two copy actions form one joined button group (collapsed shared
-      // border); a lone visible button keeps the full pill radius.
-      h('div', { key: 'copy', className: 'gp-files__copy-group' }, [
-        h('button', {
-          key: 'copy-path', type: 'button', className: `gp-files__copy-path${copyState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-          'aria-live': 'polite', onClick: () => { void copyPath() },
-        }, t(copyState === 'copied' ? 'files.pathCopied' : copyState === 'error' ? 'files.pathCopyFailed' : 'files.copyPath')),
-        // Hidden (not disabled) for binary/image/too-large/error previews and
-        // for documents at/above the copy envelope — no dead control to click.
-        canCopyContent(file)
-          ? h('button', {
-            key: 'copy-content', type: 'button', className: `gp-files__copy-path${copyContentState === 'error' ? ' gp-files__copy-path--error' : ''}`,
-            'aria-live': 'polite', onClick: () => { void copyContent() },
-          }, t(copyContentState === 'copied' ? 'files.contentCopied' : copyContentState === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'))
-          : null,
-      ]),
+      // Hidden (not disabled) for binary/image/too-large/error previews and for
+      // documents at/above the copy envelope — no dead control to click.
+      copyContentButton,
       scriptToggle,
       wrapButton,
       fullscreenButton,
@@ -519,7 +566,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const tabPanel = (mode: 'source' | 'render'): Record<string, string> => (fsActive
     ? { id: `${modeId}-${mode}-panel` }
     : { id: `${modeId}-${mode}-panel`, role: 'tabpanel', 'aria-labelledby': `${modeId}-${mode}` })
-  const previewContent = richPreview
+  const previewContent = modeSwitchable
     ? [
       h('div', {
         key: 'src', ...tabPanel('source'),
@@ -561,11 +608,17 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       ? h('div', { key: 'fsbar', className: 'gp-modal__bar gp-files__fsbar' }, [
         h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
         h('button', {
-          key: 'screen', type: 'button', className: 'gp-icon-btn gp-files__fs-screen',
+          key: 'screen', type: 'button',
+          // Labelled: the card is opened by the icon-only fullscreen button
+          // outside, so this one carries its own text and a display glyph.
+          className: 'gp-btn gp-files__fs-screen',
           title: screenFull ? t('files.exitFullscreen') : t('files.enterFullscreen'),
-          'aria-label': t('files.screenFull'),
+          'aria-label': screenFull ? t('files.exitFullscreen') : t('files.screenFull'),
           'aria-pressed': screenFull, onClick: toggleScreenFull,
-        }, h(screenFull ? ExitFullscreenIcon : FullscreenIcon, { size: 15 })),
+        }, [
+          h(ScreenIcon, { key: 'i', size: 14 }),
+          h('span', { key: 'l', className: 'gp-files__fs-screen-label' }, screenFull ? t('files.exitFullscreen') : t('files.screenFull')),
+        ]),
         h('button', {
           key: 'close', ref: fsCloseRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
           title: t('common.close'), 'aria-label': t('common.close'), onClick: closeFullscreen,
@@ -577,6 +630,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
     heavyNotice,
+    // Hover tip for the copy-content icon, next to the only bar that can raise
+    // it (the compact bar carries no copy button); portaled, so it is not
+    // clipped here.
+    tipNode,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
@@ -618,7 +675,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   ])
 }
 
-/** Preview body: rendered Markdown/HTML when the mode is on, else raw preview. */
+/** Preview body: rendered Markdown/HTML/SVG when the mode is on, else raw preview. */
 function renderContent(
   file: FileState,
   renderMarkdown: boolean,
@@ -631,17 +688,22 @@ function renderContent(
   htmlStop: (() => void) | undefined,
   t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
+  // An SVG has both faces in hand: the picture, or its markup as source.
+  if (file.kind === 'image' && file.content !== undefined) {
+    return renderMarkdown ? renderPreview(file, wrap, t) : h(CodePreview, { content: file.content, path: file.path, wrap, t })
+  }
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }
     if (markdownSegments.length === 1 && markdownSegments[0].kind === 'markdown') {
-      return h('div', { className: 'gp-files__markdown' }, h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps }))
+      return h('div', { className: 'gp-files__markdown' }, h('div', { className: 'gp-files__markdown-body' }, h(MarkdownText, { text: markdownSegments[0].text, ...markdownProps })))
     }
     // Mermaid fences render through the lazy engine chunk; every other
     // segment stays on the official MarkdownText, in document order, with
     // kbd hints already rewritten (see the memoized markdownSegments).
-    return h('div', { className: 'gp-files__markdown' }, markdownSegments.map((segment, index) => segment.kind === 'mermaid'
-      ? h(MermaidFigure, { key: index, source: segment.source, t })
-      : h(MarkdownText, { key: index, text: segment.text, ...markdownProps })))
+    return h('div', { className: 'gp-files__markdown' }, h('div', { className: 'gp-files__markdown-body' },
+      markdownSegments.map((segment, index) => segment.kind === 'mermaid'
+        ? h(MermaidFigure, { key: index, source: segment.source, t })
+        : h(MarkdownText, { key: index, text: segment.text, ...markdownProps }))))
   }
   if (file.kind === 'text' && htmlFrame !== undefined) {
     // The pack is in flight: hold the source preview instead of flashing an
@@ -750,6 +812,14 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
   }
   if (loaded.status === 'error') {
     return [h('div', { key: `e${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.loadFailed'))]
+  }
+  // An expanded directory that lists nothing says so, one level under the dir
+  // — flipping only the folder glyph is the sole sign otherwise. The root's
+  // empty listing stays blank (its loading state is already a centered pane);
+  // a truncated listing always carries entries, so it never reaches here.
+  if (loaded.entries.length === 0 && !loaded.truncated) {
+    if (depth === 0) return []
+    return [h('div', { key: `empty${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.emptyDir'))]
   }
   const rows: JSX.Element[] = []
   for (const entry of loaded.entries) {

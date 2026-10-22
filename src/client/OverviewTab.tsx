@@ -5,15 +5,17 @@
  *  middle = commit history graph + search (message / hash / author / date)
  *  right  = selected commit's changed files + message (comment)
  */
-import { createElement as h, useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { createElement as h, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
+import { OVERLAY_ATTR, hasOverlay } from './dialog-focus.js'
+import { renderBranchDrawer } from './overview-drawer.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, CheckIcon, ChevronIcon, CloseIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
+import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
 import { layoutFilteredGraph } from './filtered-graph.js'
 import { CommitGraph, GRAPH_LANE_W } from './CommitGraph.js'
@@ -25,6 +27,7 @@ import { statusChar, statusClass } from './status.js'
 import { DiffView, diffSummary, type DiffMode } from './DiffView.js'
 import { useBranchTree, useCommitDetail, useHistory, type BranchTree, type HistoryFilter } from './overview-hooks.js'
 import { useCopyFeedback, type CopyFeedback } from './copy-feedback.js'
+import { pathCopyButton } from './path-copy-button.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { segButtons } from './seg.js'
 import { opErrorText, renderConfirmModal } from './ops-modals.js'
@@ -76,6 +79,14 @@ interface OverviewProps {
   /** Stacked layout: a tall narrow right sidebar — two columns in the top band
    * (branch list + history), commit detail spanning the width below. */
   readonly stacked: boolean
+  /** Stacked sidebar at or below STACKED_TIGHT_BP: the top band's left column
+   * (branch list + status bar) leaves the flex flow and becomes a drawer over
+   * the history, collapsed by default (Panel measures; panel-fit.ts). */
+  readonly tight?: boolean
+  /** The DEVICE screen is phone-sized (panel-fit.ts): the compact branch
+   * filter is the same left drawer the tight stacked sidebar uses, not the
+   * bottom sheet a squeezed desktop column pops. */
+  readonly phone?: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -116,7 +127,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
@@ -170,6 +181,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Compact branch/ref filter lives in a bottom sheet (a side column has no room
   // on a phone); the wide layout keeps the always-visible left column instead.
   const [sheetOpen, setSheetOpen] = useState(false)
+  // A phone's compact overview takes the branch filter as the same left drawer
+  // the tight stacked sidebar uses; a squeezed desktop column keeps the sheet.
+  const branchDrawer = compact && phone === true
   // Escape dismisses the sheet, matching the file-diff modal's dialog contract.
   useEffect(() => {
     if (!sheetOpen) return
@@ -177,11 +191,39 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [sheetOpen])
-  // The sheet is a compact-only surface; widening the panel dismisses it so it
-  // never hangs over the three-column layout.
+  // The sheet is a compact-only surface; widening the panel (or a phone taking
+  // the drawer instead) dismisses it so it never hangs over the layout.
   useEffect(() => {
-    if (!compact && sheetOpen) setSheetOpen(false)
-  }, [compact, sheetOpen])
+    if ((!compact || branchDrawer) && sheetOpen) setSheetOpen(false)
+  }, [compact, branchDrawer, sheetOpen])
+  // Tight stacked sidebar, or a phone's compact overview: the branch list is a
+  // drawer over the history, collapsed by default so the graph gets the full
+  // width until the branch list is asked for (Panel passes tight ⇔ width ≤
+  // STACKED_TIGHT_BP; the phone flag ⇔ device screen ≤ PHONE_SCREEN_BP).
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const drawerId = useId()
+  const drawerRootRef = useRef<HTMLDivElement | null>(null)
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
+  const drawerToggleRef = useRef<HTMLButtonElement | null>(null)
+  // Focus enters the drawer and returns to the toolbar toggle through the shared
+  // dialog hook (overview-drawer.tsx). Escape yields to a dialog open above it:
+  // that layer's own listener closes it in the same dispatch, so claiming the
+  // keystroke here would dismiss both at once.
+  useEffect(() => {
+    if (!drawerOpen || !visible) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape' || hasOverlay()) return
+      setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [drawerOpen, visible])
+  // Leaving the tier that owns the drawer (tight stacked sidebar, phone
+  // compact) re-attaches the column inline; the overlay state would otherwise
+  // outlive the drawer it belongs to.
+  useEffect(() => {
+    if (!tight && !branchDrawer && drawerOpen) setDrawerOpen(false)
+  }, [tight, branchDrawer, drawerOpen])
 
   // When the pull confirm opens, load the incoming fast-forward scope (local
   // diffstat HEAD..@{upstream}) so the dialog can show commits/files/±lines;
@@ -427,6 +469,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onPush: () => { if (canPush(snapshot) && !pushBusy) setPushConfirm(true) },
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
+    // Narrow panels drop the repo link: the compact footer and the tight
+    // drawer spend the row on the sync state; wide and stacked 381–760 keep it.
+    hideRepo: compact || tight,
   }
 
   // The modal header path doubles as its copy control (the changes toolbar
@@ -605,16 +650,37 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
   })
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
+  // Tight stacked: the left column does not occupy the band, so its only entry
+  // is the toolbar's leftmost button — the drawer slides out over the history.
+  const drawerToggle = tight
+    ? h('button', {
+      key: 'branches', type: 'button', ref: drawerToggleRef,
+      className: 'gp-icon-btn gp-toolbar__branches',
+      title: t('overview.filterBranch'), 'aria-label': t('overview.filterBranch'),
+      'aria-expanded': drawerOpen, 'aria-controls': drawerId,
+      onClick: () => setDrawerOpen((v) => !v),
+    }, h(FilterIcon, { size: 14 }))
+    : null
   // Compact hides the secondary filters behind the more chevron so the first
   // row fits the branch trigger + search; wide and stacked show everything —
   // stacked wraps it into two clean rows (search full width over the filters)
   // via its toolbar class rather than hiding anything.
+  //
+  // Tight stacked keeps the drawer toggle and the search on one row. They share
+  // a nowrap row instead of relying on a `calc(100% - 34px)` budget: the touch
+  // media query grows icon buttons to 34px, so any arithmetic that assumes the
+  // desktop 28px + gap strands the search on a row of its own.
   const toolbarChildren: JSX.Element[] = compact
     ? [
       h('button', {
-        key: 'filter', type: 'button',
+        key: 'filter', type: 'button', ref: branchDrawer ? drawerToggleRef : null,
         className: `gp-btn${filter.ref !== null ? ' gp-btn--primary' : ''}`,
-        title: t('overview.filterBranch'), onClick: () => setSheetOpen(true),
+        title: t('overview.filterBranch'),
+        // A phone opens the left drawer; a squeezed desktop column pops the
+        // bottom sheet. Same button, same label, different surface.
+        ...(branchDrawer
+          ? { 'aria-expanded': drawerOpen, 'aria-controls': drawerId, onClick: () => setDrawerOpen((v) => !v) }
+          : { onClick: () => setSheetOpen(true) }),
       }, [h(FilterIcon, { key: 'ic', size: 13 }), h('span', { key: 'l', className: 'gp-btn__label' }, filter.ref ?? t('overview.filterBranch'))]),
       searchInputEl,
       ...(moreToggle === null ? [] : [moreToggle]),
@@ -622,10 +688,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ? [h('div', { key: 'more', id: moreId, className: 'gp-toolbar__more' }, secondaryFilters)]
         : []),
     ]
-    : [searchInputEl, ...secondaryFilters]
+    : [
+      ...(drawerToggle === null
+        ? [searchInputEl]
+        : [h('div', { key: 'row', className: 'gp-toolbar__row' }, [drawerToggle, searchInputEl])]),
+      ...secondaryFilters,
+    ]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-    h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}`, ref: setSearchEl }, toolbarChildren),
+    h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0
         ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
@@ -709,24 +780,36 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // top band keeps the wide layout's first two columns — the complete branch
   // list (filter + switch + browse) beside the history — and the commit detail
   // spans the full width below. Selecting a row updates the detail in place.
+  // Tight (≤ STACKED_TIGHT_BP): the branch column leaves the flex flow for a
+  // drawer over the history — collapsed by default, so the history gets the
+  // whole band until the toggle, the backdrop or Escape brings the column back.
   if (stacked) {
+    const branchList = h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+      onFilter: (ref) => setRef(ref),
+      switchOptions,
+      onSwitch: openSwitch,
+      onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+      onRetry: reloadTree,
+      t,
+    }, branchTrees))
+    const status = renderStatusBar(snapshot, statusCbs)
+    const leftChildren: JSX.Element[] = [branchList, status]
+    const topChildren: JSX.Element[] = tight
+      ? [
+        // Backdrop first (click the blank band to dismiss), then the drawer
+        // above it, then the history it covers — z-index lives in stacked.ts.
+        ...renderBranchDrawer({
+          open: drawerOpen, id: drawerId, className: 'gp-col gp-col--left gp-drawer',
+          rootRef: drawerRootRef, closeRef: drawerCloseRef, toggleRef: drawerToggleRef,
+          onClose: () => setDrawerOpen(false), children: leftChildren, t,
+        }),
+        historyCol,
+      ]
+      : [h('div', { key: 'left', className: 'gp-col gp-col--left' }, leftChildren), historyCol]
     return h('div', { className: 'gp-overview gp-overview--stacked' }, [
       fileDiffModal,
       ...opModals,
-      h('div', { key: 'top', className: 'gp-overview__top', style: { flex: `0 0 ${split.pct}%` } }, [
-        h('div', { key: 'left', className: 'gp-col gp-col--left' }, [
-          h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
-            onFilter: (ref) => setRef(ref),
-            switchOptions,
-            onSwitch: openSwitch,
-            onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
-            onRetry: reloadTree,
-            t,
-          }, branchTrees)),
-          renderStatusBar(snapshot, statusCbs),
-        ]),
-        historyCol,
-      ]),
+      h('div', { key: 'top', className: 'gp-overview__top', style: { flex: `0 0 ${split.pct}%` } }, topChildren),
       h('div', {
         key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
         'aria-orientation': 'horizontal',
@@ -737,11 +820,33 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }
 
   // Compact: a single column that drills from the history list into the commit
-  // detail; the branch filter is a bottom sheet. No hover card (tap drills in).
+  // detail; the branch filter is a bottom sheet on a desktop-sized screen and
+  // the left drawer on a phone (branchDrawer). No hover card (tap drills in).
   // The header spends its row on the back button + the change summary: the
   // short hash it used to carry is already in the commit-row meta and in the
   // message meta below, so repeating it here only cost the second row.
   if (compact) {
+    // The phone's drawer overlays the whole tab: the compact root is its
+    // containing block, so it covers the status-bar footer too. Picking a ref or
+    // a switch target closes it and returns to the filtered history at once.
+    const drawerChildren: JSX.Element[] = branchDrawer
+      ? renderBranchDrawer({
+        open: drawerOpen, id: drawerId, className: 'gp-col gp-drawer',
+        rootRef: drawerRootRef, closeRef: drawerCloseRef, toggleRef: drawerToggleRef,
+        onClose: () => setDrawerOpen(false),
+        children: [
+          h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+            onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
+            switchOptions,
+            onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
+            onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+            onRetry: reloadTree,
+            t,
+          }, branchTrees)),
+        ],
+        t,
+      })
+      : []
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
       ...opModals,
@@ -755,6 +860,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ])
         : historyCol,
       renderStatusBar(snapshot, statusCbs),
+      ...drawerChildren,
       sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         switchOptions,
@@ -955,7 +1061,7 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
   }, h('div', { className: 'gp-sheet', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-sheet__bar' }, [
       h('span', { key: 'title', className: 'gp-sheet__title' }, cb.t('overview.filterBranch')),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), 'aria-label': cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'body', className: 'gp-sheet__body' },
       renderBranchList(tree, treeError, activeRef, closed, cb, trees)),
@@ -1112,40 +1218,38 @@ function renderFileDiffModal(
   const modes: DiffMode[] = compact ? ['unified', 'before', 'after'] : ['unified', 'split', 'before', 'after']
   const effMode: DiffMode = compact && mode === 'split' ? 'unified' : mode
   const sumEl = data !== null && data.text !== '' ? (() => { const s = diffSummary(data.text); return h('span', { key: 'sum', className: 'gp-modal__sum' }, [h('span', { key: 'a', className: 'gp-stats__add' }, `+${s.add}`), h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${s.del}`)]) })() : null
+  // Icon-only, matching the changes pane's toolbar: the label rides title/aria,
+  // the pressed state marks the expansion.
+  const expandLabel = t(expanded ? 'diff.collapse' : 'diff.expandAll')
   const expandEl = h('button', {
     key: 'expand', type: 'button',
-    className: `gp-seg__btn gp-diff__expand${expanded ? ' gp-seg__btn--active' : ''}`,
+    className: 'gp-icon-btn gp-diff__expand',
     disabled: effMode !== 'split' && effMode !== 'unified',
-    title: t(expanded ? 'diff.collapse' : 'diff.expandAll'),
+    title: expandLabel,
+    'aria-label': expandLabel,
+    'aria-pressed': expanded,
     onClick: () => onExpand(!expanded),
-  }, t(expanded ? 'diff.collapse' : 'diff.expandAll'))
+  }, h(ExpandAllIcon, { size: 14 }))
   const segEl = h('div', { key: 'seg', className: 'gp-seg' },
     segButtons<DiffMode>(modes, effMode, onMode, (m) => t(`diff.${m}` as GitKey)))
   const closeEl = h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-modal__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 15 }))
-  // The header path doubles as its copy control (the changes toolbar works
-  // the same way): clicking writes the relative path. The path NEVER swaps
-  // out for the confirmation — a bare text node wraps when the bar squeezes
-  // the button below the phrase's width — on success the directory slot
-  // trades places with a check mark, on failure only the color changes; the
-  // phrase rides `aria-label`, `title` (feedback period only) and a
-  // visually-hidden live region. `--copy` carries the button affordance
-  // because the bare `.gp-modal__path` class is shared with plain titles.
-  const copyKey = pathFeedback === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
-  const pathParts = renderPathParts(fileDiff.path)
-  const pathEl = h('button', {
-    key: 'path',
-    type: 'button',
-    className: `gp-modal__path gp-modal__path--copy${pathFeedback === 'copied' ? ' gp-modal__path--copied' : pathFeedback === 'error' ? ' gp-modal__path--error' : ''}`,
-    title: pathFeedback === 'idle' ? fileDiff.path : `${t(copyKey)} ${fileDiff.path}`,
-    'aria-label': `${t(pathFeedback === 'idle' ? 'files.copyPath' : copyKey)} ${fileDiff.path}`,
-    onClick: () => onCopyPath(),
-  }, [
-    pathFeedback === 'copied'
-      ? h(CheckIcon, { key: 'ok', size: 12 })
-      : pathParts.slice(0, Math.max(0, pathParts.length - 1)),
-    pathParts[pathParts.length - 1],
-    h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, pathFeedback === 'idle' ? '' : t(copyKey)),
-  ])
+  // The header path doubles as its copy control, in the same shape as the
+  // changes pane's and the files toolbar's (path-copy-button.tsx). `--copy`
+  // carries the button affordance because the bare `.gp-modal__path` class is
+  // shared with plain titles.
+  const pathEl = pathCopyButton({
+    elementKey: 'path',
+    path: fileDiff.path,
+    feedback: pathFeedback,
+    onCopy: onCopyPath,
+    t,
+    rootClass: 'gp-modal__path',
+    extraClass: 'gp-modal__path--copy',
+    dirClass: 'gp-modal__dir',
+    nameClass: 'gp-modal__name',
+    checkSize: 12,
+    separator: 'attached',
+  })
   const barHead = [
     h('span', { key: 'fileicon', className: 'gp-modal__fileicon' }, h(FileIcon, { size: 15 })),
     pathEl,
@@ -1164,6 +1268,9 @@ function renderFileDiffModal(
     : [...barHead, segEl, closeEl]
   const modal = h('div', {
     className: 'gp-modal-backdrop',
+    // Declares this dialog as an overlay above the page, so the branch drawer's
+    // Escape handler yields the keystroke instead of closing both layers.
+    [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, barChildren),
@@ -1175,12 +1282,3 @@ function renderFileDiffModal(
   return createPortal(modal, document.body, 'file-diff-modal')
 }
 
-/** Split a path into a dimmed directory prefix + emphasized file name. */
-function renderPathParts(path: string): JSX.Element[] {
-  const slash = path.lastIndexOf('/')
-  if (slash < 0) return [h('span', { key: 'n', className: 'gp-modal__name' }, path)]
-  return [
-    h('span', { key: 'd', className: 'gp-modal__dir' }, path.slice(0, slash + 1)),
-    h('span', { key: 'n', className: 'gp-modal__name' }, path.slice(slash + 1)),
-  ]
-}

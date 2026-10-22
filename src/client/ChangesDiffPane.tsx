@@ -11,7 +11,8 @@ import type { JSX } from 'react'
 import type { GitPanelRemote } from './rpc.js'
 import type { GitKey } from './locales.js'
 import { DiffView, type DiffMode } from './DiffView.js'
-import { ArrowLeftIcon, CheckIcon, CloseIcon, ExpandAllIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
+import { ArrowLeftIcon, CloseIcon, ExpandAllIcon, ExitFullscreenIcon, FullscreenIcon } from './icons.js'
+import { pathCopyButton } from './path-copy-button.js'
 import { segButtons } from './seg.js'
 import type { CopyFeedback } from './copy-feedback.js'
 import { DiffCardFocus, type DiffCard } from './diff-card.js'
@@ -71,41 +72,19 @@ export function ChangesDiffPane(props: ChangesDiffPaneProps): JSX.Element {
         const back = compact
           ? h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => onBackToList() }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('changes.backToList')])
           : null
-        // The filename must stay whole: the directory shrinks first, eliding
-        // from its left (tail kept, right-to-left run), and the full relative
-        // path rides on the native tooltip instead of the clipped text. The
-        // element is a button: clicking copies that relative path. The path
-        // itself NEVER swaps out for the confirmation (a bare text node wraps
-        // when the toolbar squeezes the button below the phrase's width, which
-        // balloons the row): on success the directory slot trades places with
-        // a check mark, on failure only the color changes — dir/name keep
-        // their nowrap/ellipsis either way. The phrase rides `aria-label`,
-        // `title` (feedback period only) and a visually-hidden live region.
-        const slash = diffPath.path.lastIndexOf('/')
-        const copyState = copy.feedback
-        const copyKey = copyState === 'copied' ? 'files.pathCopied' : 'files.pathCopyFailed'
-        const copyText = t(copyState === 'idle' ? 'files.copyPath' : copyKey)
-        const path = h('button', {
-          key: 'path',
-          type: 'button',
-          className: `gp-diff__path${copyState === 'copied' ? ' gp-diff__path--copied' : copyState === 'error' ? ' gp-diff__path--error' : ''}`,
-          title: copyState === 'idle' ? diffPath.path : `${t(copyKey)} ${diffPath.path}`,
-          'aria-label': `${copyText} ${diffPath.path}`,
-          onClick: () => copy.onCopy(),
-        }, [
-          copyState === 'copied'
-            ? h(CheckIcon, { key: 'ok', size: 11 })
-            : slash < 0
-              ? null
-              : [
-                h('span', { key: 'd', className: 'gp-diff__path-dir' }, diffPath.path.slice(0, slash)),
-                h('span', { key: 's', className: 'gp-diff__path-sep' }, '/'),
-              ],
-          slash < 0
-            ? diffPath.path
-            : h('span', { key: 'n', className: 'gp-diff__path-name' }, diffPath.path.slice(slash + 1)),
-          h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, copyState === 'idle' ? '' : t(copyKey)),
-        ])
+        // The filename stays whole (the directory elides first) and doubles as
+        // the copy control; shape, feedback and the phrase's placement are the
+        // shared path-copy contract (see path-copy-button.tsx).
+        const path = pathCopyButton({
+          elementKey: 'path',
+          path: diffPath.path,
+          feedback: copy.feedback,
+          onCopy: copy.onCopy,
+          t,
+          rootClass: 'gp-diff__path',
+          dirClass: 'gp-diff__path-dir',
+          nameClass: 'gp-diff__path-name',
+        })
         const sum = summary ? h('span', { key: 'sum', className: 'gp-stats__item', style: { marginLeft: 'auto' } }, [
           h('span', { key: 'a', className: 'gp-stats__add' }, `+${summary.add}`), ' ',
           h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${summary.del}`),

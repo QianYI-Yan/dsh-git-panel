@@ -28,13 +28,44 @@
  * breaks) — all modern engines ship it.
  */
 import { useLayoutEffect, useState } from 'react'
-import { COMPACT_BP, SHORT_BP, type PanelLayout } from './panel-fit.js'
+import { COMPACT_BP, isPhoneScreen, SHORT_BP, type PanelLayout } from './panel-fit.js'
 
 const UNSQUEEZED: PanelLayout = { compact: false, short: false, width: 0 }
+
+/**
+ * Whether this DEVICE is a phone: a phone-sized screen driven by a coarse
+ * pointer. Read from `screen`, not the window, so squeezing a desktop window to
+ * sidebar width does not turn it into a phone (and a phone stays one after
+ * rotating). The pointer half keeps a scaled desktop out: its screen short edge
+ * is reported in CSS pixels and a 1366×768 laptop at 125% reads 614.
+ */
+function readPhone(): boolean {
+  if (typeof window === 'undefined' || typeof window.screen === 'undefined') return false
+  // No matchMedia (older engines, test stubs): fall back to the screen size
+  // alone, which is the behavior a device without the query already had.
+  const coarse = typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)').matches : true
+  return isPhoneScreen({ width: window.screen.width || 0, height: window.screen.height || 0 }, coarse)
+}
 
 /** Measure the panel box; both flags stay false (and width 0) until measured. */
 export function usePanelLayout(el: HTMLElement | null): PanelLayout {
   const [layout, setLayout] = useState<PanelLayout>(UNSQUEEZED)
+  // The screen fact is independent of the panel box; orientation changes can
+  // swap the screen's width/height, so re-read it on resize.
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return
+    const apply = (): void => setLayout((prev) => {
+      const phone = readPhone()
+      return prev.phone === phone ? prev : { ...prev, phone }
+    })
+    apply()
+    window.addEventListener('resize', apply)
+    window.addEventListener('orientationchange', apply)
+    return () => {
+      window.removeEventListener('resize', apply)
+      window.removeEventListener('orientationchange', apply)
+    }
+  }, [])
   useLayoutEffect(() => {
     if (el === null || typeof ResizeObserver === 'undefined') return
     // A collapsed panel (0 wide or tall) has no room in that axis and reports
@@ -47,8 +78,11 @@ export function usePanelLayout(el: HTMLElement | null): PanelLayout {
         compact: width > 0 && width <= COMPACT_BP,
         short: height > 0 && height <= SHORT_BP,
         width,
+        // Carried through: the box measure must not erase the screen fact.
+        phone: prev.phone ?? readPhone(),
       }
-      return prev.compact === next.compact && prev.short === next.short && prev.width === next.width ? prev : next
+      return prev.compact === next.compact && prev.short === next.short
+        && prev.width === next.width && prev.phone === next.phone ? prev : next
     })
     measure()
     const ro = new ResizeObserver(measure)

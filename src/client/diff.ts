@@ -71,6 +71,20 @@ function bodyLines(unified: string): string[] {
 }
 
 /** Sum added/deleted line counts. */
+/** Horizontal padding of a gutter cell, per side (see `.gp-diff-no`). */
+export const GUTTER_PAD_X = 10
+
+/**
+ * CSS width of the line-number gutter: three digits by default, wider only when a
+ * side actually reaches four digits. `ch` resolves against the code font of the
+ * grid, and the digits are drawn one step smaller, so the column always has a
+ * couple of spare pixels instead of clipping (never the other way around).
+ */
+export function gutterWidth(maxLine: number): string {
+  const digits = Math.max(3, String(Math.max(0, Math.floor(maxLine))).length)
+  return `calc(${digits}ch + ${GUTTER_PAD_X}px)`
+}
+
 export function summarize(unified: string): { add: number; del: number } {
   let add = 0
   let del = 0

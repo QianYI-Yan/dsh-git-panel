@@ -28,19 +28,29 @@ export const CSS = `
 .gp-files__preview{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__preview-content{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .gp-files__bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-files__path{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font:inherit}
+/* The filename is the copy control: the directory elides from its left (tail
+ * kept), the name stays whole, and clicking copies the relative path. */
+.gp-files__path{flex:1 1 120px;min-width:0;display:flex;align-items:baseline;overflow:hidden;background:none;border:0;padding:0;margin:0;font:inherit;color:var(--dsw-alias-label-secondary);text-align:left;cursor:pointer;border-radius:4px}
+.gp-files__path:hover .gp-files__path-name{text-decoration:underline}
+.gp-files__path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__path:disabled{cursor:default}
+.gp-files__path--copied{color:var(--dsw-alias-state-success-primary)}
+.gp-files__path--copied svg{margin-right:2px;flex:none}
+.gp-files__path--error{color:var(--dsw-alias-state-error-primary)}
+.gp-files__path-dir{direction:rtl;unicode-bidi:isolate;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
+.gp-files__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-files__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
+/* No directory before the name: it is the only thing that can shrink, so it
+ * takes the space and elides instead of being clipped by the button. */
+.gp-files__path-name--root{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-files__copy-path{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
-/* The path/content copy actions read as one joined button group: the shared
- * border collapses (1px overlap) and only the outer corners stay rounded. */
-.gp-files__copy-group{flex:none;display:flex;align-items:center}
-.gp-files__copy-group .gp-files__copy-path{border-radius:0;margin-left:-1px}
-.gp-files__copy-group .gp-files__copy-path:first-child{border-radius:6px 0 0 6px;margin-left:0}
-.gp-files__copy-group .gp-files__copy-path:last-child{border-radius:0 6px 6px 0}
-.gp-files__copy-group .gp-files__copy-path:only-child{border-radius:6px}
-.gp-files__copy-group .gp-files__copy-path:hover,.gp-files__copy-group .gp-files__copy-path:focus-visible{position:relative;z-index:1}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__copy-path--copied{color:var(--dsw-alias-state-success-primary)}
 .gp-files__copy-path--error{color:var(--dsw-alias-state-error-primary)}
+/* Icon-only copy control: same box as the neighbouring toolbar glyph buttons
+ * (.gp-files__props), so the row keeps one height. */
+.gp-files__copy-path.gp-files__copy-icon{display:inline-flex;align-items:center;padding:4px 6px}
 /* Icon-only properties entry at the toolbar's far right. The path's flex-grow
  * already pins the trailing cluster to the right edge; a margin-left:auto here
  * would steal that free space and collapse the path to its 120px basis. */
@@ -61,8 +71,15 @@ export const CSS = `
 /* Trailing icon buttons match the 30px back button / mode control instead of
  * their 24px inline size (4px padding + 14px glyph). */
 .gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__props{height:30px;box-sizing:border-box;padding:0 6px}
+/* Copy-content matches the 30px neighbours instead of its 4px/6px icon padding. */
+.gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__copy-icon{height:30px;box-sizing:border-box;padding:0 6px}
 .gp-files__bar--compact .gp-files__mode-seg button{padding:0 10px;font-size:12px}
-.gp-files__markdown{overflow:auto;overscroll-behavior:contain;padding:16px 24px;color:var(--dsw-alias-label-primary)}
+/* Two boxes on purpose: the outer one scrolls, the inner one carries the inset.
+ * A sticky child (the platform's code-block banner) sticks to the scrollport's
+ * CONTENT edge, so padding on the scroll container would leave a band above the
+ * stuck banner that scrolling code shows through. */
+.gp-files__markdown{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.gp-files__markdown-body{padding:16px 24px;color:var(--dsw-alias-label-primary)}
 /* Mermaid figures: the SVG centers and never overflows the pane width; a
  * parse/load failure falls back to the source as a plain code block. */
 .gp-mermaid{overflow-x:auto;padding:4px 0}
@@ -112,13 +129,14 @@ export const CSS = `
 .gp-find__case--active:hover{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-find-hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 40%,transparent);color:inherit;border-radius:2px}
 .gp-find-hit--active{background:var(--dsw-alias-state-warn-primary);color:var(--dsw-static-neutral-1000,#000)}
-.gp-files__trunc{color:var(--dsw-alias-label-tertiary);font-style:italic}
-.gp-files__single{display:grid;grid-template-columns:44px 1fr}
+/* Same gutter contract as the diff view: three digits by default (see
+ * gutterWidth in diff.ts), widened by the container when a file is longer. */
+.gp-files__single{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 /* Virtualized source view: the outer box is a fixed-height spacer that owns the
  * scrollbar; each mounted row is absolutely positioned at its line offset and
  * lays its line-number gutter + code cell on one fixed-height row. */
 .gp-files__single--virt{display:block;position:relative;width:100%}
-.gp-files__row{position:absolute;left:0;right:0;display:grid;grid-template-columns:44px 1fr;height:20px}
+.gp-files__row{position:absolute;left:0;right:0;display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr;height:20px}
 /* Fixed row height needs non-wrapping cells; a long line scrolls horizontally
  * on the container instead of growing the row past ROW_HEIGHT. */
 .gp-files__row .gp-diff-cell{white-space:pre;overflow:hidden;text-overflow:clip}

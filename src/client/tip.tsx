@@ -11,9 +11,15 @@
  * instead of waiting for another hover, and that hint stays until the next press
  * anywhere else.
  *
+ * A hint is a hover or keyboard-focus affordance, never a touch one: a tap
+ * synthesises a mouse *enter* but never the matching leave (the virtual cursor
+ * stays where the finger was), so a bubble it raised would sit on screen after
+ * the finger lifts — and the tap also focuses the control. A press from a
+ * finger therefore raises nothing; press-driven hints are unaffected, and a
+ * mouse or keyboard press re-enables the focus half.
+ *
  * Any visible hint — hover or press-pinned — dismisses on a press outside it
- * (or Escape). Touch has no reliable mouseleave, so without that the bubble
- * would stick after a tap until the next hover.
+ * (or Escape).
  *
  * In the compact (phone) layout the bubble is centred on its control — the row
  * icons sit at the panel's right edge, where a left-anchored bubble reads as
@@ -51,6 +57,24 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
   /** True while a press-driven hint owns the bubble (outlives the pointer). */
   const pinnedRef = useRef(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  /** Whether the latest press came from a finger; see the focus half below. */
+  const pressWasTouch = useRef(false)
+
+  // Registered here rather than at module scope: the fact is about the input
+  // device, and importing the bundle must not touch the document.
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+    const onDown = (e: PointerEvent): void => { pressWasTouch.current = e.pointerType === 'touch' }
+    // Keyboard focus is a hover substitute, so it re-enables the focus half on a
+    // hybrid device without waiting for a mouse press.
+    const onKey = (): void => { pressWasTouch.current = false }
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [])
 
   const hideTip = useCallback(() => {
     if (timer.current !== undefined) { clearTimeout(timer.current); timer.current = undefined }
@@ -143,10 +167,14 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
   }, [tip, hideTip])
 
   const tipProps = useCallback((text: string): Record<string, unknown> => ({
-    onMouseEnter: (e: { currentTarget: HTMLElement }) => showTip(e.currentTarget, text),
+    // Pointer events, not mouse ones: they carry the pointer kind, so a touch
+    // tap can be told apart from a mouse entering the control.
+    onPointerEnter: (e: { pointerType: string; currentTarget: HTMLElement }) => {
+      if (e.pointerType === 'mouse') showTip(e.currentTarget, text)
+    },
     // A pinned confirmation outlives the pointer; it stays until the next press.
-    onMouseLeave: () => { if (!pinnedRef.current) hideTip() },
-    onFocus: (e: { currentTarget: HTMLElement }) => showTip(e.currentTarget, text),
+    onPointerLeave: () => { if (!pinnedRef.current) hideTip() },
+    onFocus: (e: { currentTarget: HTMLElement }) => { if (!pressWasTouch.current) showTip(e.currentTarget, text) },
     onBlur: () => { if (!pinnedRef.current) hideTip() },
   }), [showTip, hideTip])
 

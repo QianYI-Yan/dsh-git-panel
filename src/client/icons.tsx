@@ -1,4 +1,5 @@
-/** Minimal inline SVG icons (currentColor). */
+/** Minimal inline SVG icons (currentColor) — plus the one full-paint glyph,
+ * PluginIcon, which carries the package icon.svg artwork instead. */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
 
@@ -55,6 +56,15 @@ export function CheckIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M3 8.4l3.3 3.3L13 4.8' })], size, true)
 }
 
+/** Copy glyph: a sheet behind another, on the same 16px stroke grid as the rest.
+ * Decorative — the button that carries it owns the label and the live text. */
+export function CopyIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('rect', { key: 'a', x: 5.5, y: 2, width: 8, height: 9, rx: 1.6 }),
+    h('path', { key: 'b', d: 'M10.5 13v.6A1.4 1.4 0 0 1 9.1 15H3.9A1.4 1.4 0 0 1 2.5 13.6V6.9A1.4 1.4 0 0 1 3.9 5.5h1.6' }),
+  ], size, true)
+}
+
 /** Expand-to-fullscreen glyph: four corner brackets. */
 export function FullscreenIcon({ size }: IconProps): JSX.Element {
   return svg([
@@ -72,6 +82,16 @@ export function ExitFullscreenIcon({ size }: IconProps): JSX.Element {
     h('path', { key: 'b', d: 'M14 6h-4V2' }),
     h('path', { key: 'c', d: 'M10 14v-4h4' }),
     h('path', { key: 'd', d: 'M2 10h4v4' }),
+  ], size)
+}
+
+/** Whole-screen glyph: a display on its stand — the reader card's
+ * browser-fullscreen toggle. The corner brackets belong to the opener. */
+export function ScreenIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('rect', { key: 'a', x: 1.5, y: 2.5, width: 13, height: 9, rx: 1.6 }),
+    h('path', { key: 'b', d: 'M8 11.5v3' }),
+    h('path', { key: 'c', d: 'M5.5 14.5h5' }),
   ], size)
 }
 
@@ -237,4 +257,35 @@ export function BranchSyncIcon({ size, direction }: IconProps & { readonly direc
     strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
     'aria-hidden': true,
   }, [h('path', { key: 'a', d: shaft }), h('path', { key: 'b', d: head })])
+}
+
+/** The plugin's app icon as a glyph: the same artwork as the package
+ * `icon.svg` (package.json `icon`), drawn inline because the sidebar guide
+ * entry takes a component rather than a file. It paints itself (a teal→blue
+ * branch, no background tile — the host supplies its own surface) instead of
+ * following currentColor, and stays decorative — the capsule beside it carries
+ * the label. The gradient id is namespaced so a second copy in the same
+ * document shares one definition instead of clashing with a host gradient that
+ * happens to be called `glyph`. */
+export function PluginIcon({ size = 16, className }: IconProps): JSX.Element {
+  return h('svg', {
+    width: size, height: size, viewBox: '0 0 128 128', fill: 'none',
+    'aria-hidden': true,
+    ...(className !== undefined ? { className } : {}),
+  }, [
+    h('defs', { key: 'd' }, h('linearGradient', {
+      id: 'gp-plugin-glyph', x1: 38, y1: 30, x2: 92, y2: 102, gradientUnits: 'userSpaceOnUse',
+    }, [h('stop', { key: 'a', offset: 0, stopColor: '#36C9B4' }), h('stop', { key: 'b', offset: 1, stopColor: '#4F7BFF' })])),
+    h('g', { key: 'lines', fill: 'none', stroke: 'url(#gp-plugin-glyph)', strokeWidth: 8, strokeLinecap: 'round' }, [
+      // Endpoints sit inside each ring's stroke band (r 7, stroke 8 → band
+      // 3..11): the round cap closes the seam without entering the hole.
+      h('path', { key: 'a', d: 'M44 46V82' }),
+      h('path', { key: 'b', d: 'M84 56c0 13-40 7-40 20' }),
+    ]),
+    h('g', { key: 'nodes', fill: 'none', stroke: 'url(#gp-plugin-glyph)', strokeWidth: 8 }, [
+      h('circle', { key: 'a', cx: 44, cy: 34, r: 7 }),
+      h('circle', { key: 'b', cx: 84, cy: 46, r: 7 }),
+      h('circle', { key: 'c', cx: 44, cy: 94, r: 7 }),
+    ]),
+  ])
 }

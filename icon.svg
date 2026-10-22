@@ -1,15 +1,24 @@
-<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="title">
+  <title id="title">Git 工具</title>
   <defs>
-    <linearGradient id="gpNode" x1="7" y1="5" x2="29" y2="31" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#4E9BFF"/>
-      <stop offset="1" stop-color="#2F80ED"/>
+    <!-- 青绿 → 蓝 的柔和渐变，userSpaceOnUse 让线条和节点颜色连续 -->
+    <linearGradient id="glyph" x1="38" y1="30" x2="92" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#36C9B4"/>
+      <stop offset="1" stop-color="#4F7BFF"/>
     </linearGradient>
   </defs>
-  <!-- git graph: a trunk with one branch that merges back -->
-  <path d="M11 8 V28" stroke="#4E9BFF" stroke-width="2.4" stroke-linecap="round"/>
-  <path d="M11 13 C11 18 25 15 25 20" stroke="#2F9C80" stroke-width="2.4" stroke-linecap="round" fill="none"/>
-  <path d="M25 20 C25 24 11 22 11 26" stroke="#2F9C80" stroke-width="2.4" stroke-linecap="round" fill="none"/>
-  <circle cx="11" cy="8" r="3.4" fill="url(#gpNode)" stroke="#1F4B8F" stroke-width="1"/>
-  <circle cx="25" cy="20" r="3.4" fill="#2F9C80" stroke="#1C6B57" stroke-width="1"/>
-  <circle cx="11" cy="28" r="3.4" fill="url(#gpNode)" stroke="#1F4B8F" stroke-width="1"/>
+
+  <!-- 分支线：主干 + 右侧分支汇入主干；端点收在节点环带上（半径 7、描边
+       8 → 环带 37..45，圆头各外溢 4，既不留缝也不进环孔） -->
+  <g fill="none" stroke="url(#glyph)" stroke-width="8" stroke-linecap="round">
+    <path d="M44 46V82"/>
+    <path d="M84 56c0 13-40 7-40 20"/>
+  </g>
+
+  <!-- 提交节点：渐变空心圆环（环内透底，深浅色底都成立） -->
+  <g fill="none" stroke="url(#glyph)" stroke-width="8">
+    <circle cx="44" cy="34" r="7"/>
+    <circle cx="84" cy="46" r="7"/>
+    <circle cx="44" cy="94" r="7"/>
+  </g>
 </svg>

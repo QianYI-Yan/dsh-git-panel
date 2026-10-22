@@ -10,9 +10,9 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isCramped, panelMode, COMPACT_BP, SHORT_BP, SIDEBAR_WIDE_BP, STACKED_TIGHT_BP } from '../../lib/testkit.mjs'
+import { isCramped, isPhoneScreen, panelMode, COMPACT_BP, PHONE_SCREEN_BP, SHORT_BP, SIDEBAR_WIDE_BP, STACKED_TIGHT_BP } from '../../lib/testkit.mjs'
 
-const layout = (compact, short, width = 900) => ({ compact, short, width })
+const layout = (compact, short, width = 900, phone = undefined) => ({ compact, short, width, phone })
 
 test('cramped only when the panel is narrow and short at the same time', () => {
   assert.equal(isCramped(layout(true, true)), true)
@@ -104,4 +104,48 @@ test('panelMode: 621–760 stacks for every height, short included', () => {
   }
   assert.equal(at(SIDEBAR_WIDE_BP, true), 'stacked', '760px itself is still stacked — the bar is exclusive')
   assert.equal(at(SIDEBAR_WIDE_BP + 1, true), 'wide', 'above the bar width alone decides, height is moot')
+})
+
+test('panelMode: a phone screen drills in on the sidebar too — stacked is desktop-only', () => {
+  // The device screen, not the panel box, decides: a tall narrow sidebar on a
+  // phone must drill in exactly like the conversation panel.
+  assert.equal(panelMode(layout(true, false, 402, true), 'sidebar'), 'compact', 'tall narrow sidebar on a phone still drills in')
+  assert.equal(panelMode(layout(true, true, 402, true), 'sidebar'), 'compact')
+  // 600px: above the tight bar, under COMPACT_BP — the band where a desktop
+  // sidebar would stack. A phone must drill in here instead.
+  assert.equal(panelMode(layout(true, false, 600, true), 'sidebar'), 'compact', 'a phone never gets the two-band split')
+  // Past COMPACT_BP the phone follows the same width rule as everyone else: what
+  // it never gets is the stacked arrangement, not the three columns.
+  assert.equal(panelMode(layout(false, false, 900, true), 'sidebar'), 'wide', 'a wide box is three columns even on a phone — only stacked is withheld')
+})
+
+test('panelMode: an unmeasured phone panel drills in instead of flashing three columns', () => {
+  // keepMounted sidebar panes stay mounted at 0×0 while another tab is selected.
+  assert.equal(panelMode(layout(false, false, 0, true), 'sidebar'), 'compact', 'width 0 on a phone is compact, not wide')
+  assert.equal(panelMode(layout(false, false, 0, true), 'conversation'), 'compact')
+  assert.equal(panelMode(layout(false, false, 0, false), 'sidebar'), 'stacked', 'a desktop sidebar keeps its width-0 stacked fallback')
+})
+
+test('isPhoneScreen: a phone-sized screen only counts with a coarse pointer', () => {
+  assert.equal(isPhoneScreen({ width: 390, height: 844 }, true), true, 'a portrait phone is a phone')
+  assert.equal(isPhoneScreen({ width: 844, height: 390 }, true), true, 'and stays one in landscape (shorter edge)')
+  assert.equal(isPhoneScreen({ width: 390, height: 844 }, false), false, 'a squeezed desktop window is not a phone')
+  // The regression this predicate exists for: `screen` is reported in CSS px, so
+  // an OS-scaled desktop lands under the bar on size alone.
+  assert.equal(isPhoneScreen({ width: 1093, height: 614 }, false), false, '1366×768 at 125% is a desktop (614 short edge)')
+  assert.equal(isPhoneScreen({ width: 1093, height: 614 }, true), true, 'a real touch device that size still counts')
+  assert.equal(isPhoneScreen({ width: 1024, height: 768 }, true), false, 'a tablet short edge (768) clears the bar')
+  assert.equal(isPhoneScreen({ width: 0, height: 0 }, true), false, 'an unreadable screen is not a phone')
+})
+
+test('panelMode: the same narrow sidebar stacks once the screen is desktop-sized', () => {
+  assert.equal(panelMode(layout(true, false, 402, false), 'sidebar'), 'stacked')
+  assert.equal(panelMode(layout(true, false, 402, undefined), 'sidebar'), 'stacked', 'an unknown screen keeps the desktop behavior')
+})
+
+test('the phone screen bar sits between the largest phone and the smallest tablet', () => {
+  // Phones (landscape included) clear it; tablets (768 short edge) do not.
+  assert.equal(PHONE_SCREEN_BP, 640)
+  assert.ok(PHONE_SCREEN_BP > 430, 'the largest phone short edge (430) is a phone')
+  assert.ok(PHONE_SCREEN_BP < 768, 'a tablet short edge (768) counts as desktop')
 })

@@ -13,12 +13,16 @@ import { ZoomableImage } from './ImageZoom.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { wrapCapOk } from './wrap-cap.js'
+import { gutterWidth } from './diff.js'
 
 // Source-view performance guards. Syntax highlighting is synchronous and DOM
 // cost scales with line count, so above these limits the code preview degrades
-// gracefully: no highlighting for a big file, truncation for a huge line.
+// gracefully: no highlighting for a big file, no syntax spans on a giant line.
+// Content itself is never truncated — a long line scrolls horizontally in full.
 const MAX_HIGHLIGHT_BYTES = 256 * 1024
 const MAX_HIGHLIGHT_LINES = 5000
+/** Above this a line still renders whole, but its syntax spans are dropped:
+ * thousands of styled nodes in one cell is the layout cost worth avoiding. */
 const MAX_LINE_CHARS = 5000
 
 // Row virtualization: the source view renders only the rows in (or near) the
@@ -37,7 +41,7 @@ export type FileState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading'; readonly path: string }
   | { readonly kind: 'text'; readonly path: string; readonly content: string; readonly lines: number; readonly absolutePath?: string; readonly size?: number; readonly mtimeMs?: number }
-  | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly size?: number; readonly mtimeMs?: number }
+  | { readonly kind: 'image'; readonly path: string; readonly dataUrl: string; readonly content?: string; readonly lines?: number; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'binary'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'tooLarge'; readonly path: string; readonly size?: number; readonly mtimeMs?: number }
   | { readonly kind: 'error'; readonly path: string; readonly code?: string }
@@ -58,7 +62,6 @@ export function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, p
 
 /** A single match location within the code body. */
 interface Match { readonly line: number; readonly start: number; readonly end: number }
-
 /**
  * Substring matches across the (already case-normalized) line array, capped.
  * `hays` and `needle` are both pre-normalized by the caller, so a case-
@@ -82,8 +85,11 @@ function findMatches(hays: readonly string[], needle: string): Match[] {
  * with next/prev navigation, a live count, and Esc to close. The find shortcut
  * is intercepted only while this preview is actually visible (offsetParent), so
  * it never steals Ctrl+F from the rest of the app.
+ *
+ * This is the body behind both faces: a text file's preview, and the source face
+ * of an SVG (markup that also renders as a picture), so the two behave alike.
  */
-function CodePreview({ content, path, wrap, t }: { content: string; path: string; wrap: boolean; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
+export function CodePreview({ content, path, wrap, t }: { content: string; path: string; wrap: boolean; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
   const lines = useMemo(() => {
     const arr = content.split('\n')
     if (arr.length > 0 && arr[arr.length - 1] === '') arr.pop()
@@ -166,6 +172,37 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
     ? { first: 0, last: total }
     : findWindowRange({ first, last }, activeLine, total, OVERSCAN)
 
+  // A text selection must outlive scrolling. Windowed rows unmount as the code
+  // view scrolls — and a touch selection auto-scrolls the box while the handles
+  // are dragged — so without this the selection collapses mid-drag. Tracking the
+  // selected line span and folding it into the mounted window keeps those rows
+  // alive; the span only grows while the selection is being extended, so no
+  // unbounded mounting beyond what the user actually selected.
+  const [selectedSpan, setSelectedSpan] = useState<{ first: number; last: number } | null>(null)
+  useEffect(() => {
+    if (wrapActive) return undefined
+    const onSelectionChange = (): void => {
+      const el = containerRef.current
+      const sel = typeof document.getSelection === 'function' ? document.getSelection() : null
+      if (el === null || sel === null || sel.rangeCount === 0 || sel.isCollapsed) { setSelectedSpan(null); return }
+      const range = sel.getRangeAt(0)
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) { setSelectedSpan(null); return }
+      const rowOf = (node: Node): number | null => {
+        const host = node instanceof Element ? node : node.parentElement
+        const row = host?.closest('.gp-files__row')
+        const raw = row?.getAttribute('data-line')
+        return raw === null || raw === undefined ? null : Number(raw)
+      }
+      const a = rowOf(range.startContainer)
+      const b = rowOf(range.endContainer)
+      if (a === null || b === null) { setSelectedSpan(null); return }
+      const next = { first: Math.min(a, b), last: Math.max(a, b) }
+      setSelectedSpan((prev) => (prev !== null && prev.first === next.first && prev.last === next.last ? prev : next))
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [wrapActive, containerRef])
+
   // Keep the active match scrolled into view as navigation moves. rAF waits for
   // the widened window to mount the row before scrolling to it.
   useEffect(() => {
@@ -195,16 +232,36 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
 
   // Only the [windowFirst, windowLast) rows are mounted in the virtualized
   // (nowrap) grid; a top pad + total height spacer preserve the scrollbar
-  // geometry so scrolling feels native. Wrap mode is a plain flow list.
+  // geometry so scrolling feels native. Wrap mode is a plain flow list. While a
+  // selection is live its rows stay mounted as a SECOND, separate span: folding
+  // it into the viewport window would mount every row between a scrolled-away
+  // selection and the current viewport (one drag could mount thousands).
+  const spans: Array<readonly [number, number]> = [[windowFirst, Math.min(windowLast, total)]]
+  if (selectedSpan !== null) {
+    if (selectedSpan.last < windowFirst || selectedSpan.first >= windowLast) {
+      spans.push([selectedSpan.first, Math.min(selectedSpan.last + 1, total)])
+    } else {
+      // Overlapping the viewport window: one contiguous span is cheaper.
+      spans[0] = [Math.min(windowFirst, selectedSpan.first), Math.max(windowLast, Math.min(selectedSpan.last + 1, total))]
+    }
+  }
   const windowRows: JSX.Element[] = []
-  for (let i = windowFirst; i < windowLast; i++) {
-    windowRows.push(h('div', { key: i, className: 'gp-files__row', style: wrapActive ? undefined : { top: i * ROW_HEIGHT } }, [
-      h('div', { key: 'n', className: 'gp-diff-no' }, i + 1),
-      renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef, t),
-    ]))
+  for (const [from, to] of spans) {
+    for (let i = from; i < to; i++) {
+      windowRows.push(h('div', {
+        key: i, className: 'gp-files__row', 'data-line': i,
+        style: wrapActive ? undefined : { top: i * ROW_HEIGHT },
+      }, [
+        h('div', { key: 'n', className: 'gp-diff-no' }, i + 1),
+        renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef),
+      ]))
+    }
   }
 
-  return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl }, [
+  // Three-digit gutter by default, four once the file is that long (gutterWidth):
+  // every row is its own grid, so the width has to come from the container or the
+  // rows would disagree.
+  return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl, style: { '--gp-gutter-w': gutterWidth(lines.length) } }, [
     header,
     h('div', {
       key: 'grid',
@@ -215,10 +272,11 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
 }
 
 /**
- * One code cell. Guard 2: an over-long line (e.g. minified/inlined content) is
- * truncated to a bounded width with a marker, and its syntax spans are dropped
- * — a single 40k-char cell would otherwise blow up layout and text-node cost.
- * Find matches on the line are wrapped in <mark>, preserving syntax spans.
+ * One code cell. A giant line (e.g. minified/inlined content) renders in full
+ * — the panel never truncates what the user came to read — but its syntax
+ * spans are dropped above MAX_LINE_CHARS: thousands of styled nodes in one
+ * cell is the layout cost worth avoiding. Find matches stay marked (their
+ * count is capped by the finder), so a hit on a long line keeps its context.
  */
 function renderCodeLine(
   line: string,
@@ -227,21 +285,14 @@ function renderCodeLine(
   ranges: ReadonlyArray<readonly [number, number]> | undefined,
   active: Match | null,
   activeRef: { current: HTMLElement | null },
-  t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
   if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, '\u00a0')
-  if (line.length > MAX_LINE_CHARS) {
-    // A truncated giant line drops both syntax and match highlighting.
-    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, [
-      line.slice(0, MAX_LINE_CHARS),
-      h('span', { key: 'trunc', className: 'gp-files__trunc' }, t('files.lineTruncated')),
-    ])
-  }
+  const cellSpans = line.length > MAX_LINE_CHARS ? undefined : spans
   if (ranges === undefined || ranges.length === 0) {
-    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, spans !== undefined
-      ? spans.map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
+    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, cellSpans !== undefined
+      ? cellSpans.map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
       : line)
   }
   const activeRange = active !== null && active.line === i ? [active.start, active.end] as const : null
-  return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, markContent(line, ranges, spans, `c${i}`, activeRange, activeRef))
+  return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, markContent(line, ranges, cellSpans, `c${i}`, activeRange, activeRef))
 }
