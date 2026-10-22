@@ -471,6 +471,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onPush: () => { if (canPush(snapshot) && !pushBusy) setPushConfirm(true) },
     onPublish: () => { setOpError(null); setPublishConfirm(true) },
     t,
+    // Narrow panels drop the repo link: the compact footer and the tight
+    // drawer spend the row on the sync state; wide and stacked 381–760 keep it.
+    hideRepo: compact || tight,
   }
 
   // The modal header path doubles as its copy control (the changes toolbar

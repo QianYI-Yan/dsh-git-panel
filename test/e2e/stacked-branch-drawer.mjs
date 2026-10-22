@@ -142,6 +142,7 @@ const probe = () => page.evaluate(() => {
       box: box(drawer),
       rows: drawer.querySelectorAll('.gp-branch-row').length,
       statusbar: drawer.querySelector('.gp-statusbar') !== null,
+      repo: drawer.querySelector('a.gp-statusbar__repo') !== null,
     },
     toggle: toggle === null ? null : {
       expanded: toggle.getAttribute('aria-expanded'),
@@ -209,6 +210,8 @@ assert.equal(out.open.toggle.expanded, 'true', 'the toggle reports the open stat
 assert.equal(out.open.closeFocus, true, "focus lands on the drawer's close button")
 assert.ok(Math.abs(out.open.drawer.box.x - out.open.top.x) <= 2, "the open drawer aligns with the band's left edge")
 assert.ok(Math.abs(out.open.history.w - out.open.top.w) <= 2, `the open drawer overlays the history instead of pushing it (${out.open.history.w} vs ${out.open.top.w}px)`)
+assert.equal(out.open.drawer.statusbar, true, 'the drawer carries the status bar')
+assert.equal(out.open.drawer.repo, false, 'the tight status bar drops the GitHub repo link (narrow-panel rule)')
 await page.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'branch-drawer-320-open.png') })
 
 // ── Escape dismisses it and returns focus to the toggle. ──

@@ -257,8 +257,8 @@ const out = await page.evaluate(async (snap) => {
   result.ovBackToList = document.querySelector('.gp-overview--compact .gp-commit-row') !== null
 
   // Left-column status bar (compact renders it at the overview footer): the
-  // GitHub repo link opens the parsed web URL, the branch is 2 behind, and the
-  // pull button opens a fast-forward confirm dialog.
+  // GitHub repo link is dropped at this width (hideRepo = compact || tight),
+  // the branch is 2 behind, and the pull button opens a fast-forward confirm.
   const statusbar = document.querySelector('.gp-overview--compact .gp-statusbar')
   result.statusBarShown = statusbar !== null
   const repoLink = statusbar?.querySelector('a.gp-statusbar__repo')
@@ -549,8 +549,8 @@ try {
   assert.deepEqual(out.ovDetailActionBtnHeight, [30, 30, 30], 'compact commit ops keep one 30px height')
   assert.equal(out.ovBackToList, true, 'back returns to the commit list')
   assert.equal(out.statusBarShown, true, 'the overview renders a left-column status bar')
-  assert.equal(out.statusRepoHref, 'https://github.com/owner/repo', 'the status bar links to the parsed GitHub repo page')
-  assert.equal(out.statusRepoNewTab, true, 'the repo link opens in a new tab')
+  assert.equal(out.statusRepoHref, null, 'the compact status bar drops the GitHub repo link (narrow-panel rule)')
+  assert.equal(out.statusRepoNewTab, false, 'so there is no repo link to open in a tab')
   assert.equal(out.statusBehindShown, true, 'the status bar reports the behind count')
   assert.equal(out.statusPullShown, true, 'a strictly-behind branch offers a pull button')
   assert.equal(out.statusPullConfirmOpened, true, 'pull opens a fast-forward confirm dialog')

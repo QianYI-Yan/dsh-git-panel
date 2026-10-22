@@ -57,6 +57,9 @@ export interface StatusBarCbs {
   readonly onPush: () => void
   readonly onPublish: () => void
   readonly t: Translate
+  /** Drop the GitHub repo link: a narrow panel (compact footer, the tight
+   * tier's drawer) spends the row on the sync state instead. */
+  readonly hideRepo?: boolean
 }
 
 /** Repo-page web link (last two path segments, e.g. `owner/repo`). */
@@ -89,6 +92,8 @@ function StatusBar({ snapshot, cb }: { snapshot: GitSnapshot; cb: StatusBarCbs }
 
   // ── left: repo link, shown only for GitHub projects (icon only; path in tooltip) ──
   const repoNode = ((): JSX.Element | null => {
+    // Narrow panels skip the link outright — the sync state keeps the row.
+    if (cb.hideRepo === true) return null
     // Non-GitHub remotes (gitlab/gitee/other) and repos with no remote show nothing.
     if (remote === null || remote.hostKind !== 'github') return null
     const icon = h(GitHubIcon, { size: 14 })
