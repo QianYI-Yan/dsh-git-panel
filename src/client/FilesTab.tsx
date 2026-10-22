@@ -791,6 +791,13 @@ function renderTree(dirPath: string, depth: number, cb: TreeCbs): JSX.Element[] 
   if (loaded.status === 'error') {
     return [h('div', { key: `e${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.loadFailed'))]
   }
+  // An expanded directory that lists nothing says so, one level under the dir
+  // — flipping only the folder glyph is the sole sign otherwise. The root's
+  // empty listing stays blank (its loading state is already a centered pane).
+  if (loaded.entries.length === 0 && !loaded.truncated) {
+    if (depth === 0) return []
+    return [h('div', { key: `empty${dirPath}`, className: 'gp-tree-row gp-tree-row--muted', style: { paddingLeft: 8 + depth * 16 } }, cb.t('files.emptyDir'))]
+  }
   const rows: JSX.Element[] = []
   for (const entry of loaded.entries) {
     const path = dirPath === '' ? entry.name : `${dirPath}/${entry.name}`

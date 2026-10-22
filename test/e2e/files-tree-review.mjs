@@ -124,6 +124,14 @@ for (const width of [390, 304]) {
   await page.evaluate(async () => { await window.__expand('local'); await window.__expand('docs') })
 }
 
+// The empty directory now says so: expand docs → assets (a dir whose listing
+// resolves to nothing) and capture the hint row indented under it.
+await page.evaluate((w) => { window.__panelHost.style.width = w + 'px' }, 390)
+await page.waitForTimeout(250)
+await page.evaluate(async () => { await window.__expand('docs'); await window.__expand('assets') })
+report.emptyDir = await page.evaluate(() => document.querySelector('.gp-files__tree .gp-tree-row--muted')?.textContent ?? null)
+await page.locator('.gp-files__tree-wrap').screenshot({ path: resolve(OUT, 'files-tree-empty-dir.png') })
+
 console.log(JSON.stringify(report, null, 2))
 if (errors.length) console.log('CONSOLE ERRORS:', errors)
 await browser.close()

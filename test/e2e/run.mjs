@@ -924,6 +924,18 @@ const out = await page.evaluate(async (snap) => {
   result.folderIconOpen = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')]
     .find((r) => (r.textContent || '').includes('src'))?.querySelector('svg[data-folder]')?.getAttribute('data-folder')
   result.filesTreeRowsAfterExpand = document.querySelectorAll('.gp-files__tree .gp-tree-row').length
+  // An expanded directory that lists nothing shows a hint row a level under it
+  // instead of leaving only the folder glyph flipped (the ignored `cache`
+  // fixture resolves to an empty listing).
+  cacheRow?.click()
+  await new Promise((r) => setTimeout(r, 300))
+  const emptyHint = [...document.querySelectorAll('.gp-files__tree .gp-tree-row--muted')]
+    .find((r) => (r.textContent || '').trim() === 'files.emptyDir')
+  // `.find` misses with undefined, so the emptiness checks are truthiness based.
+  result.emptyDirHintShown = Boolean(emptyHint)
+  result.emptyDirHintIndented = Boolean(emptyHint && cacheRow)
+    && parseInt(getComputedStyle(emptyHint).paddingLeft) > parseInt(getComputedStyle(cacheRow).paddingLeft)
+  result.emptyDirAriaExpanded = cacheRow?.getAttribute('aria-expanded') === 'true'
   const txtRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
   if (txtRow) { txtRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.filesCodeShown = document.querySelector('.gp-files__code') !== null
