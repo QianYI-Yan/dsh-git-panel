@@ -1583,6 +1583,32 @@ const out = await page.evaluate(async (snap) => {
   result.bigTotalLines = 5101
   const virtGrid = document.querySelector('.gp-files__single--virt')
   result.bigSpacerHeight = virtGrid ? parseInt(virtGrid.style.height || '0', 10) : 0
+  // A selection must survive scrolling: the rows it covers stay mounted (a
+  // separate span, so the gap to the viewport is not mounted), which is what a
+  // touch drag relies on — the box auto-scrolls while the handles are moved.
+  // The scroll happens inside evaluate, but the kept-alive span arrives with the
+  // selectionchange render, so the survival read waits a frame batch below.
+  const scrollBefore = document.querySelector('.gp-files__code')?.scrollTop ?? 0
+  result.bigSelectionBefore = (() => {
+    const cell = document.querySelector('.gp-files__code .gp-diff-cell')
+    if (cell === null || cell.firstChild === null) return null
+    const range = document.createRange()
+    range.selectNodeContents(cell)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    return (sel?.toString() ?? '').slice(0, 24)
+  })()
+  const selView = document.querySelector('.gp-files__code')
+  if (selView !== null) selView.scrollTop = 20000
+  await new Promise((r) => setTimeout(r, 450))
+  result.bigSelectionSurvived = result.bigSelectionBefore !== null
+    && (window.getSelection()?.toString() ?? '').slice(0, 24) === result.bigSelectionBefore
+  result.bigSelectionMounted = document.querySelectorAll('.gp-files__row').length
+  result.bigSelectionScrolled = (document.querySelector('.gp-files__code')?.scrollTop ?? 0) > 1000
+  window.getSelection()?.removeAllRanges()
+  if (selView !== null) selView.scrollTop = scrollBefore
+  await new Promise((r) => setTimeout(r, 300))
   // In-panel Find (Ctrl+F): open on a text file, type a query, assert match
   // count + highlighted hits + next-match navigation, then Esc closes it.
   const findRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))

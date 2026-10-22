@@ -177,6 +177,37 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
     ? { first: 0, last: total }
     : findWindowRange({ first, last }, activeLine, total, OVERSCAN)
 
+  // A text selection must outlive scrolling. Windowed rows unmount as the code
+  // view scrolls — and a touch selection auto-scrolls the box while the handles
+  // are dragged — so without this the selection collapses mid-drag. Tracking the
+  // selected line span and folding it into the mounted window keeps those rows
+  // alive; the span only grows while the selection is being extended, so no
+  // unbounded mounting beyond what the user actually selected.
+  const [selectedSpan, setSelectedSpan] = useState<{ first: number; last: number } | null>(null)
+  useEffect(() => {
+    if (wrapActive) return undefined
+    const onSelectionChange = (): void => {
+      const el = containerRef.current
+      const sel = typeof document.getSelection === 'function' ? document.getSelection() : null
+      if (el === null || sel === null || sel.rangeCount === 0 || sel.isCollapsed) { setSelectedSpan(null); return }
+      const range = sel.getRangeAt(0)
+      if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) { setSelectedSpan(null); return }
+      const rowOf = (node: Node): number | null => {
+        const host = node instanceof Element ? node : node.parentElement
+        const row = host?.closest('.gp-files__row')
+        const raw = row?.getAttribute('data-line')
+        return raw === null || raw === undefined ? null : Number(raw)
+      }
+      const a = rowOf(range.startContainer)
+      const b = rowOf(range.endContainer)
+      if (a === null || b === null) { setSelectedSpan(null); return }
+      const next = { first: Math.min(a, b), last: Math.max(a, b) }
+      setSelectedSpan((prev) => (prev !== null && prev.first === next.first && prev.last === next.last ? prev : next))
+    }
+    document.addEventListener('selectionchange', onSelectionChange)
+    return () => document.removeEventListener('selectionchange', onSelectionChange)
+  }, [wrapActive])
+
   // Keep the active match scrolled into view as navigation moves. rAF waits for
   // the widened window to mount the row before scrolling to it.
   useEffect(() => {
@@ -206,13 +237,30 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
 
   // Only the [windowFirst, windowLast) rows are mounted in the virtualized
   // (nowrap) grid; a top pad + total height spacer preserve the scrollbar
-  // geometry so scrolling feels native. Wrap mode is a plain flow list.
+  // geometry so scrolling feels native. Wrap mode is a plain flow list. While a
+  // selection is live its rows stay mounted as a SECOND, separate span: folding
+  // it into the viewport window would mount every row between a scrolled-away
+  // selection and the current viewport (one drag could mount thousands).
+  const spans: Array<readonly [number, number]> = [[windowFirst, Math.min(windowLast, total)]]
+  if (selectedSpan !== null) {
+    if (selectedSpan.last < windowFirst || selectedSpan.first >= windowLast) {
+      spans.push([selectedSpan.first, Math.min(selectedSpan.last + 1, total)])
+    } else {
+      // Overlapping the viewport window: one contiguous span is cheaper.
+      spans[0] = [Math.min(windowFirst, selectedSpan.first), Math.max(windowLast, Math.min(selectedSpan.last + 1, total))]
+    }
+  }
   const windowRows: JSX.Element[] = []
-  for (let i = windowFirst; i < windowLast; i++) {
-    windowRows.push(h('div', { key: i, className: 'gp-files__row', style: wrapActive ? undefined : { top: i * ROW_HEIGHT } }, [
-      h('div', { key: 'n', className: 'gp-diff-no' }, i + 1),
-      renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef),
-    ]))
+  for (const [from, to] of spans) {
+    for (let i = from; i < to; i++) {
+      windowRows.push(h('div', {
+        key: i, className: 'gp-files__row', 'data-line': i,
+        style: wrapActive ? undefined : { top: i * ROW_HEIGHT },
+      }, [
+        h('div', { key: 'n', className: 'gp-diff-no' }, i + 1),
+        renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef),
+      ]))
+    }
   }
 
   return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl }, [
