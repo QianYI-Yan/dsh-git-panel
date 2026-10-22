@@ -39,9 +39,7 @@ export const CSS = `
 .gp-modal__bar-row--controls .gp-seg{flex:1 1 auto;min-width:max-content}
 .gp-modal__bar-row--controls .gp-seg .gp-seg__btn{flex:1 1 0;min-width:max-content}
 .gp-modal__bar-row--controls .gp-modal__close{margin-left:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:7px}
-/* The reader card's browser-fullscreen toggle is a labelled button at the icon
- * buttons' height: it must read as its own control, not as the icon-only
- * corner-bracket button that opened the card. */
+/* The reader card's labelled fullscreen toggle, at the icon buttons' height. */
 .gp-modal__bar .gp-files__fs-screen{flex:none;height:25px;gap:5px;padding:0 8px;font-size:12px}
 .gp-modal__bar .gp-files__fs-screen[aria-pressed="true"]{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 12%,transparent);color:var(--dsw-alias-state-business-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
 .gp-modal__scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;font-family:var(--dsw-font-mono,monospace);font-size:12px;background:var(--dsw-alias-bg-layer-2)}

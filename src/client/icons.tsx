@@ -85,9 +85,8 @@ export function ExitFullscreenIcon({ size }: IconProps): JSX.Element {
   ], size)
 }
 
-/** Whole-screen glyph: a display on its stand. The reader card's browser-
- * fullscreen toggle uses it instead of the corner brackets that OPEN the card,
- * so the two neighbouring controls never look like the same action. */
+/** Whole-screen glyph: a display on its stand — the reader card's
+ * browser-fullscreen toggle. The corner brackets belong to the opener. */
 export function ScreenIcon({ size }: IconProps): JSX.Element {
   return svg([
     h('rect', { key: 'a', x: 1.5, y: 2.5, width: 13, height: 9, rx: 1.6 }),

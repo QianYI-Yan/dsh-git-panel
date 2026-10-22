@@ -607,9 +607,8 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
         h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
         h('button', {
           key: 'screen', type: 'button',
-          // A LABELLED control on purpose: the card is opened by an icon-only
-          // corner-bracket button, and repeating that glyph inside the card made
-          // "open the reader" and "go browser-fullscreen" look like one action.
+          // Labelled: the card is opened by the icon-only fullscreen button
+          // outside, so this one carries its own text and a display glyph.
           className: 'gp-btn gp-files__fs-screen',
           title: screenFull ? t('files.exitFullscreen') : t('files.enterFullscreen'),
           'aria-label': screenFull ? t('files.exitFullscreen') : t('files.screenFull'),
