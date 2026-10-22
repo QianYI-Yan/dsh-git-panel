@@ -196,9 +196,12 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
             if (q.path.endsWith('big.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG_BIG}` } } }
             // An SVG is a picture whose markup rides along: the preview's two
             // faces come from this one response, so switching does not re-read.
+            // `size` plays the stat the host would have run, so it is the
+            // markup's own byte count — every size-gated rule (wrap cap, copy
+            // envelope, properties) must see the number the real wire carries.
             if (q.path.endsWith('.svg')) {
               const markup = '<svg xmlns="http://www.w3.org/2000/svg">\n  <rect width="10" height="10"/>\n</svg>\n'
-              return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/svg+xml;base64,${btoa(markup)}`, content: markup, lines: 3, size: 120, mtimeMs: MOCK_MTIME } } }
+              return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/svg+xml;base64,${btoa(markup)}`, content: markup, lines: 3, size: markup.length, mtimeMs: MOCK_MTIME } } }
             }
             if (q.path.endsWith('.png')) return { ok: true, value: { ok: true, value: { kind: 'file-content', path: q.path, variant: 'image', dataUrl: `data:image/png;base64,${MOCK_PNG}`, size: 64, mtimeMs: MOCK_MTIME } } }
             const override = fixture.textOverrides[q.path]
