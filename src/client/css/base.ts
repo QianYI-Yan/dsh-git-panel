@@ -57,7 +57,10 @@ export const CSS = `
  * parallel class: it keeps the filled background even while hovered. */
 .gp-font button[aria-pressed="true"]{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font-weight:600}
 .gp-font button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
+/* Full-height, centred message pane for an empty / idle / error body. The padding
+ * sits inside that height (border-box): as content-box it added 48px on top of
+ * the parent's content box, so an empty pane scrolled its own container. */
+.gp-empty{box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;color:var(--dsw-alias-label-tertiary);font-size:12px;padding:24px;text-align:center}
 .gp-files-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
 .gp-files-wrap>.gp-files{flex:1;min-height:0;height:auto}
 .gp-notice{flex:none;padding:8px 14px;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l2)}
