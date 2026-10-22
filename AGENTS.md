@@ -133,7 +133,7 @@ npm run typecheck     # 类型检查
 
 - host 改动：类型检查通过 + 端点逻辑单测。
 - client 改动：`node build.mjs` 成功后，用隔离浏览器 / 隔离 DSH 实例加载重建后的产物验证；无 dev:web watcher 时必须重建 + 刷新。访问正在运行的 GUI 须遵守用户当次授权。
-- 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。`test:e2e` 经 `test/e2e/all.mjs` 跑完全部 runner 再汇总失败——**不要改回 `&&` 串联**：首个红 runner 会吞掉后面所有 runner（曾因此让 9 个 runner 长期不执行）。
+- 测试位于 `test/`：`test/unit/*.test.mjs`（`node --test`，纯算法 + host 端点）、`test/e2e/*.mjs`（隔离的 file:// 无头浏览器，绝不碰运行中的实例）。命令：`npm run test:unit` / `npm run test:e2e` / `npm test`。**零断言的截图 / 度量脚本不进 RUNNERS**（作为目检工具手动跑，别让永远绿的探针混进门禁计数）。`test:e2e` 经 `test/e2e/all.mjs` 跑完全部 runner 再汇总失败——**不要改回 `&&` 串联**：首个红 runner 会吞掉后面所有 runner（曾因此让 9 个 runner 长期不执行）。
 - 一键门禁 `npm run check`：lint + 类型检查 + 全部测试。提交前必须通过。
 - `test:unit` **刻意不传 `--test-force-exit`，别加回来**：并行文件下它会静默丢掉正在执行的用例及其后同文件用例，而报告仍是 `fail 0`——门禁绿着少跑测试（实测数据见 ADR-0017）。
 - CI（`.github/workflows/ci.yml`）：push 到 main / PR / 手动触发，node `22.x` 与 `24.x` 矩阵，门禁与本地 `npm run check` 等价；e2e 用 `file://` 夹具自带 chromium，不需要 GUI、不需要 dsh 实例。
