@@ -171,6 +171,13 @@ const mounts = (page) => page.evaluate(() => {
     sidebarBody: keys.includes('sidebar.right.pane.tab::@xbzbing/dsh-git-panel'),
     sidebarTitle: keys.includes('sidebar.right.pane.tab.title::@xbzbing/dsh-git-panel'),
     types: window.__ctl.sidebarTypes.map((d) => ({ id: d.id, kind: d.kind, keepMounted: d.keepMounted, priority: d.priority, guide: (d.guide ?? []).map((g) => g.id) })),
+    // The capsule's glyph, rendered outside React to read its viewBox: the
+    // plugin app icon is a 128-canvas artwork, the line glyphs are 16.
+    guideIconViewBox: (() => {
+      const entry = (window.__ctl.sidebarTypes[0]?.guide ?? [])[0]
+      if (entry?.icon == null) return null
+      try { return entry.icon({ size: 22 }).props?.viewBox ?? null } catch { return null }
+    })(),
   }
 })
 
@@ -188,6 +195,7 @@ try {
     assert.equal(m.types[0].id, '@xbzbing/dsh-git-panel', 'the implementation identity is the package name')
     assert.equal(m.types[0].keepMounted, true, 'a visited body stays mounted so unsaved work survives')
     assert.equal(m.types[0].guide.length, 1, 'the type contributes one guide entry')
+    assert.equal(m.guideIconViewBox, '0 0 128 128', 'the guide capsule draws the plugin app icon, not a line glyph')
     await page.close()
   }
 

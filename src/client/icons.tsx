@@ -1,4 +1,5 @@
-/** Minimal inline SVG icons (currentColor). */
+/** Minimal inline SVG icons (currentColor) — plus the one full-paint glyph,
+ * PluginIcon, which carries the package icon.svg artwork instead. */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
 
@@ -246,4 +247,33 @@ export function BranchSyncIcon({ size, direction }: IconProps & { readonly direc
     strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
     'aria-hidden': true,
   }, [h('path', { key: 'a', d: shaft }), h('path', { key: 'b', d: head })])
+}
+
+/** The plugin's app icon as a glyph: the same artwork as the package
+ * `icon.svg` (package.json `icon`), drawn inline because the sidebar guide
+ * entry takes a component rather than a file. It paints itself (white tile,
+ * teal→blue branch) instead of following currentColor, and stays decorative —
+ * the capsule beside it carries the label. The gradient id is namespaced so a
+ * second copy in the same document shares one definition instead of clashing
+ * with a host gradient that happens to be called `glyph`. */
+export function PluginIcon({ size = 16, className }: IconProps): JSX.Element {
+  return h('svg', {
+    width: size, height: size, viewBox: '0 0 128 128', fill: 'none',
+    'aria-hidden': true,
+    ...(className !== undefined ? { className } : {}),
+  }, [
+    h('defs', { key: 'd' }, h('linearGradient', {
+      id: 'gp-plugin-glyph', x1: 39, y1: 33, x2: 89, y2: 95, gradientUnits: 'userSpaceOnUse',
+    }, [h('stop', { key: 'a', offset: 0, stopColor: '#36C9B4' }), h('stop', { key: 'b', offset: 1, stopColor: '#4F7BFF' })])),
+    h('rect', { key: 'tile', x: 1, y: 1, width: 126, height: 126, rx: 36, fill: '#FFFFFF', stroke: '#ECEEF3', strokeWidth: 2 }),
+    h('g', { key: 'lines', fill: 'none', stroke: 'url(#gp-plugin-glyph)', strokeWidth: 7.5, strokeLinecap: 'round' }, [
+      h('path', { key: 'a', d: 'M50 44 V84' }),
+      h('path', { key: 'b', d: 'M78 55 C78 70 50 66 50 77' }),
+    ]),
+    h('g', { key: 'nodes', fill: '#FFFFFF', stroke: 'url(#gp-plugin-glyph)', strokeWidth: 7.5 }, [
+      h('circle', { key: 'a', cx: 50, cy: 44, r: 7 }),
+      h('circle', { key: 'b', cx: 78, cy: 48, r: 7 }),
+      h('circle', { key: 'c', cx: 50, cy: 84, r: 7 }),
+    ]),
+  ])
 }

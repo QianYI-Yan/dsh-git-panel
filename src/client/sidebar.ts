@@ -16,7 +16,7 @@
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import { Panel } from './Panel.js'
-import { CommitIcon } from './icons.js'
+import { PluginIcon } from './icons.js'
 import { NS } from './locales.js'
 import type { ClientCtx } from './rpc.js'
 import type { GitKey } from './locales.js'
@@ -92,7 +92,7 @@ function definition(t: (key: GitKey) => string): SidebarRightTabDefinition {
       order: 30,
       title: () => t('panel.tab'),
       description: () => t('sidebar.guideDescription'),
-      icon: CommitIcon,
+      icon: PluginIcon,
     }],
   }
 }
