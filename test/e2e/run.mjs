@@ -1259,6 +1259,10 @@ const out = await page.evaluate(async (snap) => {
   })
   const wideFullBtn = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]')
   result.wideHasFullscreen = wideFullBtn !== null
+  // The bar that carries the opener is gone while the reader is open, so its
+  // glyph and label are captured now for the comparison below.
+  const openerIcon = wideFullBtn?.querySelector('svg')?.innerHTML
+  const openerLabelText = (wideFullBtn?.textContent || '').trim()
   // Captured before opening: a second render would replace this node, so an
   // equal reference afterwards proves the reader reused the live preview.
   const mdBefore = document.querySelector('[data-markdown-rendered]')
@@ -1278,6 +1282,21 @@ const out = await page.evaluate(async (snap) => {
     && fsBarLabels[0] === 'files.screenFull' && fsBarLabels[1] === 'common.close'
     // The toggle keeps a stable name and reports its state instead.
     && fsBarBtns[0]?.getAttribute('aria-pressed') === 'false'
+  // The card's fullscreen toggle must not be a second copy of the button that
+  // opened the card: it carries a visible label, and its glyph is a different
+  // drawing. Two identical corner-bracket icons in a row read as one action.
+  const fsScreenBtn = fsBarBtns[0]
+  const screenIcon = fsScreenBtn?.querySelector('svg')?.innerHTML
+  result.readerScreenToggleLabeled = fsScreenBtn !== undefined
+    && fsScreenBtn.querySelector('.gp-files__fs-screen-label') !== null
+    && (fsScreenBtn.textContent || '').trim() !== ''
+    // Label-in-name: the accessible name is the visible text.
+    && (fsScreenBtn.textContent || '').includes(fsScreenBtn.getAttribute('aria-label') || '\u0000')
+    && openerLabelText === ''
+  result.readerScreenIconDistinct = openerIcon !== undefined && screenIcon !== undefined
+    && openerIcon !== screenIcon
+    // Same box as the bar's other icon buttons, so the row keeps one height.
+    && Math.round(fsScreenBtn.getBoundingClientRect().height) === 25
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   await new Promise((r) => setTimeout(r, 200))
   result.wideFullscreenClosed = document.querySelector('.gp-files__preview--full') === null

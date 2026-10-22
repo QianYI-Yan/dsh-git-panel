@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, ExitFullscreenIcon, FullscreenIcon, InfoIcon, RefreshIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, FullscreenIcon, InfoIcon, RefreshIcon, ScreenIcon, WrapIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
@@ -606,11 +606,18 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       ? h('div', { key: 'fsbar', className: 'gp-modal__bar gp-files__fsbar' }, [
         h('code', { key: 'path', className: 'gp-modal__path', title: file.path }, file.path),
         h('button', {
-          key: 'screen', type: 'button', className: 'gp-icon-btn gp-files__fs-screen',
+          key: 'screen', type: 'button',
+          // A LABELLED control on purpose: the card is opened by an icon-only
+          // corner-bracket button, and repeating that glyph inside the card made
+          // "open the reader" and "go browser-fullscreen" look like one action.
+          className: 'gp-btn gp-files__fs-screen',
           title: screenFull ? t('files.exitFullscreen') : t('files.enterFullscreen'),
-          'aria-label': t('files.screenFull'),
+          'aria-label': screenFull ? t('files.exitFullscreen') : t('files.screenFull'),
           'aria-pressed': screenFull, onClick: toggleScreenFull,
-        }, h(screenFull ? ExitFullscreenIcon : FullscreenIcon, { size: 15 })),
+        }, [
+          h(ScreenIcon, { key: 'i', size: 14 }),
+          h('span', { key: 'l', className: 'gp-files__fs-screen-label' }, screenFull ? t('files.exitFullscreen') : t('files.screenFull')),
+        ]),
         h('button', {
           key: 'close', ref: fsCloseRef, type: 'button', className: 'gp-icon-btn gp-modal__close',
           title: t('common.close'), 'aria-label': t('common.close'), onClick: closeFullscreen,

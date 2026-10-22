@@ -297,6 +297,8 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.wideHasFullscreen, true, 'the wide toolbar carries the fullscreen reading entry')
   assert.equal(out.wideFullscreenShown, true, 'the reader shows the live preview restyled as a dialog, not a second render')
   assert.equal(out.wideFullscreenBar, true, 'the reader bar puts the browser-fullscreen toggle immediately left of close')
+  assert.equal(out.readerScreenToggleLabeled, true, 'the reader\'s fullscreen toggle is a labelled button, not a clone of the icon that opened the card')
+  assert.equal(out.readerScreenIconDistinct, true, 'the two fullscreen controls draw different glyphs at the bar row height')
   assert.equal(out.wideFullscreenClosed, true, 'Escape closes the reader and keeps the preview mounted')
   assert.equal(out.markdownRenderedDefault, true, 'Markdown defaults to the rendered view')
   assert.equal(out.markdownSourceShown, true, 'source button shows the code view')

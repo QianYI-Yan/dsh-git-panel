@@ -85,6 +85,17 @@ export function ExitFullscreenIcon({ size }: IconProps): JSX.Element {
   ], size)
 }
 
+/** Whole-screen glyph: a display on its stand. The reader card's browser-
+ * fullscreen toggle uses it instead of the corner brackets that OPEN the card,
+ * so the two neighbouring controls never look like the same action. */
+export function ScreenIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('rect', { key: 'a', x: 1.5, y: 2.5, width: 13, height: 9, rx: 1.6 }),
+    h('path', { key: 'b', d: 'M8 11.5v3' }),
+    h('path', { key: 'c', d: 'M5.5 14.5h5' }),
+  ], size)
+}
+
 /** Unfold-all glyph: chevrons opening up and down — expand the diff context. */
 export function ExpandAllIcon({ size }: IconProps): JSX.Element {
   return svg([
