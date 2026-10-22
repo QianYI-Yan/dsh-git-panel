@@ -251,6 +251,14 @@ export function assertPanelResults(out, realInput, errors) {
   // directory's slot) and the same self-expiring confirmation.
   assert.deepEqual(out.pathCopyShape, { copied: true, dir: false, check: true, name: 'index.ts' }, 'the filename shows a check in the directory slot while copied')
   assert.deepEqual(out.pathCopyReverted, { copied: false, dir: true, aria: 'files.copyPath src/index.ts' }, 'the filename confirmation clears itself like the diff headers')
+  // Root-level file: the name is an element like the nested shape's, so it can
+  // elide (the button clips) and take the hover underline.
+  assert.equal(out.rootPathShape?.text, 'README.md', `a root-level file shows its name (got ${JSON.stringify(out.rootPathShape)})`)
+  assert.equal(out.rootPathShape?.hasDir, false, 'a root-level file has no directory half')
+  assert.equal(out.rootPathShape?.root, true, 'and its name carries the root modifier')
+  assert.equal(out.rootPathShape?.overflow, 'hidden', 'the name owns its elision')
+  assert.equal(out.rootPathShape?.ellipsis, 'ellipsis', 'long root-level names elide instead of being clipped')
+  assert.equal(out.rootPathShape?.shrinkable, true, 'the name is what shrinks when there is no directory to give way')
   assert.deepEqual(out.contentCopyShape, { copied: true, check: true }, 'the copy-content icon confirms on the same clock')
   assert.deepEqual(out.contentCopyLive, { text: 'files.contentCopied', aria: 'polite' }, 'the copy-content confirmation also reaches screen readers through its live region')
   assert.equal(out.contentCopyReverted, true, 'the copy-content confirmation also clears itself')

@@ -68,12 +68,12 @@ export function pathCopyButton(props: PathCopyButtonProps): JSX.Element {
         : separator === 'attached'
           ? h('span', { key: 'd', className: dirClass }, `${dir}/`)
           : [h('span', { key: 'd', className: dirClass }, dir), h('span', { key: 's', className: sepClass ?? `${rootClass}-sep` }, '/')],
-    // A root-level file keeps a plain text node in the split shape (the diff
-    // pane's rendering, where only the directory is dimmed and emphasised names
-    // belong to nested files).
-    dir === null && separator === 'split'
-      ? name
-      : h('span', { key: 'n', className: nameClass }, name),
+    // The name is always a real element, root-level files included: as a bare
+    // text node it lost both the hover underline and any elision, so a long
+    // name at the repository root was hard-clipped by the button's overflow
+    // while the same name inside a directory elided. `--root` is the shape with
+    // no directory before it, which has to shrink (and elide) on its own.
+    h('span', { key: 'n', className: dir === null ? `${nameClass} ${nameClass}--root` : nameClass }, name),
     h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' }, feedback === 'idle' ? '' : t(phrase)),
   ])
 }

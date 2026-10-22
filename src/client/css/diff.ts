@@ -46,6 +46,8 @@ export const CSS = `
 .gp-diff__path-dir{direction:rtl;unicode-bidi:isolate;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
 .gp-diff__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-diff__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
+/* Same root-level shape as the files toolbar: the name alone has to shrink. */
+.gp-diff__path-name--root{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
 /* Icon controls in the diff toolbar and the commit-diff modal bar wear the same
  * bordered box as the files preview's glyph buttons, at the mode seg's height

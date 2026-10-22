@@ -40,6 +40,9 @@ export const CSS = `
 .gp-files__path-dir{direction:rtl;unicode-bidi:isolate;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary)}
 .gp-files__path-sep{flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-files__path-name{flex:none;color:var(--dsw-alias-label-primary);font-weight:600}
+/* No directory before the name: it is the only thing that can shrink, so it
+ * takes the space and elides instead of being clipped by the button. */
+.gp-files__path-name--root{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gp-files__copy-path{flex:none;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;padding:4px 8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;font:inherit;font-size:12px}
 .gp-files__copy-path:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-files__copy-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}

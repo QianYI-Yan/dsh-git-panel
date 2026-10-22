@@ -200,7 +200,7 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
     }
     document.addEventListener('selectionchange', onSelectionChange)
     return () => document.removeEventListener('selectionchange', onSelectionChange)
-  }, [wrapActive])
+  }, [wrapActive, containerRef])
 
   // Keep the active match scrolled into view as navigation moves. rAF waits for
   // the widened window to mount the row before scrolling to it.

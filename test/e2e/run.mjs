@@ -1016,6 +1016,28 @@ const out = await page.evaluate(async (snap) => {
       aria: btn.getAttribute('aria-label'),
     }
   })()
+  // A root-level file has no directory half, so the name is the only thing that
+  // can shrink: it must still be its own element, or it is clipped by the
+  // button's overflow with no ellipsis and no hover underline (the nested shape
+  // above is the control that proves the difference is the directory, not the
+  // element).
+  const rootPathRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('README.md'))
+  if (rootPathRow) { rootPathRow.click(); await new Promise((r) => setTimeout(r, 400)) }
+  result.rootPathShape = (() => {
+    const btn = document.querySelector('.gp-files__path')
+    const name = btn === null ? null : btn.querySelector('.gp-files__path-name')
+    if (btn === null || name === null) return null
+    const cs = getComputedStyle(name)
+    return {
+      text: name.textContent,
+      hasDir: btn.querySelector('.gp-files__path-dir') !== null,
+      root: name.classList.contains('gp-files__path-name--root'),
+      overflow: cs.overflow,
+      ellipsis: cs.textOverflow,
+      shrinkable: cs.flexShrink !== '0',
+    }
+  })()
+
   // SVG is a picture and also markup: rendered by default, with a source face,
   // and both come from the one read (switching must not re-query the host).
   const svgTab = (label) => [...document.querySelectorAll('.gp-files__bar [role="tab"]')].find((b) => b.textContent === label)
