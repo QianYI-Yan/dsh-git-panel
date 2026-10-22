@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from 'playwright-core'
+import { chromium, devices } from 'playwright-core'
 
 const E2E = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(E2E, 'harness.html')
@@ -314,6 +314,25 @@ try {
       return window.__ctl.openedTabs.slice()
     })
     assert.deepEqual(opened, ['dsh-git-panel'], 'a click opens the sidebar page type')
+    await page.close()
+  }
+
+  // ── the pill's tooltip is a hover affordance, not a touch one ──────────
+  {
+    // A tap synthesises a mouse *enter* but never the matching leave — the
+    // virtual cursor stays where the finger was — so a panel it raised would
+    // sit over the conversation view for good.
+    const page = await browser.newPage({ ...devices['Pixel 5'] })
+    await boot(page, { placement: 'sidebar', withSidebar: true })
+    await page.evaluate(async () => {
+      const entry = window.__ctl.registered['conversation.input.left']
+      const host = document.getElementById('pill')
+      window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1' }))
+      await new Promise((r) => setTimeout(r, 400))
+    })
+    await page.locator('.gp-pill').tap()
+    await page.waitForTimeout(400)
+    assert.equal(await page.locator('.gp-tip').count(), 0, 'tapping the pill leaves no tooltip behind')
     await page.close()
   }
 

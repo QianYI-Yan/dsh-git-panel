@@ -31,7 +31,11 @@ function basename(path: string): string {
 
 /** Rounded tooltip panel anchored above the pill (openviking-manager style). */
 function useTooltip(): {
-  bind: { onMouseEnter: () => void; onMouseLeave: () => void; ref: (el: HTMLElement | null) => void }
+  bind: {
+    onPointerEnter: (e: { pointerType: string }) => void
+    onPointerLeave: () => void
+    ref: (el: HTMLElement | null) => void
+  }
   render: (lines: readonly string[]) => JSX.Element | null
 } {
   const [open, setOpen] = useState(false)
@@ -44,10 +48,22 @@ function useTooltip(): {
     setPos({ left: r.left, bottom: window.innerHeight - r.top + 8 })
   }, [open])
 
+  // Any press closes the panel. A tap synthesises no leave (the virtual cursor
+  // stays where the finger was), so without this the panel a tap left behind
+  // would sit over the conversation view.
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return undefined
+    const onDown = (): void => setOpen(false)
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [open])
+
   const bind = {
     ref: (el: HTMLElement | null) => { anchor.current = el },
-    onMouseEnter: () => setOpen(true),
-    onMouseLeave: () => setOpen(false),
+    // Pointer events carry the pointer kind: only a mouse entering the pill
+    // counts as hovering it.
+    onPointerEnter: (e: { pointerType: string }) => { if (e.pointerType === 'mouse') setOpen(true) },
+    onPointerLeave: () => setOpen(false),
   }
 
   const render = (lines: readonly string[]): JSX.Element | null => {
@@ -149,7 +165,7 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
   return h('span', { className: 'gp-pill-wrap', ref: setWrap }, [
     h('button', {
       key: 'btn', type: 'button', className: `gp-pill ${gitClass}${compact ? ' gp-pill--compact' : ''}`, onClick,
-      ref: tip.bind.ref, onMouseEnter: tip.bind.onMouseEnter, onMouseLeave: tip.bind.onMouseLeave,
+      ref: tip.bind.ref, onPointerEnter: tip.bind.onPointerEnter, onPointerLeave: tip.bind.onPointerLeave,
     }, [
       h('span', { key: 'dot', className: 'gp-pill__dot', 'aria-hidden': 'true' }),
       h('span', { key: 'repo', className: 'gp-pill__repo' }, repo),

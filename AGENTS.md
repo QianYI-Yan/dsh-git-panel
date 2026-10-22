@@ -109,6 +109,7 @@ Host 半 (Cordis + typert, lib/host)
 - `memo` 组件的 props 传普通值，不在渲染中新建对象字面量（会让浅比较失效、重跑整套高亮）；逐行高亮经 `highlight-cache.ts` 缓存。
 - 图片缩放：`.gp-zoom__img` 必须 `flex:none`（否则放大超过 100% 不生效）；拖拽的 pointer 事件挂 window 且不 `setPointerCapture`（会改写 click 目标）。
 - **加载指示一律用平台 `StateDot`（`state="ongoing"`，尺寸按场景传 `size`）**，不自绘边框圈：`border` + `border-top-color` 拼出来的圆环在 13–26px 下看着不是正圆，且与会话行/侧栏的加载标记不同源，会随平台改版漂移。动画由平台样式表提供，所以遮罩进 ready 后要显式让透明层上的动画停下（`.gp-files__html-mask-spin *{animation:none}`）。
+- **悬停提示只认 hover 与键盘焦点，不认触摸**（`tip.tsx` 的 `tipProps` 与 `GitPill` 的提示面板两条实现都要守）：tap 会合成 `mouseenter`、tap 也会把按钮聚焦，但**永远不会**有对应的 `mouseleave`（虚拟光标留在手指按下的位置），于是按下时升起的提示牌会一直挂在界面上（手机上点一下 pill 就永久挡着编辑框）。所以按下来自手指时一律不升起提示；按下驱动的确认（两步放弃的 `showTipNow`）不受影响，鼠标或键盘按下会把焦点这一半重新放开。
 
 ## 依赖策略
 
