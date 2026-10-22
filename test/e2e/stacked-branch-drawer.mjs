@@ -379,7 +379,9 @@ await touchBrowser.close()
 
 // ── Phone screen: the sidebar drills in like the conversation panel. Stacked is
 //    a desktop arrangement (two bands + resizers), so a phone-sized SCREEN must
-//    never get it — no drawer, no inline branch column, one pane at a time. ──
+//    never get it — no stacked bands, no tight-toolbar toggle, one pane at a
+//    time. The branch filter is the SAME left drawer the tight sidebar uses
+//    (replacing the bottom sheet), opened from the compact filter pill. ──
 const phoneBrowser = await chromium.launch()
 const phonePage = await phoneBrowser.newPage({
   viewport: { width: 390, height: 844 },
@@ -429,17 +431,105 @@ await phonePage.evaluate(async ({ snap, w }) => {
   window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1', useTabInfo: () => ({ tab: { visible: true } }) }))
   await new Promise((r) => setTimeout(r, 800))
 }, { snap: SNAP, w: 390 })
-const phone = await phonePage.evaluate(() => ({
-  layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
-  drawer: document.querySelector('.gp-drawer') !== null,
-  toggle: document.querySelector('.gp-toolbar__branches') !== null,
-  stackedBands: document.querySelectorAll('.gp-overview__top, .gp-resizer--row').length,
-  compactRoot: document.querySelector('.gp-overview--compact') !== null,
-}))
+const phone = await phonePage.evaluate(() => {
+  // The pill is the toolbar button whose aria-controls names the drawer: a
+  // title/text match would depend on the locale the harness bind resolves.
+  const drawer = document.querySelector('.gp-drawer')
+  const pill = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => b.getAttribute('aria-controls') === drawer?.id)
+  return {
+    layout: document.querySelector('.gp-panel')?.getAttribute('data-layout'),
+    drawer: drawer?.getAttribute('data-open') ?? null,
+    drawerInert: drawer?.hasAttribute('inert') ?? false,
+    toggle: document.querySelector('.gp-toolbar__branches') !== null,
+    stackedBands: document.querySelectorAll('.gp-overview__top, .gp-resizer--row').length,
+    compactRoot: document.querySelector('.gp-overview--compact') !== null,
+    sheet: document.querySelector('.gp-sheet') !== null,
+    pill: pill === undefined ? null : {
+      expanded: pill.getAttribute('aria-expanded'),
+      controlsResolve: pill.getAttribute('aria-controls') === drawer?.id,
+    },
+  }
+})
 assert.equal(phone.layout, 'compact', 'a phone screen gets the drill-in layout on the sidebar too')
-assert.equal(phone.drawer, false, 'no branch drawer on a phone')
-assert.equal(phone.toggle, false, 'no branch-drawer toggle on a phone')
+assert.equal(phone.drawer, 'false', 'the phone mounts the branch drawer collapsed by default')
+assert.equal(phone.drawerInert, true, 'and inert until opened')
+assert.equal(phone.toggle, false, 'no stacked-tight toolbar toggle on a phone (the pill is the entry)')
 assert.equal(phone.stackedBands, 0, 'no stacked bands or row resizer on a phone')
 assert.equal(phone.compactRoot, true, 'the overview renders its compact single-column form')
+assert.equal(phone.sheet, false, 'the bottom sheet is gone on a phone')
+assert.equal(phone.pill?.expanded, 'false', 'the filter pill reports the collapsed drawer state')
+assert.equal(phone.pill?.controlsResolve, true, "the pill's aria-controls resolves to the drawer")
+
+// ── Opening: the pill slides the drawer over the compact root; focus lands on
+//    the close button; no bottom sheet appears anywhere. ──
+// The pill is the toolbar button whose aria-controls names the drawer — a
+// title/text match would depend on which locale the harness bind resolves.
+await phonePage.evaluate(() => {
+  const drawer = document.querySelector('.gp-drawer')
+  const pill = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => b.getAttribute('aria-controls') === drawer?.id)
+  pill?.click()
+})
+await phonePage.waitForTimeout(250)
+const phoneOpen = await phonePage.evaluate(() => {
+  const drawer = document.querySelector('.gp-drawer')
+  const root = document.querySelector('.gp-overview--compact')
+  const d = drawer?.getBoundingClientRect()
+  const r = root?.getBoundingClientRect()
+  return {
+    open: drawer?.getAttribute('data-open') ?? null,
+    inert: drawer?.hasAttribute('inert') ?? false,
+    focusClose: document.activeElement?.classList.contains('gp-drawer__close') ?? false,
+    backdrop: document.querySelector('.gp-drawer-backdrop') !== null,
+    sheet: document.querySelector('.gp-sheet') !== null,
+    coversRoot: d !== undefined && r !== undefined
+      && Math.abs(d.top - r.top) <= 2 && Math.abs(d.bottom - r.bottom) <= 2 && Math.abs(d.left - r.left) <= 2,
+    width: d !== undefined ? Math.round(d.width) : 0,
+    branchRows: drawer?.querySelectorAll('.gp-branch-row').length ?? 0,
+  }
+})
+assert.equal(phoneOpen.open, 'true', 'the filter pill opens the phone drawer')
+assert.equal(phoneOpen.inert, false, 'the open drawer is interactive')
+assert.equal(phoneOpen.focusClose, true, "focus lands on the drawer's close button")
+assert.ok(phoneOpen.backdrop, 'opening lays a backdrop over the compact root')
+assert.equal(phoneOpen.sheet, false, 'the drawer replaces the bottom sheet, not supplements it')
+assert.equal(phoneOpen.coversRoot, true, "the drawer overlays the compact root's full height")
+assert.ok(phoneOpen.width >= 180 && phoneOpen.width <= 260, `the drawer keeps its clamp width (${phoneOpen.width}px)`)
+assert.ok(phoneOpen.branchRows > 0, 'the drawer carries the branch list')
+await phonePage.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'sidebar-phone-branch-drawer.png') })
+
+// ── Escape dismisses it and returns focus to the pill. ──
+await phonePage.keyboard.press('Escape')
+await phonePage.waitForTimeout(150)
+const phoneEsc = await phonePage.evaluate(() => {
+  const drawer = document.querySelector('.gp-drawer')
+  const pill = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => b.getAttribute('aria-controls') === drawer?.id)
+  return {
+    open: drawer?.getAttribute('data-open') ?? null,
+    backdrop: document.querySelector('.gp-drawer-backdrop') !== null,
+    focusPill: document.activeElement === pill,
+  }
+})
+assert.equal(phoneEsc.open, 'false', 'Escape closes the phone drawer')
+assert.equal(phoneEsc.backdrop, false, 'the backdrop goes with it')
+assert.equal(phoneEsc.focusPill, true, 'focus returns to the filter pill')
+
+// ── Picking a branch applies the filter and closes the drawer — the flow the
+//    bottom sheet used to provide on a phone. ──
+await phonePage.evaluate(() => {
+  const drawer = document.querySelector('.gp-drawer')
+  const pill = [...document.querySelectorAll('.gp-toolbar .gp-btn')].find((b) => b.getAttribute('aria-controls') === drawer?.id)
+  pill?.click()
+})
+await phonePage.waitForTimeout(250)
+await phonePage.click('.gp-drawer .gp-branch-row[title="feature"]')
+await phonePage.waitForTimeout(300)
+const phonePick = await phonePage.evaluate(() => ({
+  open: document.querySelector('.gp-drawer')?.getAttribute('data-open') ?? null,
+  backdrop: document.querySelector('.gp-drawer-backdrop') !== null,
+  pillLabel: [...document.querySelectorAll('.gp-toolbar .gp-btn')].map((b) => b.textContent || '').join('|'),
+}))
+assert.equal(phonePick.open, 'false', 'picking a branch closes the drawer')
+assert.equal(phonePick.backdrop, false, 'and removes the backdrop')
+assert.ok(phonePick.pillLabel.includes('feature'), 'the pill shows the picked ref')
 await phonePage.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'sidebar-phone-compact.png') })
 await phoneBrowser.close()

@@ -51,8 +51,10 @@ export const CSS = `
 .gp-panel[data-layout="compact"] .gp-detail__summary--inline{margin:0 0 0 auto;padding:0;border-bottom:0;min-width:0;overflow:hidden}
 .gp-panel[data-layout="compact"] .gp-detail__summary--inline>span{white-space:nowrap}
 
-/* Overview: single column, each pane fills width + height. */
-.gp-overview--compact{flex-direction:column}
+/* Overview: single column, each pane fills width + height. position:relative
+ * makes the root the containing block for the phone's branch drawer (see
+ * css/stacked.ts); nothing else inside is absolutely positioned. */
+.gp-overview--compact{flex-direction:column;position:relative}
 .gp-overview--compact .gp-col{width:100%}
 /* The drill pane grows; the footer status bar keeps its own height below it. */
 .gp-overview--compact>.gp-col{flex:1 1 auto;min-height:0;height:auto}

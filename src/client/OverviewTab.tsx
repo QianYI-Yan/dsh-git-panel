@@ -82,6 +82,10 @@ interface OverviewProps {
    * (branch list + status bar) leaves the flex flow and becomes a drawer over
    * the history, collapsed by default (Panel measures; panel-fit.ts). */
   readonly tight?: boolean
+  /** The DEVICE screen is phone-sized (panel-fit.ts): the compact branch
+   * filter is the same left drawer the tight stacked sidebar uses, not the
+   * bottom sheet a squeezed desktop column pops. */
+  readonly phone?: boolean
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -122,7 +126,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
@@ -176,6 +180,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Compact branch/ref filter lives in a bottom sheet (a side column has no room
   // on a phone); the wide layout keeps the always-visible left column instead.
   const [sheetOpen, setSheetOpen] = useState(false)
+  // A phone's compact overview takes the branch filter as the same left drawer
+  // the tight stacked sidebar uses; a squeezed desktop column keeps the sheet.
+  const branchDrawer = compact && phone === true
   // Escape dismisses the sheet, matching the file-diff modal's dialog contract.
   useEffect(() => {
     if (!sheetOpen) return
@@ -183,14 +190,15 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [sheetOpen])
-  // The sheet is a compact-only surface; widening the panel dismisses it so it
-  // never hangs over the three-column layout.
+  // The sheet is a compact-only surface; widening the panel (or a phone taking
+  // the drawer instead) dismisses it so it never hangs over the layout.
   useEffect(() => {
-    if (!compact && sheetOpen) setSheetOpen(false)
-  }, [compact, sheetOpen])
-  // Tight stacked sidebar: the band's left column is a drawer over the history,
-  // collapsed by default so the graph gets the full band width until the branch
-  // list is asked for (Panel passes tight ⇔ width ≤ STACKED_TIGHT_BP).
+    if ((!compact || branchDrawer) && sheetOpen) setSheetOpen(false)
+  }, [compact, branchDrawer, sheetOpen])
+  // Tight stacked sidebar, or a phone's compact overview: the branch list is a
+  // drawer over the history, collapsed by default so the graph gets the full
+  // width until the branch list is asked for (Panel passes tight ⇔ width ≤
+  // STACKED_TIGHT_BP; the phone flag ⇔ device screen ≤ PHONE_SCREEN_BP).
   const [drawerOpen, setDrawerOpen] = useState(false)
   const drawerId = useId()
   const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
@@ -221,11 +229,12 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [drawerOpen, visible])
-  // Leaving the tight tier re-attaches the column inline; the overlay state
-  // would otherwise outlive the drawer it belongs to.
+  // Leaving the tier that owns the drawer (tight stacked sidebar, phone
+  // compact) re-attaches the column inline; the overlay state would otherwise
+  // outlive the drawer it belongs to.
   useEffect(() => {
-    if (!tight && drawerOpen) setDrawerOpen(false)
-  }, [tight, drawerOpen])
+    if (!tight && !branchDrawer && drawerOpen) setDrawerOpen(false)
+  }, [tight, branchDrawer, drawerOpen])
 
   // When the pull confirm opens, load the incoming fast-forward scope (local
   // diffstat HEAD..@{upstream}) so the dialog can show commits/files/±lines;
@@ -676,9 +685,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   const toolbarChildren: JSX.Element[] = compact
     ? [
       h('button', {
-        key: 'filter', type: 'button',
+        key: 'filter', type: 'button', ref: branchDrawer ? drawerToggleRef : null,
         className: `gp-btn${filter.ref !== null ? ' gp-btn--primary' : ''}`,
-        title: t('overview.filterBranch'), onClick: () => setSheetOpen(true),
+        title: t('overview.filterBranch'),
+        // A phone opens the left drawer; a squeezed desktop column pops the
+        // bottom sheet. Same button, same label, different surface.
+        ...(branchDrawer
+          ? { 'aria-expanded': drawerOpen, 'aria-controls': drawerId, onClick: () => setDrawerOpen((v) => !v) }
+          : { onClick: () => setSheetOpen(true) }),
       }, [h(FilterIcon, { key: 'ic', size: 13 }), h('span', { key: 'l', className: 'gp-btn__label' }, filter.ref ?? t('overview.filterBranch'))]),
       searchInputEl,
       ...(moreToggle === null ? [] : [moreToggle]),
@@ -796,18 +810,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       ? [
         // Backdrop first (click the blank band to dismiss), then the drawer
         // above it, then the history it covers — z-index lives in stacked.ts.
-        ...(drawerOpen ? [h('div', { key: 'backdrop', className: 'gp-drawer-backdrop', onClick: () => setDrawerOpen(false) })] : []),
-        h('div', {
-          key: 'drawer', id: drawerId, className: 'gp-col gp-col--left gp-drawer',
-          'data-open': drawerOpen ? 'true' : 'false',
-          ...inertAttr(!drawerOpen),
-        }, [
-          h('div', { key: 'bar', className: 'gp-drawer__bar' }, [
-            h('span', { key: 'title', className: 'gp-drawer__title' }, t('overview.filterBranch')),
-            h('button', { key: 'close', type: 'button', ref: drawerCloseRef, className: 'gp-icon-btn gp-drawer__close', title: t('common.close'), onClick: () => setDrawerOpen(false) }, h(CloseIcon, { size: 14 })),
-          ]),
-          ...leftChildren,
-        ]),
+        ...renderBranchDrawer(drawerOpen, drawerId, 'gp-col gp-col--left gp-drawer', drawerCloseRef, () => setDrawerOpen(false), leftChildren, t),
         historyCol,
       ]
       : [h('div', { key: 'left', className: 'gp-col gp-col--left' }, leftChildren), historyCol]
@@ -825,11 +828,28 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   }
 
   // Compact: a single column that drills from the history list into the commit
-  // detail; the branch filter is a bottom sheet. No hover card (tap drills in).
+  // detail; the branch filter is a bottom sheet on a desktop-sized screen and
+  // the left drawer on a phone (branchDrawer). No hover card (tap drills in).
   // The header spends its row on the back button + the change summary: the
   // short hash it used to carry is already in the commit-row meta and in the
   // message meta below, so repeating it here only cost the second row.
   if (compact) {
+    // The phone's drawer overlays the whole tab (the compact root is its
+    // containing block), covering the status-bar footer the way the portaled
+    // sheet used to; picking a ref or a switch target closes it, returning to
+    // the filtered history immediately.
+    const drawerChildren: JSX.Element[] = branchDrawer
+      ? renderBranchDrawer(drawerOpen, drawerId, 'gp-col gp-drawer', drawerCloseRef, () => setDrawerOpen(false), [
+        h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+          onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
+          switchOptions,
+          onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
+          onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+          onRetry: reloadTree,
+          t,
+        }, branchTrees)),
+      ], t)
+      : []
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
       ...opModals,
@@ -843,6 +863,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         ])
         : historyCol,
       renderStatusBar(snapshot, statusCbs),
+      ...drawerChildren,
       sheetOpen ? renderBranchSheet(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         switchOptions,
@@ -1049,6 +1070,37 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
       renderBranchList(tree, treeError, activeRef, closed, cb, trees)),
   ]))
   return createPortal(sheet, document.body, 'branch-filter-sheet')
+}
+
+/** The branch-list drawer shared by the tight stacked sidebar and a phone's
+ * compact overview: a backdrop (a tap on the blank area dismisses) plus the
+ * sliding column — title bar with close over the caller's children. z-index
+ * and the slide live in css/stacked.ts; `className` lets the stacked host keep
+ * its band-column sizing (`gp-col--left`) while compact mounts a plain column.
+ * Returns a keyed array so the caller spreads it among its children. */
+function renderBranchDrawer(
+  open: boolean,
+  id: string,
+  className: string,
+  closeRef: { readonly current: HTMLButtonElement | null },
+  onClose: () => void,
+  children: readonly JSX.Element[],
+  t: (key: GitKey, params?: Record<string, string | number>) => string,
+): JSX.Element[] {
+  return [
+    ...(open ? [h('div', { key: 'backdrop', className: 'gp-drawer-backdrop', onClick: onClose })] : []),
+    h('div', {
+      key: 'drawer', id, className,
+      'data-open': open ? 'true' : 'false',
+      ...inertAttr(!open),
+    }, [
+      h('div', { key: 'bar', className: 'gp-drawer__bar' }, [
+        h('span', { key: 'title', className: 'gp-drawer__title' }, t('overview.filterBranch')),
+        h('button', { key: 'close', type: 'button', ref: closeRef, className: 'gp-icon-btn gp-drawer__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 14 })),
+      ]),
+      ...children,
+    ]),
+  ]
 }
 
 interface RowCbs {

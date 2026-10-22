@@ -63,18 +63,29 @@ export const CSS = `
 .gp-toolbar--stacked .gp-select-trigger{flex:1 1 0;min-width:0}
 .gp-toolbar--stacked .gp-icon-btn{flex:none}
 
-/* Tight stacked (≤ STACKED_TIGHT_BP): the band's left column is a drawer over
- * the history. Collapsed it retracts a full width to the left (clipped by
- * .gp-body) and goes inert, so the history takes the whole band; the data-open
- * attribute slides it back in above the backdrop. The backdrop dims just this band — a
- * click on the blank history counts as the dismissal the spec asks for, while
- * the detail below stays live. The toolbar's branch toggle opens it (aria-
- * expanded → aria-controls); the toggle and the search share one nowrap row
- * below, so the row's width comes from the layout rather than from a reserved
- * px budget — the touch media query grows icon buttons to 34px, and any
- * "100% minus the desktop button + gap" arithmetic would strand the search. */
+/* The branch-list drawer. Tight stacked (≤ STACKED_TIGHT_BP): the band's left
+ * column is a drawer over the history. Collapsed it retracts a full width to
+ * the left (clipped by .gp-body) and goes inert, so the history takes the whole
+ * band; the data-open attribute slides it back in above the backdrop. The
+ * backdrop dims just this band — a click on the blank history counts as the
+ * dismissal the spec asks for, while the detail below stays live. The toolbar's
+ * branch toggle opens it (aria-expanded → aria-controls); the toggle and the
+ * search share one nowrap row below, so the row's width comes from the layout
+ * rather than from a reserved px budget — the touch media query grows icon
+ * buttons to 34px, and any "100% minus the desktop button + gap" arithmetic
+ * would strand the search.
+ *
+ * A phone's compact overview (device screen ≤ PHONE_SCREEN_BP) mounts the same
+ * drawer over the whole compact root instead of the bottom sheet: the root is
+ * the containing block (position:relative in layout.ts) and carries a
+ * .gp-col width:100% rule this width declaration must beat — hence the
+ * equally-specific override below, in this later module. The scroll area gets
+ * the sheet body's touch containment so a list fling never scrolls the page
+ * behind the drawer. */
 .gp-drawer-backdrop{position:absolute;inset:0;z-index:4;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 50%,transparent);animation:gp-fade-in .12s ease}
 .gp-drawer{position:absolute;left:0;top:0;bottom:0;width:clamp(180px,72%,260px);z-index:5;overflow:hidden;background:var(--dsw-alias-bg-layer-2);transform:translateX(-100%);transition:transform .18s cubic-bezier(.16,1,.3,1)}
+.gp-overview--compact .gp-drawer{width:clamp(180px,72%,260px)}
+.gp-drawer .gp-col-left__scroll{overscroll-behavior:contain}
 .gp-drawer[data-open="true"]{transform:none}
 .gp-drawer__bar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-drawer__title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
