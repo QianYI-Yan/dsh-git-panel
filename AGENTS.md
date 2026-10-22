@@ -103,7 +103,7 @@ Host 半 (Cordis + typert, lib/host)
 - 样式用 dsh 主题 CSS 变量（`--dsw-alias-*`），不硬编码颜色，保证深浅色主题一致。
 - compact 样式统一挂在 `.gp-panel[data-layout="compact"]` 下；portaled 的 modal / bottom sheet 在 `.gp-panel` 之外，用自身 class 或 viewport media query 适配。
 - stacked 档（`[data-layout="stacked"]`）：三个子页签统一为上/下两 band + `.gp-resizer--row` 行分割线；拖拽比**一个值服务三面**（`gp.stacked.split`，模块级监听同步，改一处三面同动）。分隔条的每个状态必须声明完整盒子（`left/right/width/bottom` + `top/height/background`）——基础竖条的属性会按级联漏进 row 变体，只写一部分会塌成残根。
-- 弹窗复用 `ops-modals.tsx`（`renderModalShell` / `renderConfirmModal` / `renderModalFooter`）与 `dialog-focus.ts`（`useDialogFocus`），关闭与焦点契约单处收口，不各写一份；在途操作用 `confirmBusy` 禁用并抑制 Escape / backdrop。
+- 弹窗复用 `ops-modals.tsx`（`renderModalShell` / `renderConfirmModal` / `renderModalFooter`）与 `dialog-focus.ts`（`useDialogFocus`），关闭与焦点契约单处收口，不各写一份；在途操作用 `confirmBusy` 禁用并抑制 Escape / backdrop。**每个浮层都要声明自己的叠层身份**：`useDialogFocus` 会自动在根节点打上 `data-gp-overlay`，`renderModalShell` 的 backdrop 自带；下层浮层（分支抽屉）靠这个标记判断「上面还有一层」，从而把 Escape 让出去。新增浮层漏了这一步，一次 Escape 会同时关掉上下两层。
 - 带 `aria-controls` 的 tab / segmented 控件必须渲染对应的 `role=tabpanel` 节点，保证引用恒可解析。
 - 长列表（变更列表、源码视图、DiffView）用 `virtual-list.ts` + `use-viewport.ts` 虚拟化；查找跳转到窗口外命中时窗口吸附到命中邻域，不挂载中间的连续区间。
 - `memo` 组件的 props 传普通值，不在渲染中新建对象字面量（会让浅比较失效、重跑整套高亮）；逐行高亮经 `highlight-cache.ts` 缓存。

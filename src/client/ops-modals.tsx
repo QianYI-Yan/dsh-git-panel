@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom'
 import type { JSX } from 'react'
 import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { CloseIcon } from './icons.js'
+import { OVERLAY_ATTR } from './dialog-focus.js'
 import type { GitKey } from './locales.js'
 
 export type OpT = (key: GitKey, params?: Record<string, string | number>) => string
@@ -125,6 +126,9 @@ function ModalShell({ onClose, title, icon, hash, body, footer, overlay, portalK
   }, [onClose, busy])
   const modal = h('div', {
     className: 'gp-modal-backdrop',
+    // Declares this dialog as an overlay above the page, so a lower layer's
+    // Escape handler (the branch drawer) can yield the keystroke to it.
+    [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (!busy && e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal gp-modal--sm', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, [

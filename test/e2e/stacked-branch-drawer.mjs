@@ -139,11 +139,25 @@ const probe = () => page.evaluate(() => {
       open: drawer.getAttribute('data-open'),
       inert: drawer.hasAttribute('inert'),
       transform: getComputedStyle(drawer).transform,
+      // The retraction must equal the column's own width: any negative offset
+      // (a 10px sliver included) still reads as "slides left" in the matrix.
+      tx: (() => {
+        const m = /matrix\(([^)]+)\)/.exec(getComputedStyle(drawer).transform)
+        return m === null ? 0 : Number(m[1].split(',')[4])
+      })(),
       boxShadow: getComputedStyle(drawer).boxShadow,
       box: box(drawer),
       rows: drawer.querySelectorAll('.gp-branch-row').length,
       statusbar: drawer.querySelector('.gp-statusbar') !== null,
       repo: drawer.querySelector('a.gp-statusbar__repo') !== null,
+      // Dialog contract: role / modal flag / labelled title / close label.
+      role: drawer.getAttribute('role'),
+      ariaModal: drawer.getAttribute('aria-modal'),
+      label: (() => {
+        const id = drawer.getAttribute('aria-labelledby')
+        return id === null ? null : (document.getElementById(id)?.textContent ?? null)
+      })(),
+      closeLabel: drawer.querySelector('.gp-drawer__close')?.getAttribute('aria-label') ?? null,
     },
     toggle: toggle === null ? null : {
       expanded: toggle.getAttribute('aria-expanded'),
@@ -171,6 +185,14 @@ const setWidth = async (w) => {
   await page.evaluate((width) => { document.getElementById('panel').style.width = `${width}px` }, w)
   await page.waitForTimeout(350)
 }
+// Waits for the slide to finish instead of racing its 180ms transition: the
+// transform is the thing under test, so sampling it mid-flight is a flake.
+const settleDrawer = (open) => page.waitForFunction((want) => {
+  const drawer = document.querySelector('.gp-drawer')
+  if (drawer === null) return false
+  const transform = getComputedStyle(drawer).transform
+  return want ? transform === 'none' : transform !== 'none' && !transform.endsWith(', 0, 0)')
+}, open, { timeout: 3000 })
 
 // ── 420 (stacked, not tight): the column is inline — no drawer anywhere. ──
 out.inline420 = await probe()
@@ -188,7 +210,11 @@ out.tight = await probe()
 assert.ok(out.tight.drawer !== null, 'at 320 the left column becomes a drawer')
 assert.equal(out.tight.drawer.open, 'false', 'the drawer is collapsed by default')
 assert.equal(out.tight.drawer.inert, true, 'the collapsed drawer is inert')
-assert.ok(out.tight.drawer.transform.startsWith('matrix(1, 0, 0, 1, -'), `the collapsed drawer is retracted a full width to the left (${out.tight.drawer.transform})`)
+assert.ok(out.tight.drawer.transform.startsWith('matrix(1, 0, 0, 1, -'), `the collapsed drawer is retracted to the left (${out.tight.drawer.transform})`)
+// Exactly one column width: the drawer must not peek over the history, and a
+// token retraction (the shape the loose prefix check would accept) would.
+assert.ok(Math.abs(-out.tight.drawer.tx - out.tight.drawer.box.w) <= 1, `the retraction equals the drawer width (${out.tight.drawer.tx} vs ${out.tight.drawer.box.w}px)`)
+assert.equal(out.tight.drawer.role, null, 'a collapsed drawer claims no dialog role')
 assert.equal(out.tight.inline, null, 'no inline column remains beside the history')
 assert.equal(out.tight.backdrop, null, 'a collapsed drawer leaves no backdrop')
 assert.ok(out.tight.drawer.rows > 0, `the branch list lives inside the drawer (${out.tight.drawer.rows} rows)`)
@@ -211,12 +237,16 @@ await page.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'branch-d
 
 // ── Open: slides in above the backdrop, focus lands on the close button. ──
 await page.click('.gp-toolbar__branches')
-await page.waitForTimeout(250)
+await settleDrawer(true)
 out.open = await probe()
 assert.equal(out.open.drawer.open, 'true', 'the toggle opens the drawer')
 assert.equal(out.open.drawer.inert, false, 'the open drawer is interactive')
 assert.equal(out.open.drawer.transform, 'none', "the open drawer sits flush at the band's left edge")
 assert.equal(out.open.drawer.boxShadow, 'none', 'the drawer paints no side shadow over the history')
+assert.equal(out.open.drawer.role, 'dialog', 'the open drawer is a dialog to assistive tech')
+assert.equal(out.open.drawer.ariaModal, 'true', 'and declares itself modal over the band')
+assert.equal(out.open.drawer.label, '按分支筛选', 'its accessible name is the visible title (zh)')
+assert.equal(out.open.drawer.closeLabel, '关闭', 'the icon-only close button carries an aria-label')
 assert.ok(out.open.backdrop !== null, 'opening lays a backdrop over the band')
 assert.ok(Math.abs(out.open.backdrop.w - out.open.top.w) <= 2 && Math.abs(out.open.backdrop.h - out.open.top.h) <= 2, 'the backdrop covers exactly the top band')
 assert.equal(out.open.toggle.expanded, 'true', 'the toggle reports the open state')
@@ -225,6 +255,21 @@ assert.ok(Math.abs(out.open.drawer.box.x - out.open.top.x) <= 2, "the open drawe
 assert.ok(Math.abs(out.open.history.w - out.open.top.w) <= 2, `the open drawer overlays the history instead of pushing it (${out.open.history.w} vs ${out.open.top.w}px)`)
 assert.equal(out.open.drawer.statusbar, true, 'the drawer carries the status bar')
 assert.equal(out.open.drawer.repo, false, 'the tight status bar drops the GitHub repo link (narrow-panel rule)')
+// Tab is contained: the drawer is the only tabbable surface while it is open,
+// so a keyboard round never lands on the body or on the controls the backdrop
+// covers (10 stops used to reach 5 of them).
+const tabTrail = []
+for (let i = 0; i < 8; i++) {
+  await page.keyboard.press('Tab')
+  tabTrail.push(await page.evaluate(() => {
+    const el = document.activeElement
+    if (el === null || el === document.body) return 'body'
+    const where = el.closest('.gp-drawer') === null ? 'outside' : 'drawer'
+    return `${where}:${(el.className || el.tagName).toString().split(/\s+/)[0]}`
+  }))
+}
+out.tabTrail = tabTrail
+assert.equal(tabTrail.every((stop) => stop.startsWith('drawer:')), true, `Tab never leaves the open drawer (${tabTrail.join(' → ')})`)
 await page.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'branch-drawer-320-open.png') })
 
 // ── Escape dismisses it and returns focus to the toggle. ──

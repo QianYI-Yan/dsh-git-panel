@@ -11,7 +11,8 @@ import type { JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { queryAs, type GitPanelRemote } from './rpc.js'
 import { selectTrigger } from './select-trigger.js'
-import { inertAttr } from './inert.js'
+import { OVERLAY_ATTR, hasOverlay } from './dialog-focus.js'
+import { renderBranchDrawer } from './overview-drawer.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
@@ -201,29 +202,17 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // STACKED_TIGHT_BP; the phone flag ⇔ device screen ≤ PHONE_SCREEN_BP).
   const [drawerOpen, setDrawerOpen] = useState(false)
   const drawerId = useId()
+  const drawerRootRef = useRef<HTMLDivElement | null>(null)
   const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
   const drawerToggleRef = useRef<HTMLButtonElement | null>(null)
-  const drawerEverOpened = useRef(false)
-  // Focus enters the drawer when it opens and returns to the toolbar toggle
-  // when it closes, so a keyboard round trip never lands inside the retracted
-  // column (inert) or on the body.
-  useEffect(() => {
-    if (drawerOpen) {
-      drawerEverOpened.current = true
-      drawerCloseRef.current?.focus()
-    } else if (drawerEverOpened.current) {
-      drawerEverOpened.current = false
-      drawerToggleRef.current?.focus()
-    }
-  }, [drawerOpen])
-  // Escape dismisses the drawer — unless a dialog above it owns the keystroke:
-  // the modal's own document listener closes it in the same dispatch, so
-  // without the backdrop guard one Escape would dismiss both layers.
+  // Focus enters the drawer and returns to the toolbar toggle through the shared
+  // dialog hook (overview-drawer.tsx). Escape yields to a dialog open above it:
+  // that layer's own listener closes it in the same dispatch, so claiming the
+  // keystroke here would dismiss both at once.
   useEffect(() => {
     if (!drawerOpen || !visible) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      if (document.querySelector('.gp-modal-backdrop, .gp-diff-backdrop, .gp-zl-backdrop, .gp-files__fs-backdrop') !== null) return
+      if (e.key !== 'Escape' || hasOverlay()) return
       setDrawerOpen(false)
     }
     document.addEventListener('keydown', onKey)
@@ -810,7 +799,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       ? [
         // Backdrop first (click the blank band to dismiss), then the drawer
         // above it, then the history it covers — z-index lives in stacked.ts.
-        ...renderBranchDrawer(drawerOpen, drawerId, 'gp-col gp-col--left gp-drawer', drawerCloseRef, () => setDrawerOpen(false), leftChildren, t),
+        ...renderBranchDrawer({
+          open: drawerOpen, id: drawerId, className: 'gp-col gp-col--left gp-drawer',
+          rootRef: drawerRootRef, closeRef: drawerCloseRef, toggleRef: drawerToggleRef,
+          onClose: () => setDrawerOpen(false), children: leftChildren, t,
+        }),
         historyCol,
       ]
       : [h('div', { key: 'left', className: 'gp-col gp-col--left' }, leftChildren), historyCol]
@@ -839,16 +832,22 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     // sheet used to; picking a ref or a switch target closes it, returning to
     // the filtered history immediately.
     const drawerChildren: JSX.Element[] = branchDrawer
-      ? renderBranchDrawer(drawerOpen, drawerId, 'gp-col gp-drawer', drawerCloseRef, () => setDrawerOpen(false), [
-        h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
-          onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
-          switchOptions,
-          onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
-          onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
-          onRetry: reloadTree,
-          t,
-        }, branchTrees)),
-      ], t)
+      ? renderBranchDrawer({
+        open: drawerOpen, id: drawerId, className: 'gp-col gp-drawer',
+        rootRef: drawerRootRef, closeRef: drawerCloseRef, toggleRef: drawerToggleRef,
+        onClose: () => setDrawerOpen(false),
+        children: [
+          h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+            onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
+            switchOptions,
+            onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
+            onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+            onRetry: reloadTree,
+            t,
+          }, branchTrees)),
+        ],
+        t,
+      })
       : []
     return h('div', { className: 'gp-overview gp-overview--compact' }, [
       fileDiffModal,
@@ -1072,37 +1071,6 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
   return createPortal(sheet, document.body, 'branch-filter-sheet')
 }
 
-/** The branch-list drawer shared by the tight stacked sidebar and a phone's
- * compact overview: a backdrop (a tap on the blank area dismisses) plus the
- * sliding column — title bar with close over the caller's children. z-index
- * and the slide live in css/stacked.ts; `className` lets the stacked host keep
- * its band-column sizing (`gp-col--left`) while compact mounts a plain column.
- * Returns a keyed array so the caller spreads it among its children. */
-function renderBranchDrawer(
-  open: boolean,
-  id: string,
-  className: string,
-  closeRef: { readonly current: HTMLButtonElement | null },
-  onClose: () => void,
-  children: readonly JSX.Element[],
-  t: (key: GitKey, params?: Record<string, string | number>) => string,
-): JSX.Element[] {
-  return [
-    ...(open ? [h('div', { key: 'backdrop', className: 'gp-drawer-backdrop', onClick: onClose })] : []),
-    h('div', {
-      key: 'drawer', id, className,
-      'data-open': open ? 'true' : 'false',
-      ...inertAttr(!open),
-    }, [
-      h('div', { key: 'bar', className: 'gp-drawer__bar' }, [
-        h('span', { key: 'title', className: 'gp-drawer__title' }, t('overview.filterBranch')),
-        h('button', { key: 'close', type: 'button', ref: closeRef, className: 'gp-icon-btn gp-drawer__close', title: t('common.close'), onClick: onClose }, h(CloseIcon, { size: 14 })),
-      ]),
-      ...children,
-    ]),
-  ]
-}
-
 interface RowCbs {
   selected: boolean
   current: boolean
@@ -1302,6 +1270,9 @@ function renderFileDiffModal(
     : [...barHead, segEl, closeEl]
   const modal = h('div', {
     className: 'gp-modal-backdrop',
+    // Declares this dialog as an overlay above the page, so the branch drawer's
+    // Escape handler yields the keystroke instead of closing both layers.
+    [OVERLAY_ATTR]: '',
     onClick: (e: { target: unknown; currentTarget: unknown }) => { if (e.target === e.currentTarget) onClose() },
   }, h('div', { className: 'gp-modal', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-modal__bar' }, barChildren),
