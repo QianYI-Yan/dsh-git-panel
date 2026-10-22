@@ -16,9 +16,12 @@ import { wrapCapOk } from './wrap-cap.js'
 
 // Source-view performance guards. Syntax highlighting is synchronous and DOM
 // cost scales with line count, so above these limits the code preview degrades
-// gracefully: no highlighting for a big file, truncation for a huge line.
+// gracefully: no highlighting for a big file, no syntax spans on a giant line.
+// Content itself is never truncated — a long line scrolls horizontally in full.
 const MAX_HIGHLIGHT_BYTES = 256 * 1024
 const MAX_HIGHLIGHT_LINES = 5000
+/** Above this a line still renders whole, but its syntax spans are dropped:
+ * thousands of styled nodes in one cell is the layout cost worth avoiding. */
 const MAX_LINE_CHARS = 5000
 
 // Row virtualization: the source view renders only the rows in (or near) the
@@ -208,7 +211,7 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
   for (let i = windowFirst; i < windowLast; i++) {
     windowRows.push(h('div', { key: i, className: 'gp-files__row', style: wrapActive ? undefined : { top: i * ROW_HEIGHT } }, [
       h('div', { key: 'n', className: 'gp-diff-no' }, i + 1),
-      renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef, t),
+      renderCodeLine(lines[i], i, highlighted?.[i], perLine.get(i), active, activeRef),
     ]))
   }
 
@@ -223,10 +226,11 @@ function CodePreview({ content, path, wrap, t }: { content: string; path: string
 }
 
 /**
- * One code cell. Guard 2: an over-long line (e.g. minified/inlined content) is
- * truncated to a bounded width with a marker, and its syntax spans are dropped
- * — a single 40k-char cell would otherwise blow up layout and text-node cost.
- * Find matches on the line are wrapped in <mark>, preserving syntax spans.
+ * One code cell. A giant line (e.g. minified/inlined content) renders in full
+ * — the panel never truncates what the user came to read — but its syntax
+ * spans are dropped above MAX_LINE_CHARS: thousands of styled nodes in one
+ * cell is the layout cost worth avoiding. Find matches stay marked (their
+ * count is capped by the finder), so a hit on a long line keeps its context.
  */
 function renderCodeLine(
   line: string,
@@ -235,21 +239,14 @@ function renderCodeLine(
   ranges: ReadonlyArray<readonly [number, number]> | undefined,
   active: Match | null,
   activeRef: { current: HTMLElement | null },
-  t: (key: GitKey, params?: Record<string, string | number>) => string,
 ): JSX.Element {
   if (line === '') return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, '\u00a0')
-  if (line.length > MAX_LINE_CHARS) {
-    // A truncated giant line drops both syntax and match highlighting.
-    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, [
-      line.slice(0, MAX_LINE_CHARS),
-      h('span', { key: 'trunc', className: 'gp-files__trunc' }, t('files.lineTruncated')),
-    ])
-  }
+  const cellSpans = line.length > MAX_LINE_CHARS ? undefined : spans
   if (ranges === undefined || ranges.length === 0) {
-    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, spans !== undefined
-      ? spans.map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
+    return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, cellSpans !== undefined
+      ? cellSpans.map((span: HighlightSpan, j: number) => h('span', { key: j, style: span.style }, span.text))
       : line)
   }
   const activeRange = active !== null && active.line === i ? [active.start, active.end] as const : null
-  return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, markContent(line, ranges, spans, `c${i}`, activeRange, activeRef))
+  return h('div', { key: `c${i}`, className: 'gp-diff-cell' }, markContent(line, ranges, cellSpans, `c${i}`, activeRange, activeRef))
 }

@@ -1562,12 +1562,16 @@ const out = await page.evaluate(async (snap) => {
   // …because the read was attempted and failed, not skipped up front.
   result.htmlAssetMissingRead = fixture.contentQueries.slice(contentQueriesBeforeHtml).includes('missing.css')
   // Large-file source guards: highlighting is skipped (a notice shows, no
-  // syntax spans) and the over-long line is truncated with a marker.
+  // syntax spans) while the content itself is never cut: the giant line keeps
+  // its full length and no truncation marker exists anywhere.
   const bigRow = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('big.js'))
   if (bigRow) { bigRow.click(); await new Promise((r) => setTimeout(r, 300)) }
   result.bigHighlightOff = document.querySelector('.gp-files__note')?.textContent === 'files.highlightOff'
   result.bigNoSyntaxSpans = document.querySelector('.gp-files__code .gp-diff-cell span[style]') === null
-  result.bigLineTruncated = [...document.querySelectorAll('.gp-files__trunc')].some((n) => n.textContent === 'files.lineTruncated')
+  result.bigLineFull = (() => {
+    const cell = document.querySelector('.gp-files__code .gp-diff-cell')
+    return cell !== null && (cell.textContent ?? '').length >= 6000 && document.querySelector('.gp-files__trunc') === null
+  })()
   // Over the wrap cap the toggle stays visible but disabled with a reason,
   // instead of vanishing and silently discarding the preference.
   const bigWrapBtn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')

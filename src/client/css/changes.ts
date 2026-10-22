@@ -124,7 +124,6 @@ export const CSS = `
 .gp-find__case--active:hover{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-find-hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 40%,transparent);color:inherit;border-radius:2px}
 .gp-find-hit--active{background:var(--dsw-alias-state-warn-primary);color:var(--dsw-static-neutral-1000,#000)}
-.gp-files__trunc{color:var(--dsw-alias-label-tertiary);font-style:italic}
 .gp-files__single{display:grid;grid-template-columns:44px 1fr}
 /* Virtualized source view: the outer box is a fixed-height spacer that owns the
  * scrollbar; each mounted row is absolutely positioned at its line offset and

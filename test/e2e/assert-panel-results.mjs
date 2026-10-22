@@ -351,7 +351,7 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.htmlAssetMissingRead, true, 'the missing asset was actually read and refused, not skipped')
   assert.equal(out.bigHighlightOff, true, 'a large text file skips highlighting and shows the notice')
   assert.equal(out.bigNoSyntaxSpans, true, 'a large text file renders plain text (no syntax spans)')
-  assert.equal(out.bigLineTruncated, true, 'an over-long line is truncated with a marker')
+  assert.equal(out.bigLineFull, true, 'an over-long line renders in full (no truncation marker anywhere)')
   assert.equal(out.bigWrapDisabled, true, 'a file over the wrap cap keeps the toggle visible but disabled')
   assert.ok(out.bigMountedRows > 0 && out.bigMountedRows < out.bigTotalLines, `virtualized: mounts a window (${out.bigMountedRows}), not all ${out.bigTotalLines} rows`)
   assert.equal(out.bigSpacerHeight, out.bigTotalLines * 20, 'the virtual spacer height reflects the full line count')
