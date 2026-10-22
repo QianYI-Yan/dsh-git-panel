@@ -10,7 +10,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
@@ -754,6 +754,33 @@ test('file-content leaves a non-text SVG image-only', async () => {
   assert.ok(res.value.dataUrl.startsWith('data:image/svg+xml;base64,'))
   assert.equal(res.value.content, undefined, 'bytes with a NUL never become source text')
   assert.equal(res.value.lines, undefined)
+})
+
+test('file-content serves an SVG above the image cap as its source', async () => {
+  // An SVG is markup, so past the image cap it degrades to the text shape
+  // (readable, copyable, source-only) instead of `tooLarge`, which would hide
+  // the file outright. A 4-byte cap puts the fixture over it, and the read still
+  // floors at the copy envelope rather than stopping at the image cap.
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
+  const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'logo.svg' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.variant, 'text')
+  assert.equal(res.value.tooLarge, undefined)
+  assert.equal(res.value.dataUrl, undefined, 'no picture face past the image cap')
+  assert.ok(res.value.content.startsWith('<svg xmlns="http://www.w3.org/2000/svg">'))
+  assert.equal(res.value.lines, 3)
+  assert.equal(res.value.size, Buffer.byteLength(res.value.content))
+  assert.equal(res.value.absolutePath, join(realpathSync(repoImg), 'logo.svg'))
+})
+
+test('file-content keeps a non-text SVG too large past the image cap', async () => {
+  // NUL-bearing bytes have no trustworthy source face, so this one stays
+  // unreadable rather than being served as text.
+  const tinyCap = { ...DEFAULT_CONFIG, maxBytes: 4 }
+  const res = await runQuery(depsAt(repoImg), tinyCap, { sessionId: SID, query: { kind: 'file-content', path: 'blob.svg' } })
+  assert.equal(res.ok, true)
+  assert.equal(res.value.tooLarge, true)
+  assert.equal(res.value.variant, 'image')
 })
 
 

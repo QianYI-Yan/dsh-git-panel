@@ -599,13 +599,18 @@ export type GitQueryResult =
   //           carries `content`/`lines`, because an SVG is a picture and markup
   //           and the preview offers both faces from this one read
   //   binary→ neither (no preview); tooLarge → over the byte cap.
+  // An image past the byte cap is `tooLarge`, except an SVG: its markup is still
+  // readable, so it arrives as the text shape instead of failing the preview.
   | {
     readonly kind: 'file-content'
     readonly path: string
     readonly variant: 'text' | 'image' | 'binary'
-    /** text variant, and the image variant of an SVG: the full UTF-8 content. */
+    /** text variant (including an SVG above the image cap, served as source
+     * rather than as a picture), and the image variant of a smaller SVG: the
+     * full UTF-8 content. */
     readonly content?: string
-    /** text variant, and the image variant of an SVG: total line count. */
+    /** text variant (same SVG case) and the image variant of an SVG: total line
+     * count. */
     readonly lines?: number
     /** text variant: absolute path of this file — the rendered-Markdown
      * image resolver needs the document's own location to resolve relative
@@ -627,7 +632,8 @@ export type GitQueryResult =
  * document is copyable strictly below this size. Shared by both halves —
  * the host floors its text read here (so every copyable document can
  * actually load) and the client hides the copy button at/above it, keeping
- * one boundary for load and copy.
+ * one boundary for load and copy. An SVG is a copyable document too: the host
+ * floors its read here and serves it as source once it passes the image cap.
  */
 export const FILE_COPY_MAX_BYTES = 10 * 1024 * 1024
 
@@ -698,13 +704,13 @@ export type GitSuggestResult =
     } }
   | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }
 
+/** MIME of an SVG: the one served image whose bytes are also text. */
+export const SVG_MIME = 'image/svg+xml'
+
 /**
  * Extensions the image-diff query serves, mapped to MIME types. Part of the
  * query's contract, so both halves gate on this one list and cannot drift.
  */
-/** MIME of an SVG: the one served image whose bytes are also text. */
-export const SVG_MIME = 'image/svg+xml'
-
 export const IMAGE_MIME: Readonly<Record<string, string>> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', svg: SVG_MIME,
