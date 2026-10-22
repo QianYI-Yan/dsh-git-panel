@@ -637,6 +637,16 @@ export type GitQueryResult =
  */
 export const FILE_COPY_MAX_BYTES = 10 * 1024 * 1024
 
+/**
+ * Range of the profile's `maxBytes` — the per-command stdout cap, which also
+ * caps each image-diff side and each image preview. Below the floor nearly every
+ * command's output turns lossy (the runner marks it, so the views degrade to
+ * empty), and above the ceiling one command could collect that much into the
+ * host. Out-of-range values clamp into the range: a typo must not be able to
+ * disable the panel or exhaust memory.
+ */
+export const MAX_BYTES_LIMITS = { min: 64 * 1024, max: 64 * 1024 * 1024, default: 4 * 1024 * 1024 } as const
+
 export type GitQueryResponse =
   | { readonly ok: true; readonly value: GitQueryResult }
   | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }

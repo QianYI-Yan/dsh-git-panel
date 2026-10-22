@@ -8,12 +8,13 @@ import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
-import { SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
+import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
 import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
-  /** Per-command stdout cap; also the per-side image-diff payload cap. */
+  /** Per-command stdout cap; also the per-side image-diff and image-preview
+   * payload cap. Range 64 KiB – 64 MiB. */
   readonly maxBytes: number
   readonly maxChanges: number
   readonly refreshIntervalMs: number
@@ -47,7 +48,7 @@ export interface GitPanelConfig {
 
 export const DEFAULT_CONFIG: GitPanelConfig = {
   timeoutMs: 8000,
-  maxBytes: 4 * 1024 * 1024,
+  maxBytes: MAX_BYTES_LIMITS.default,
   maxChanges: 1000,
   refreshIntervalMs: 30000,
   showInputPill: true,
@@ -96,7 +97,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     : {}
   return {
     timeoutMs: num(c.timeoutMs, DEFAULT_CONFIG.timeoutMs),
-    maxBytes: num(c.maxBytes, DEFAULT_CONFIG.maxBytes),
+    maxBytes: clampLimit(c.maxBytes, MAX_BYTES_LIMITS),
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),

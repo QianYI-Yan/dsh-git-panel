@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
-import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES } from '../../lib/host/types.js'
+import { DIFF_CONTEXT_DEFAULT, DIFF_CONTEXT_MAX, DIFF_EXPAND_CONTEXT, DIFF_COUNT_READ_MAX, FILE_COPY_MAX_BYTES, MAX_BYTES_LIMITS } from '../../lib/host/types.js'
 
 let repo
 let repoImg
@@ -157,6 +157,21 @@ test('placement config normalizes and unwraps volatile refs', () => {
   assert.equal(normalizeConfig({ placement: 'nowhere' }).placement, 'all')
   assert.equal(normalizeConfig({ placement: 42 }).placement, 'all')
   assert.equal(normalizeConfig({ placement: { get: () => 'sidebar' } }).placement, 'sidebar')
+})
+
+test('maxBytes config clamps into the range shared with the shipped row', () => {
+  // The cap doubles as the per-command stdout cap and the image payload cap, so
+  // both ends are bounded: a huge value collects that much into the host per
+  // command, a tiny one turns every command's output lossy (the panel looks
+  // empty). In-range values are kept exactly, and a volatile ref is unwrapped.
+  assert.equal(DEFAULT_CONFIG.maxBytes, MAX_BYTES_LIMITS.default)
+  assert.equal(normalizeConfig({}).maxBytes, MAX_BYTES_LIMITS.default)
+  assert.equal(normalizeConfig({ maxBytes: 8 * 1024 * 1024 }).maxBytes, 8 * 1024 * 1024)
+  assert.equal(normalizeConfig({ maxBytes: Number.MAX_SAFE_INTEGER }).maxBytes, MAX_BYTES_LIMITS.max)
+  assert.equal(normalizeConfig({ maxBytes: 1 }).maxBytes, MAX_BYTES_LIMITS.min)
+  assert.equal(normalizeConfig({ maxBytes: -5 }).maxBytes, MAX_BYTES_LIMITS.min)
+  assert.equal(normalizeConfig({ maxBytes: 'big' }).maxBytes, MAX_BYTES_LIMITS.default)
+  assert.equal(normalizeConfig({ maxBytes: { get: () => 2 * 1024 * 1024 } }).maxBytes, 2 * 1024 * 1024)
 })
 
 test('defaultDiffView config normalizes, unwraps volatile refs, and flows into the snapshot', async () => {
