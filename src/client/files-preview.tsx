@@ -59,15 +59,6 @@ export function renderPreview(file: FileState, wrap: boolean, t: (key: GitKey, p
   }
 }
 
-/**
- * Source face of a file that also has a rendered face — an SVG's markup. Same
- * code body as a text preview (virtualized, highlighted, with Find), so the two
- * faces of one document behave alike.
- */
-export function renderSource(content: string, path: string, wrap: boolean, t: (key: GitKey, params?: Record<string, string | number>) => string): JSX.Element {
-  return h(CodePreview, { content, path, wrap, t })
-}
-
 /** A single match location within the code body. */
 interface Match { readonly line: number; readonly start: number; readonly end: number }
 /**
@@ -93,8 +84,11 @@ function findMatches(hays: readonly string[], needle: string): Match[] {
  * with next/prev navigation, a live count, and Esc to close. The find shortcut
  * is intercepted only while this preview is actually visible (offsetParent), so
  * it never steals Ctrl+F from the rest of the app.
+ *
+ * This is the body behind both faces: a text file's preview, and the source face
+ * of an SVG (markup that also renders as a picture), so the two behave alike.
  */
-function CodePreview({ content, path, wrap, t }: { content: string; path: string; wrap: boolean; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
+export function CodePreview({ content, path, wrap, t }: { content: string; path: string; wrap: boolean; t: (key: GitKey, params?: Record<string, string | number>) => string }): JSX.Element {
   const lines = useMemo(() => {
     const arr = content.split('\n')
     if (arr.length > 0 && arr[arr.length - 1] === '') arr.pop()

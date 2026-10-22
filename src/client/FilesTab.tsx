@@ -28,7 +28,7 @@ import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
 import { MermaidFigure } from './MermaidFigure.js'
-import { renderPreview, renderSource, type FileState } from './files-preview.js'
+import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
 
@@ -374,7 +374,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // markup came with the picture, may reach the clipboard — never a binary or
   // oversized body, and never a content-less image.
   const copyContent = (): void => {
-    const body = file.kind === 'text' ? file.content : file.kind === 'image' ? file.content : undefined
+    // Both copyable shapes carry their body in `content` (a text file's own, or
+    // the markup that rides beside an SVG picture).
+    const body = file.kind === 'text' || file.kind === 'image' ? file.content : undefined
     if (body === undefined || !canCopyContent(file)) return
     contentCopy.copy(body)
   }
@@ -688,7 +690,7 @@ function renderContent(
 ): JSX.Element {
   // An SVG has both faces in hand: the picture, or its markup as source.
   if (file.kind === 'image' && file.content !== undefined) {
-    return renderMarkdown ? renderPreview(file, wrap, t) : renderSource(file.content, file.path, wrap, t)
+    return renderMarkdown ? renderPreview(file, wrap, t) : h(CodePreview, { content: file.content, path: file.path, wrap, t })
   }
   if (file.kind === 'text' && renderMarkdown && isMarkdownPath(file.path) && markdownSegments !== undefined) {
     const markdownProps = { labels: markdownLabels, variant: 'body' as const, ...(pathImages !== undefined ? { pathImages } : {}) }

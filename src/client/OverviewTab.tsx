@@ -650,9 +650,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     onChange: (e: { target: { value: string } }) => setSearchInput(e.target.value),
   })
   const secondaryFilters: JSX.Element[] = [authorMenu, sinceMenu, fetchButton]
-  // Tight stacked: the left column no longer occupies the band, so its entry is
-  // the toolbar's leftmost button — the drawer slides out over the history it
-  // used to sit beside.
+  // Tight stacked: the left column does not occupy the band, so its only entry
+  // is the toolbar's leftmost button — the drawer slides out over the history.
   const drawerToggle = tight
     ? h('button', {
       key: 'branches', type: 'button', ref: drawerToggleRef,
@@ -827,10 +826,9 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // short hash it used to carry is already in the commit-row meta and in the
   // message meta below, so repeating it here only cost the second row.
   if (compact) {
-    // The phone's drawer overlays the whole tab (the compact root is its
-    // containing block), covering the status-bar footer the way the portaled
-    // sheet used to; picking a ref or a switch target closes it, returning to
-    // the filtered history immediately.
+    // The phone's drawer overlays the whole tab: the compact root is its
+    // containing block, so it covers the status-bar footer too. Picking a ref or
+    // a switch target closes it and returns to the filtered history at once.
     const drawerChildren: JSX.Element[] = branchDrawer
       ? renderBranchDrawer({
         open: drawerOpen, id: drawerId, className: 'gp-col gp-drawer',
@@ -1063,7 +1061,7 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
   }, h('div', { className: 'gp-sheet', role: 'dialog', 'aria-modal': true }, [
     h('div', { key: 'bar', className: 'gp-sheet__bar' }, [
       h('span', { key: 'title', className: 'gp-sheet__title' }, cb.t('overview.filterBranch')),
-      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
+      h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), 'aria-label': cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
     ]),
     h('div', { key: 'body', className: 'gp-sheet__body' },
       renderBranchList(tree, treeError, activeRef, closed, cb, trees)),
