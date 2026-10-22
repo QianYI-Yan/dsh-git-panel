@@ -2,25 +2,23 @@
   <title id="title">Git 工具</title>
   <defs>
     <!-- 青绿 → 蓝 的柔和渐变，userSpaceOnUse 让线条和节点颜色连续 -->
-    <linearGradient id="glyph" x1="39" y1="33" x2="89" y2="95" gradientUnits="userSpaceOnUse">
+    <linearGradient id="glyph" x1="38" y1="30" x2="92" y2="102" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#36C9B4"/>
       <stop offset="1" stop-color="#4F7BFF"/>
     </linearGradient>
   </defs>
 
-  <!-- 白色圆角底板 + 极浅描边 -->
-  <rect x="1" y="1" width="126" height="126" rx="36" fill="#FFFFFF" stroke="#ECEEF3" stroke-width="2"/>
-
-  <!-- 分支线：主干 + 右侧分支合并回主干 -->
-  <g fill="none" stroke="url(#glyph)" stroke-width="7.5" stroke-linecap="round">
-    <path d="M50 44 V84"/>
-    <path d="M78 55 C78 70 50 66 50 77"/>
+  <!-- 分支线：主干 + 右侧分支汇入主干；端点收在节点环带上（半径 7、描边
+       8 → 环带 37..45，圆头各外溢 4，既不留缝也不进环孔） -->
+  <g fill="none" stroke="url(#glyph)" stroke-width="8" stroke-linecap="round">
+    <path d="M44 46V82"/>
+    <path d="M84 56c0 13-40 7-40 20"/>
   </g>
 
-  <!-- 提交节点：渐变描边圆环，白色填充盖住线头 -->
-  <g fill="#FFFFFF" stroke="url(#glyph)" stroke-width="7.5">
-    <circle cx="50" cy="44" r="7"/>
-    <circle cx="78" cy="48" r="7"/>
-    <circle cx="50" cy="84" r="7"/>
+  <!-- 提交节点：渐变空心圆环（环内透底，深浅色底都成立） -->
+  <g fill="none" stroke="url(#glyph)" stroke-width="8">
+    <circle cx="44" cy="34" r="7"/>
+    <circle cx="84" cy="46" r="7"/>
+    <circle cx="44" cy="94" r="7"/>
   </g>
 </svg>
