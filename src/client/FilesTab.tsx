@@ -18,6 +18,7 @@ import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
 import { useDialogFocus } from './dialog-focus.js'
 import { canCopyContent } from './copy-content.js'
 import { useCopyFeedback } from './copy-feedback.js'
+import { useHoverTip } from './tip.js'
 import { pathCopyButton } from './path-copy-button.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
@@ -120,6 +121,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // write for a file the user has left cannot repaint the next one.
   const pathCopy = useCopyFeedback(selected)
   const contentCopy = useCopyFeedback(selected)
+  // The copy-content icon is label-free, so its hint rides the portaled tip
+  // (fast + themed, like the toolbar controls) instead of a native title —
+  // the two stacked when both were present.
+  const { tipProps, tipNode, hideTip } = useHoverTip({ placement: 'below' })
   const [showProps, setShowProps] = useState(false)
   // The fullscreen reader restyles this tab's own preview in place instead of
   // rendering a second copy: a rendered HTML page keeps its document (a new
@@ -505,15 +510,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     nameClass: 'gp-files__path-name',
     disabled: selected === null,
   })
-  // Icon-only: the label rides title/aria, the confirmation is the check glyph
-  // plus a live region (a text label cost the path its room).
+  // Icon-only: the label rides aria-label + the hover tip, the confirmation is
+  // the check glyph plus a live region (a text label cost the path its room).
   const copyContentButton = canCopyContent(file)
     ? h('button', {
       key: 'copy-content', type: 'button',
       className: `gp-files__copy-path gp-files__copy-icon${contentCopy.feedback === 'copied' ? ' gp-files__copy-path--copied' : contentCopy.feedback === 'error' ? ' gp-files__copy-path--error' : ''}`,
-      title: t(contentCopy.feedback === 'copied' ? 'files.contentCopied' : contentCopy.feedback === 'error' ? 'files.contentCopyFailed' : 'files.copyContent'),
       'aria-label': t('files.copyContent'),
-      onClick: copyContent,
+      ...tipProps(t('files.copyContent')),
+      onClick: () => { hideTip(); copyContent() },
     }, [
       contentCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 14 }) : h(CopyIcon, { key: 'i', size: 14 }),
       h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
@@ -612,6 +617,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
     heavyNotice,
+    // Hover tip for the copy-content icon; portaled, so it lives with the bar
+    // that can raise it (the compact bar carries no copy button).
+    tipNode,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
       ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })

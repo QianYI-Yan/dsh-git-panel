@@ -1951,6 +1951,37 @@ const realInput = await (async () => {
   return { before, after: await read() }
 })()
 
+// Real pointer hover on the content-copy icon: its label rides the plugin's
+// portaled tip (140ms), with no native title underneath doubling the hint.
+const copyTip = await (async () => {
+  const picked = await page.evaluate(async () => {
+    const row = [...document.querySelectorAll('.gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
+    if (row === undefined) return false
+    row.click()
+    await new Promise((r) => setTimeout(r, 400))
+    return document.querySelector('.gp-files__copy-icon') !== null
+  })
+  if (!picked) return null
+  await page.locator('.gp-files__copy-icon').hover()
+  await page.waitForTimeout(260)
+  const tip = await page.evaluate(() => {
+    const el = document.querySelector('div.gp-tip.gp-tip--sb')
+    const btn = document.querySelector('.gp-files__copy-icon')
+    if (el === null || btn === null) return null
+    return {
+      text: el.textContent,
+      onBody: el.parentElement === document.body,
+      nativeTitle: btn.getAttribute('title'),
+    }
+  })
+  // A press/move away dismisses the bubble (no stick after a tap).
+  await page.mouse.move(4, 4)
+  await page.waitForTimeout(160)
+  const dismissed = await page.evaluate(() => document.querySelector('div.gp-tip.gp-tip--sb') === null)
+  return tip === null ? null : { ...tip, dismissed }
+})()
+out.copyTip = copyTip
+
 await browser.close()
 
 try {
