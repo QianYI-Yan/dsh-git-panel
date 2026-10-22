@@ -255,10 +255,16 @@ export function assertPanelResults(out, realInput, errors) {
   // elide (the button clips) and take the hover underline.
   // Line-number gutter: three digits by default, four once a file needs them —
   // the column follows --gp-gutter-w, so it is no longer wider than the numbers.
+  const GUTTER_PAD = 10
   assert.equal(out.smallGutter?.varValue, 'calc(3ch + 10px)', 'a short file takes the three-digit gutter')
-  assert.ok((out.smallGutter?.cellW ?? 99) < 38, `the three-digit gutter is narrower than the old fixed 44px (${out.smallGutter?.cellW}px)`)
+  // Bounds, not a magic pixel width: the column must fit three digits plus the
+  // cell padding and not reserve much beyond them. The digit width is measured in
+  // the gutter's own font, so a platform with a wider fallback font still passes.
+  assert.ok((out.smallGutter?.cellW ?? 0) >= (out.smallGutter?.digitW ?? 0) + GUTTER_PAD, `the three-digit gutter fits its digits (${out.smallGutter?.cellW} vs ${out.smallGutter?.digitW})`)
+  assert.ok((out.smallGutter?.cellW ?? 99) <= (out.smallGutter?.digitW ?? 0) + GUTTER_PAD + 4, `and reserves no fourth digit (${out.smallGutter?.cellW} vs ${out.smallGutter?.digitW})`)
   assert.equal(out.bigGutter?.varValue, 'calc(4ch + 10px)', 'a 5101-line file widens the gutter to four digits')
   assert.equal(out.bigGutter?.cellW, out.bigGutter?.colW, 'the gutter cell fills its column exactly')
+  assert.ok((out.bigGutter?.cellW ?? 0) >= (out.bigGutter?.digitW ?? 0) + GUTTER_PAD, `the four-digit gutter fits its digits too (${out.bigGutter?.cellW} vs ${out.bigGutter?.digitW})`)
   assert.ok((out.bigGutter?.cellW ?? 0) > (out.smallGutter?.cellW ?? 0), 'and the wide gutter is wider than the short one')
   assert.equal(out.rootPathShape?.text, 'README.md', `a root-level file shows its name (got ${JSON.stringify(out.rootPathShape)})`)
   assert.equal(out.rootPathShape?.hasDir, false, 'a root-level file has no directory half')

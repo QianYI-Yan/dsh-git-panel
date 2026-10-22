@@ -1009,10 +1009,20 @@ const out = await page.evaluate(async (snap) => {
   // The same gutter contract on a short file: three digits, not four.
   result.smallGutter = (() => {
     const scroll = document.querySelector('.gp-files__code')
-    if (scroll === null) return null
+    const cell = document.querySelector('.gp-files__code .gp-diff-no')
+    if (scroll === null || cell === null) return null
+    // Digit width measured in the gutter's own font, so the assertions hold on
+    // any platform fallback font instead of pinning this machine's metrics.
+    const span = document.createElement('span')
+    span.style.cssText = 'position:absolute;visibility:hidden;white-space:pre'
+    span.textContent = '000'
+    cell.appendChild(span)
+    const digits = Math.round(span.getBoundingClientRect().width * 10) / 10
+    span.remove()
     return {
       varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
-      cellW: Math.round((document.querySelector('.gp-files__code .gp-diff-no')?.getBoundingClientRect().width ?? -1) * 10) / 10,
+      cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+      digitW: digits,
     }
   })()
   await new Promise((r) => setTimeout(r, 1750))
@@ -1639,9 +1649,16 @@ const out = await page.evaluate(async (snap) => {
     const cell = document.querySelector('.gp-files__code .gp-diff-no')
     const row = document.querySelector('.gp-files__row')
     if (scroll === null || cell === null || row === null) return null
+    const span = document.createElement('span')
+    span.style.cssText = 'position:absolute;visibility:hidden;white-space:pre'
+    span.textContent = '0000'
+    cell.appendChild(span)
+    const digits = Math.round(span.getBoundingClientRect().width * 10) / 10
+    span.remove()
     return {
       varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
       cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+      digitW: digits,
       colW: Math.round(parseFloat(getComputedStyle(row).gridTemplateColumns.split(' ')[0]) * 10) / 10,
       lastNo: (() => {
         const nos = [...document.querySelectorAll('.gp-files__code .gp-diff-no')]

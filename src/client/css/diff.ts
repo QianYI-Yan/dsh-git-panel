@@ -51,8 +51,11 @@ export const CSS = `
 .gp-diff__expand:disabled{opacity:.45;cursor:not-allowed}
 /* Icon controls in the diff toolbar and the commit-diff modal bar wear the same
  * bordered box as the files preview's glyph buttons, at the mode seg's height
- * (25px: its 1px border + 5px padding + 13px line), so each row reads as one
- * control strip. Pressed (card up / expanded) takes the business tint. */
+ * (25px: its 1px border + 5px padding + the 13px line box the seg pins), so each
+ * row reads as one control strip. Pressed (card up / expanded) takes the
+ * business tint. The seg's line box is explicit in its own rule — left to the
+ * font's default it drifts with whatever mono/sans fallback the platform picks,
+ * and the two controls stop matching. */
 .gp-diff__toolbar .gp-icon-btn,.gp-modal__bar .gp-icon-btn{width:28px;height:25px;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;background:var(--dsw-alias-bg-layer-1)}
 .gp-diff__toolbar .gp-icon-btn:hover:not(:disabled),.gp-modal__bar .gp-icon-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-diff__toolbar .gp-icon-btn:disabled,.gp-modal__bar .gp-icon-btn:disabled{opacity:.5;cursor:default}
@@ -67,7 +70,7 @@ export const CSS = `
 .gp-diff--card .gp-diff__toolbar{padding:11px 12px 11px 14px;background:var(--dsw-alias-bg-layer-2)}
 .gp-diff-backdrop{position:fixed;inset:0;z-index:999;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 62%,transparent);animation:gp-fade-in .12s ease}
 .gp-seg{display:inline-flex;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
-.gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;white-space:nowrap;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
+.gp-seg__btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:13px;white-space:nowrap;padding:5px 10px;cursor:pointer;transition:background .12s ease,color .12s ease}
 .gp-seg__btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-seg__btn--active{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-seg__btn--active:hover{background:var(--dsw-alias-state-business-primary)}

@@ -293,7 +293,14 @@ out.open = await page.evaluate(() => {
           bg: cs.backgroundColor, h: Math.round(el.getBoundingClientRect().height),
         }
       }
-      return { expand: read(expand), modal: read(modalBtn), segH: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height) }
+      return {
+        expand: read(expand), modal: read(modalBtn),
+        segH: seg === null ? -1 : Math.round(seg.getBoundingClientRect().height),
+        // The seg's line box must be explicit: with the font default a platform
+        // whose fallback font has taller metrics throws the derived height off
+        // and the icon buttons stop matching (that is how CI caught it first).
+        segLineHeight: seg === null ? null : getComputedStyle(seg.querySelector('.gp-seg__btn') ?? seg).lineHeight,
+      }
     })(),
   }
 }
@@ -305,6 +312,12 @@ assert.equal(out.open.closeBtn, true, 'a close button appears in the card bar')
 assert.equal(out.open.pressed, 'true', 'the trigger reports its pressed state')
 assert.equal(out.open.expandIsIcon, true, 'expand-all renders as an icon')
 assert.equal(out.open.iconStylesMatch, true, 'the two toolbar icons share one style')
+// The shared height is a derived constant, so pin it: 1px borders top+bottom plus
+// 5px padding each side plus the seg's 13px line box. Asserting this separately
+// keeps the failure legible — otherwise a drifted font metric only shows up as
+// the two controls disagreeing, which reads like a border bug.
+assert.equal(out.open.boxes.segH, 25, 'the mode seg is 25px tall (1+1 border, 5+5 padding, 13px line box)')
+assert.equal(out.open.boxes.segLineHeight, '13px', 'the seg pins its line box instead of inheriting the font default')
 for (const name of ['expand', 'modal']) {
   const box = out.open.boxes[name]
   assert.equal(box.borderW, '1px', `the ${name} control is a bordered button, not a bare glyph`)
