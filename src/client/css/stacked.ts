@@ -73,7 +73,7 @@ export const CSS = `
  * from the search's full-width basis below, or the input would wrap and strand
  * the button on a row of its own. */
 .gp-drawer-backdrop{position:absolute;inset:0;z-index:4;background:color-mix(in srgb,var(--dsw-alias-bg-base,#000) 50%,transparent);animation:gp-fade-in .12s ease}
-.gp-drawer{position:absolute;left:0;top:0;bottom:0;width:clamp(180px,72%,260px);z-index:5;overflow:hidden;background:var(--dsw-alias-bg-layer-2);box-shadow:6px 0 18px rgba(0,0,0,.16);transform:translateX(-100%);transition:transform .18s cubic-bezier(.16,1,.3,1)}
+.gp-drawer{position:absolute;left:0;top:0;bottom:0;width:clamp(180px,72%,260px);z-index:5;overflow:hidden;background:var(--dsw-alias-bg-layer-2);transform:translateX(-100%);transition:transform .18s cubic-bezier(.16,1,.3,1)}
 .gp-drawer[data-open="true"]{transform:none}
 .gp-drawer__bar{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none}
 .gp-drawer__title{flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

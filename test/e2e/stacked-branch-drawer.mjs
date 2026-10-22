@@ -139,6 +139,7 @@ const probe = () => page.evaluate(() => {
       open: drawer.getAttribute('data-open'),
       inert: drawer.hasAttribute('inert'),
       transform: getComputedStyle(drawer).transform,
+      boxShadow: getComputedStyle(drawer).boxShadow,
       box: box(drawer),
       rows: drawer.querySelectorAll('.gp-branch-row').length,
       statusbar: drawer.querySelector('.gp-statusbar') !== null,
@@ -204,6 +205,7 @@ out.open = await probe()
 assert.equal(out.open.drawer.open, 'true', 'the toggle opens the drawer')
 assert.equal(out.open.drawer.inert, false, 'the open drawer is interactive')
 assert.equal(out.open.drawer.transform, 'none', "the open drawer sits flush at the band's left edge")
+assert.equal(out.open.drawer.boxShadow, 'none', 'the drawer paints no side shadow over the history')
 assert.ok(out.open.backdrop !== null, 'opening lays a backdrop over the band')
 assert.ok(Math.abs(out.open.backdrop.w - out.open.top.w) <= 2 && Math.abs(out.open.backdrop.h - out.open.top.h) <= 2, 'the backdrop covers exactly the top band')
 assert.equal(out.open.toggle.expanded, 'true', 'the toggle reports the open state')
