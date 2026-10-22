@@ -28,17 +28,23 @@
  * breaks) — all modern engines ship it.
  */
 import { useLayoutEffect, useState } from 'react'
-import { COMPACT_BP, PHONE_SCREEN_BP, SHORT_BP, type PanelLayout } from './panel-fit.js'
+import { COMPACT_BP, isPhoneScreen, SHORT_BP, type PanelLayout } from './panel-fit.js'
 
 const UNSQUEEZED: PanelLayout = { compact: false, short: false, width: 0 }
 
-/** Whether the DEVICE screen is phone-sized: its shorter edge ≤ PHONE_SCREEN_BP.
- * Read from `screen`, not the window, so squeezing a desktop window to sidebar
- * width does not turn it into a phone (and a phone stays one after rotating). */
+/**
+ * Whether this DEVICE is a phone: a phone-sized screen driven by a coarse
+ * pointer. Read from `screen`, not the window, so squeezing a desktop window to
+ * sidebar width does not turn it into a phone (and a phone stays one after
+ * rotating). The pointer half keeps a scaled desktop out: its screen short edge
+ * is reported in CSS pixels and a 1366×768 laptop at 125% reads 614.
+ */
 function readPhone(): boolean {
   if (typeof window === 'undefined' || typeof window.screen === 'undefined') return false
-  const shortEdge = Math.min(window.screen.width || 0, window.screen.height || 0)
-  return shortEdge > 0 && shortEdge <= PHONE_SCREEN_BP
+  // No matchMedia (older engines, test stubs): fall back to the screen size
+  // alone, which is the behavior a device without the query already had.
+  const coarse = typeof window.matchMedia === 'function' ? window.matchMedia('(pointer: coarse)').matches : true
+  return isPhoneScreen({ width: window.screen.width || 0, height: window.screen.height || 0 }, coarse)
 }
 
 /** Measure the panel box; both flags stay false (and width 0) until measured. */
@@ -48,7 +54,10 @@ export function usePanelLayout(el: HTMLElement | null): PanelLayout {
   // swap the screen's width/height, so re-read it on resize.
   useLayoutEffect(() => {
     if (typeof window === 'undefined') return
-    const apply = (): void => setLayout((prev) => (prev.phone === readPhone() ? prev : { ...prev, phone: readPhone() }))
+    const apply = (): void => setLayout((prev) => {
+      const phone = readPhone()
+      return prev.phone === phone ? prev : { ...prev, phone }
+    })
     apply()
     window.addEventListener('resize', apply)
     window.addEventListener('orientationchange', apply)

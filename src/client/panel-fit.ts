@@ -22,6 +22,19 @@ export const COMPACT_BP = 620
 export const PHONE_SCREEN_BP = 640
 
 /**
+ * Whether a device counts as a phone: a phone-sized screen driven by a coarse
+ * pointer. `screen` is reported in CSS pixels, so its shorter edge shrinks as
+ * the OS display scale grows — a 1366×768 laptop at 125% reports 614 and would
+ * read as a phone on size alone. The pointer half is what separates them: a
+ * desktop's primary pointer stays fine even when the machine has a touchscreen.
+ */
+export function isPhoneScreen(screen: { readonly width: number; readonly height: number }, coarsePointer: boolean): boolean {
+  if (!coarsePointer) return false
+  const shortEdge = Math.min(screen.width, screen.height)
+  return shortEdge > 0 && shortEdge <= PHONE_SCREEN_BP
+}
+
+/**
  * Panel height (px) at or below which vertical room is scarce. Only meaningful
  * together with `compact`: the panel must be narrow *and* short before content
  * is traded for room. 520 catches small phones and short windows while leaving
@@ -39,10 +52,11 @@ export interface PanelLayout {
    * stacked→wide switch sits ABOVE COMPACT_BP and needs the number itself —
    * see `SIDEBAR_WIDE_BP`. */
   readonly width: number
-  /** The DEVICE screen is phone-sized (its shorter edge ≤ PHONE_SCREEN_BP).
-   * Measured on `screen`, not the panel box: a phone keeps drill-in no matter
-   * how the panel is sized, while a desktop keeps the stacked arrangement even
-   * after its window is squeezed. Tablets clear the bar and count as desktop. */
+  /** The DEVICE is a phone (phone-sized screen + coarse pointer — see
+   * `isPhoneScreen`). Measured on the device, not the panel box: a phone never
+   * takes the stacked arrangement no matter how the panel is sized, while a
+   * desktop keeps it even after its window is squeezed. Tablets clear the
+   * screen bar and count as desktop. */
   readonly phone?: boolean
 }
 
@@ -91,13 +105,13 @@ export type PanelMode = 'wide' | 'stacked' | 'compact'
  * - `stacked`: mounted in the right sidebar on a DESKTOP-sized screen and
  *   narrow — panes keep their side-by-side order in a top band and stack the
  *   third pane below, spending the sidebar's PC height instead of drilling. A
- *   phone-sized screen never lands here on either host: the two bands and their
- *   resizers are a desktop arrangement, so a phone drills in exactly like the
- *   conversation panel. The bar is the device screen (shorter edge), not the
- *   panel box, so a phone stays drill-in however the panel is sized.
- * - `compact`: narrow and otherwise — the single-column drill-in. Phones and
- *   tablets take this on both hosts; a desktop sidebar takes it only when both
- *   axes are scarce.
+ *   phone never lands here on either host: the two bands and their resizers are
+ *   a desktop arrangement. The bar is the device, not the panel box, so a phone
+ *   stays out of it however the panel is sized — but its width still splits
+ *   `compact` from `wide` like any other host (a landscape phone whose sidebar
+ *   box clears COMPACT_BP genuinely has room for three columns).
+ * - `compact`: narrow and otherwise — the single-column drill-in. A desktop
+ *   sidebar takes it only when both axes are scarce.
  *
  * The host gate keeps every conversation-mounted panel on today's behavior
  * (a split squeezed below COMPACT_BP drills exactly as before). On a desktop
@@ -113,5 +127,9 @@ export function panelMode(layout: PanelLayout, host: 'conversation' | 'sidebar')
     if (layout.compact) return layout.short ? 'compact' : 'stacked'
     return layout.width > SIDEBAR_WIDE_BP ? 'wide' : 'stacked'
   }
+  // An unmeasured phone panel (0×0: `keepMounted` panes stay mounted at zero
+  // size while another sidebar tab is selected) drills in rather than flashing
+  // the three desktop columns.
+  if (layout.phone === true && layout.width === 0) return 'compact'
   return layout.compact ? 'compact' : 'wide'
 }
