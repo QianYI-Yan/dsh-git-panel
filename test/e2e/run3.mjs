@@ -372,15 +372,42 @@ const out = await page.evaluate(async (snap) => {
   result.flPreviewHasBack = [...document.querySelectorAll('.gp-files__bar .gp-subhead__back')].some((b) => (b.textContent || '').includes('files.backToTree'))
   result.flBackBtnHeight = Math.round(document.querySelector('.gp-files__bar .gp-subhead__back').getBoundingClientRect().height)
   result.ovfFilesDrill = rootFits(panelRoot) && rootFits(document.querySelector('.gp-files--compact'))
-  // The compact toolbar drops the relative path and both copy buttons; a plain
-  // text file has no source/render switch, only word-wrap + fullscreen +
+  // The compact toolbar drops the relative path but keeps copy-content; a plain
+  // text file has no source/render switch, only word-wrap + fullscreen + copy +
   // properties.
   result.flNoPath = document.querySelector('.gp-files__bar .gp-files__path') === null
-  result.flNoCopy = document.querySelector('.gp-files__bar .gp-files__copy-path') === null
+  const compactCopy = document.querySelector('.gp-files__bar [aria-label="files.copyContent"]')
+  result.flHasCopyContent = compactCopy !== null
+  // It keeps its neighbours' 30px box and stays on the single toolbar row, so
+  // adding it back does not re-introduce the three-line wrap.
+  result.flCopyBtnBox = compactCopy === null ? null : Math.round(compactCopy.getBoundingClientRect().height)
+  result.flCopySameRow = (() => {
+    const back = document.querySelector('.gp-files__bar .gp-subhead__back')
+    if (compactCopy === null || back === null) return null
+    const c = compactCopy.getBoundingClientRect()
+    const b = back.getBoundingClientRect()
+    return Math.abs((c.top + c.height / 2) - (b.top + b.height / 2)) <= 1
+  })()
   result.flPlainNoMode = document.querySelector('.gp-files__bar [role="tablist"]') === null
   result.flHasFullscreen = document.querySelector('.gp-files__bar [aria-label="files.fullscreen"]') !== null
   result.flHasProps = document.querySelector('.gp-files__bar [aria-label="files.propsTitle"]') !== null
   result.flHasWrap = document.querySelector('.gp-files__bar [aria-label="files.wrap"]') !== null
+  // The button copied the content, not just sat there: the clipboard receives
+  // the file body and the icon flips to its check mark.
+  result.flCopyContentWorks = await (async () => {
+    const btn = document.querySelector('.gp-files__bar [aria-label="files.copyContent"]')
+    if (btn === null) return null
+    let written = null
+    const real = navigator.clipboard?.writeText
+    if (real !== undefined) {
+      navigator.clipboard.writeText = async (text) => { written = text; return undefined }
+    }
+    btn.click()
+    await new Promise((r) => setTimeout(r, 150))
+    const copied = btn.classList.contains('gp-files__copy-path--copied') && btn.querySelector('svg') !== null
+    if (real !== undefined) navigator.clipboard.writeText = real
+    return written !== null && written.length > 0 && copied
+  })()
   result.flWrapDefaultOn = document.querySelector('.gp-files__bar [aria-label="files.wrap"]')?.getAttribute('aria-pressed') === 'true'
   result.flWrapDefaultWrapped = (() => {
     const cell = document.querySelector('.gp-files__preview-content .gp-files__code .gp-diff-cell')
@@ -603,7 +630,10 @@ try {
   assert.equal(out.flBackBtnHeight, 30, 'the files back button matches the 30px toolbar controls')
   assert.equal(out.ovfFilesDrill, true, 'the compact preview fits without horizontal overflow')
   assert.equal(out.flNoPath, true, 'the compact preview toolbar drops the relative path')
-  assert.equal(out.flNoCopy, true, 'the compact preview toolbar drops both copy buttons')
+  assert.equal(out.flHasCopyContent, true, 'the compact preview toolbar keeps the copy-content button')
+  assert.equal(out.flCopyContentWorks, true, 'the compact copy button writes the file body to the clipboard and shows its check')
+  assert.equal(out.flCopyBtnBox, 30, 'the copy-content button matches the 30px toolbar controls')
+  assert.equal(out.flCopySameRow, true, 'copy-content shares the toolbar row instead of wrapping it')
   assert.equal(out.flPlainNoMode, true, 'a plain text file shows no source/render switch')
   assert.equal(out.flHasFullscreen, true, 'the compact toolbar carries the fullscreen entry')
   assert.equal(out.flHasProps, true, 'the compact toolbar keeps the properties entry')

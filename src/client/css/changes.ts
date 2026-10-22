@@ -68,6 +68,8 @@ export const CSS = `
 /* Trailing icon buttons match the 30px back button / mode control instead of
  * their 24px inline size (4px padding + 14px glyph). */
 .gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__props{height:30px;box-sizing:border-box;padding:0 6px}
+/* Copy-content matches the 30px neighbours instead of its 4px/6px icon padding. */
+.gp-panel[data-layout="compact"] .gp-files__bar-end .gp-files__copy-icon{height:30px;box-sizing:border-box;padding:0 6px}
 .gp-files__bar--compact .gp-files__mode-seg button{padding:0 10px;font-size:12px}
 /* Two boxes on purpose: the outer one scrolls, the inner one carries the inset.
  * A sticky child (the platform's code-block banner) sticks to the scrollport's

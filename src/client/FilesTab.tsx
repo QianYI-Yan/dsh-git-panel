@@ -531,16 +531,16 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     ])
     : null
 
-  // Compact toolbar: back + the official source/render switcher + fullscreen +
-  // properties. The relative path and the copy buttons leave the phone row —
-  // they are what made it wrap onto three lines.
+  // Compact toolbar: back, the source/render switcher, then the icon group
+  // (wrap / fullscreen / copy-content / properties). The relative path is
+  // wide-only.
   const compactBar = compact
     ? h('div', { key: 'bar', className: 'gp-files__bar gp-files__bar--compact' }, [
       h('button', { key: 'back', type: 'button', className: 'gp-subhead__back', onClick: () => setPane('tree') }, [h(ArrowLeftIcon, { key: 'i', size: 14 }), t('files.backToTree')]),
       modeSeg,
       // Trailing icons keep their own right-aligned group: without the mode
-      // switcher (plain files) they would otherwise sit next to the back button.
-      h('div', { key: 'end', className: 'gp-files__bar-end' }, [scriptToggle, wrapButton, fullscreenButton, propsButton]),
+      // switcher (plain files) they sit next to the back button otherwise.
+      h('div', { key: 'end', className: 'gp-files__bar-end' }, [scriptToggle, wrapButton, fullscreenButton, copyContentButton, propsButton]),
     ])
     : null
 
