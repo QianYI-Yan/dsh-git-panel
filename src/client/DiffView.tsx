@@ -6,7 +6,7 @@ import { createElement as h, memo, useCallback, useEffect, useLayoutEffect, useM
 import type { JSX } from 'react'
 import {
   buildSideBySide, flattenToUnified, isBinaryDiff, retargetTrailingGap,
-  isImagePath, isSvgPath, spliceGap, summarize, GAP_STEP, type GapInfo, type SideRow,
+  isImagePath, isSvgPath, spliceGap, summarize, gutterWidth, GAP_STEP, type GapInfo, type SideRow,
 } from './diff.js'
 import { languageForPath, useCodeHighlighter, type CodeHighlighter, type HighlightSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { splitHighlightSpans } from './code-spans.js'
@@ -148,6 +148,17 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     [mode, rows],
   )
   const cells = useMemo(() => collectCells(rows, unified, numbered), [rows, unified, numbered])
+  // Gutter width: the highest line number any of these rows can print, plus the
+  // host's new-side count when it is trustworthy — a hunk at line 1200 needs four
+  // digits even before the rows above it are expanded.
+  const gutterW = useMemo(() => {
+    let max = newLines > 0 ? newLines : 0
+    for (const row of rows) {
+      if (row.leftNo !== null && row.leftNo > max) max = row.leftNo
+      if (row.rightNo !== null && row.rightNo > max) max = row.rightNo
+    }
+    return gutterWidth(max)
+  }, [rows, newLines])
   // Cache a lowercased copy of every visible cell once per (mode, rows); a
   // case-insensitive scan reuses it instead of re-lowercasing on each query.
   const lowerCells = useMemo(() => cells.map((c) => ({ key: c.key, text: c.text.toLowerCase() })), [cells])
@@ -373,7 +384,7 @@ export const DiffView = memo(function DiffView({ visible = true, text, mode, pat
     capped && !dismissedNotices.isDismissed(noticeKey(cappedText))
       ? h(NoticeBar, { key: 'capped', text: cappedText, closeLabel: t('common.close'), onClose: () => dismissedNotices.dismiss(noticeKey(cappedText)) })
       : null,
-    h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl }, body),
+    h('div', { key: 'scroll', className: 'gp-diff__scroll', ref: setViewportEl, style: { '--gp-gutter-w': gutterW } }, body),
   ])
   return svg ? svgFrame(svgView, setSvgView, wrapped, t) : wrapped
 })

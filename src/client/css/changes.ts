@@ -129,12 +129,14 @@ export const CSS = `
 .gp-find__case--active:hover{background:var(--dsw-alias-state-business-primary);color:#fff}
 .gp-find-hit{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 40%,transparent);color:inherit;border-radius:2px}
 .gp-find-hit--active{background:var(--dsw-alias-state-warn-primary);color:var(--dsw-static-neutral-1000,#000)}
-.gp-files__single{display:grid;grid-template-columns:44px 1fr}
+/* Same gutter contract as the diff view: three digits by default (see
+ * gutterWidth in diff.ts), widened by the container when a file is longer. */
+.gp-files__single{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 /* Virtualized source view: the outer box is a fixed-height spacer that owns the
  * scrollbar; each mounted row is absolutely positioned at its line offset and
  * lays its line-number gutter + code cell on one fixed-height row. */
 .gp-files__single--virt{display:block;position:relative;width:100%}
-.gp-files__row{position:absolute;left:0;right:0;display:grid;grid-template-columns:44px 1fr;height:20px}
+.gp-files__row{position:absolute;left:0;right:0;display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr;height:20px}
 /* Fixed row height needs non-wrapping cells; a long line scrolls horizontally
  * on the container instead of growing the row past ROW_HEIGHT. */
 .gp-files__row .gp-diff-cell{white-space:pre;overflow:hidden;text-overflow:clip}

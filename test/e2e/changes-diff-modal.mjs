@@ -316,6 +316,25 @@ for (const name of ['expand', 'modal']) {
 assert.notEqual(out.open.boxes.modal.bg, out.open.boxes.expand.bg, 'the open card tints its trigger apart from the resting button')
 out.rowsOpen = await rows()
 assert.equal(out.rowsOpen, out.rowsBefore, 'the diff did not render a second time')
+// Line-number gutter: three digits by default (the short fixture diff), sized by
+// the container's --gp-gutter-w rather than a fixed column that always reserved
+// four digits' worth of width.
+out.gutter = await page.evaluate(() => {
+  const scroll = document.querySelector('.gp-diff--card .gp-diff__scroll')
+  const grid = document.querySelector('.gp-diff--card .gp-diff__unified, .gp-diff--card .gp-diff__side')
+  const cell = document.querySelector('.gp-diff--card .gp-diff-no')
+  if (scroll === null || grid === null || cell === null) return null
+  return {
+    varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
+    cols: getComputedStyle(grid).gridTemplateColumns.split(' ').map((part) => Math.round(parseFloat(part) * 10) / 10),
+    cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+  }
+})
+assert.equal(out.gutter?.varValue, 'calc(3ch + 10px)', 'a short diff takes the three-digit gutter')
+assert.equal(out.gutter?.cellW, out.gutter?.cols?.[0], 'the gutter cell fills its column exactly')
+assert.ok((out.gutter?.cellW ?? 99) < 38, `the three-digit gutter is narrower than the old fixed 38px (${out.gutter?.cellW}px)`)
+assert.equal(out.gutter?.cols?.length, 4, 'the unified grid keeps its four columns (old | new | sign | code)')
+assert.equal(out.gutter?.cols?.[0], out.gutter?.cols?.[1], 'both line-number columns share one width')
 
 // The card carries the dialog contract: role/aria-modal on the card itself,
 // the backdrop hidden from AT, the sibling change list inert (focus cannot

@@ -80,12 +80,15 @@ export const CSS = `
 /* Height band reserving the rows outside the mounted window; spans every grid
  * column, so it takes a grid row of its own. */
 .gp-diff__spacer{pointer-events:none}
-.gp-diff__side{display:grid;grid-template-columns:38px 1fr 38px 1fr}
+/* Line-number gutters are sized by --gp-gutter-w, set on the scroll container
+ * from the highest line number on screen (gutterWidth): three digits wide by
+ * default, wider only when a side actually reaches four. */
+.gp-diff__side{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 /* unified (inline) layout: old|new line-number gutters + a sign column + one
  * shared code column; add/del tint the whole code cell, not one side. */
-.gp-diff__unified{display:grid;grid-template-columns:38px 38px 18px 1fr}
+.gp-diff__unified{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) var(--gp-gutter-w,calc(3ch + 10px)) 18px 1fr}
 /* before/after single column: one line-number gutter + code */
-.gp-diff__single{display:grid;grid-template-columns:38px 1fr}
+.gp-diff__single{display:grid;grid-template-columns:var(--gp-gutter-w,calc(3ch + 10px)) 1fr}
 .gp-diff-uni__sign{text-align:center;user-select:none;font-size:11px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
 .gp-diff-uni__sign.gp-diff-row--add{color:var(--dsw-alias-state-success-primary)}
 .gp-diff-uni__sign.gp-diff-row--del{color:var(--dsw-alias-state-error-primary)}

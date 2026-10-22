@@ -13,6 +13,7 @@ import { ZoomableImage } from './ImageZoom.js'
 import { buildTops, findWindowRange, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
 import { wrapCapOk } from './wrap-cap.js'
+import { gutterWidth } from './diff.js'
 
 // Source-view performance guards. Syntax highlighting is synchronous and DOM
 // cost scales with line count, so above these limits the code preview degrades
@@ -257,7 +258,10 @@ export function CodePreview({ content, path, wrap, t }: { content: string; path:
     }
   }
 
-  return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl }, [
+  // Three-digit gutter by default, four once the file is that long (gutterWidth):
+  // every row is its own grid, so the width has to come from the container or the
+  // rows would disagree.
+  return h('div', { className: `gp-files__code gp-diff__scroll${wrapActive ? ' gp-files__code--wrap' : ' gp-files__code--nowrap'}`, ref: setContainerEl, style: { '--gp-gutter-w': gutterWidth(lines.length) } }, [
     header,
     h('div', {
       key: 'grid',

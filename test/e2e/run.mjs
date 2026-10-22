@@ -1006,6 +1006,15 @@ const out = await page.evaluate(async (snap) => {
       name: btn.querySelector('.gp-files__path-name')?.textContent ?? '',
     }
   })()
+  // The same gutter contract on a short file: three digits, not four.
+  result.smallGutter = (() => {
+    const scroll = document.querySelector('.gp-files__code')
+    if (scroll === null) return null
+    return {
+      varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
+      cellW: Math.round((document.querySelector('.gp-files__code .gp-diff-no')?.getBoundingClientRect().width ?? -1) * 10) / 10,
+    }
+  })()
   await new Promise((r) => setTimeout(r, 1750))
   result.pathCopyReverted = (() => {
     const btn = document.querySelector('.gp-files__path')
@@ -1622,6 +1631,24 @@ const out = await page.evaluate(async (snap) => {
   // not all of them, while the spacer height reflects the full line count.
   result.bigMountedRows = document.querySelectorAll('.gp-files__row').length
   result.bigTotalLines = 5101
+  // The gutter grows with the file: 5101 lines need four digits, and every row
+  // column has to agree (each row is its own grid, so the width comes from the
+  // container). A short file keeps the three-digit default — see bigGutterSmall.
+  result.bigGutter = await (async () => {
+    const scroll = document.querySelector('.gp-files__code')
+    const cell = document.querySelector('.gp-files__code .gp-diff-no')
+    const row = document.querySelector('.gp-files__row')
+    if (scroll === null || cell === null || row === null) return null
+    return {
+      varValue: getComputedStyle(scroll).getPropertyValue('--gp-gutter-w').trim(),
+      cellW: Math.round(cell.getBoundingClientRect().width * 10) / 10,
+      colW: Math.round(parseFloat(getComputedStyle(row).gridTemplateColumns.split(' ')[0]) * 10) / 10,
+      lastNo: (() => {
+        const nos = [...document.querySelectorAll('.gp-files__code .gp-diff-no')]
+        return nos.length === 0 ? null : (nos[nos.length - 1].textContent || '').trim()
+      })(),
+    }
+  })()
   const virtGrid = document.querySelector('.gp-files__single--virt')
   result.bigSpacerHeight = virtGrid ? parseInt(virtGrid.style.height || '0', 10) : 0
   // A selection must survive scrolling: the rows it covers stay mounted (a

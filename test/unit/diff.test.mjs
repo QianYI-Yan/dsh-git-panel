@@ -3,7 +3,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSideBySide, retargetTrailingGap, summarize, isBinaryDiff, extractAddedContent, extractDeletedContent, isImagePath, isSvgPath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, GAP_STEP } from '../../lib/testkit.mjs'
+import { buildSideBySide, retargetTrailingGap, summarize, isBinaryDiff, extractAddedContent, extractDeletedContent, isImagePath, isSvgPath, intraLineDiff, spliceGap, contextRowsFromLines, flattenToUnified, gutterWidth, GAP_STEP } from '../../lib/testkit.mjs'
 
 const MODIFY = `diff --git a/a.txt b/a.txt
 index a29bdeb..c0d0fb4 100644
@@ -353,4 +353,18 @@ test('isSvgPath matches only .svg (case-insensitive) as the suffix', () => {
   assert.equal(isSvgPath('a.svg.png'), false, 'must be the suffix')
   assert.equal(isSvgPath('svg'), false)
   assert.equal(isSvgPath('no-extension'), false)
+})
+
+test('the line-number gutter is three digits wide until a side needs four', () => {
+  // A short file must not reserve a four-digit column (that was the width the
+  // fixed 38px / 44px gutters always took); the column only grows when a line
+  // number actually reaches the next digit.
+  assert.equal(gutterWidth(0), 'calc(3ch + 10px)', 'an empty body keeps the three-digit floor')
+  assert.equal(gutterWidth(9), 'calc(3ch + 10px)')
+  assert.equal(gutterWidth(999), 'calc(3ch + 10px)', 'the last three-digit line fits the default')
+  assert.equal(gutterWidth(1000), 'calc(4ch + 10px)', 'the first four-digit line widens the column')
+  assert.equal(gutterWidth(12000), 'calc(5ch + 10px)')
+  // Host-reported counts can arrive as anything; the width must stay a width.
+  assert.equal(gutterWidth(-5), 'calc(3ch + 10px)', 'a negative count clamps to the floor')
+  assert.equal(gutterWidth(Number.NaN), 'calc(3ch + 10px)', 'a unusable count clamps to the floor')
 })
