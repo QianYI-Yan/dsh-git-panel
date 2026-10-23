@@ -11,8 +11,11 @@ import { chromium, devices } from 'playwright-core'
 
 const DIR = dirname(fileURLToPath(import.meta.url))
 const SCREENSHOT = resolve(DIR, '../../docs/local/review/changes-toolbar.png')
-const ACTIONS = ['stage-all', 'unstage-all', 'discard-picked', 'discard-all', 'stash', 'push', 'refresh']
-const LABELS = ['全部暂存', '全部取消暂存', '放弃选中的更改', '放弃全部变更', '贮藏更改', '推送本地提交到远程', '刷新当前仓库状态']
+const ACTIONS = ['stage-picked', 'stage-all', 'unstage-all', 'discard-picked', 'discard-all', 'stash', 'push', 'refresh']
+const LABELS = ['暂存选中的更改', '全部暂存', '全部取消暂存', '放弃选中的更改', '放弃全部变更', '贮藏更改', '推送本地提交到远程', '刷新当前仓库状态']
+// Hover copy: stage-picked explains its scope (picked rows only) instead of
+// repeating the accessible name.
+const TIPS = ['暂存勾选文件在工作区的改动，未勾选的文件不受影响', ...LABELS.slice(1)]
 const AI_HINT = '提示：给 AI 多一点信任，你可以尝试让 AI 直接执行 Git 操作。'
 const SCOPE = '将推送 5 个提交 · 4 个文件 · +17 / −6 行'
 const THEME = `body{margin:0;font:13px system-ui,sans-serif;--dsh-composer-height:0px;
@@ -187,7 +190,7 @@ async function geometry(page, label) {
   })
   assert.equal(actual.role, 'group', label + ': action group semantics')
   assert.equal(actual.name, '仓库变更操作', label + ': localized group label')
-  assert.deepEqual(actual.buttons.map((b) => b.action), ACTIONS, label + ': all seven controls in order')
+  assert.deepEqual(actual.buttons.map((b) => b.action), ACTIONS, label + ': all eight controls in order')
   assert.deepEqual(actual.buttons.map((b) => b.label), LABELS, label + ': meaningful accessible names')
   assert.ok(actual.scrollWidth <= actual.clientWidth + 1, label + ': toolbar has no horizontal overflow')
   const first = actual.buttons[0].rect
@@ -219,9 +222,10 @@ async function geometryScenario() {
       if (label === 'wide left 380') assert.ok(Math.abs(normal.left.width - 380) < 1, 'representative left column is 380px')
       if (label === 'compact 320') assert.equal(await page.locator('.gp-panel').getAttribute('data-layout'), 'compact')
       if (state === 'clean') {
-        // stage-all / unstage-all / discard-picked / discard-all / stash / push
-        // are all unavailable on a clean repo; only refresh stays enabled.
-        assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, true, false], 'clean repo keeps refresh enabled')
+        // stage-picked / stage-all / unstage-all / discard-picked / discard-all
+        // / stash / push are all unavailable on a clean repo; only refresh stays
+        // enabled (stage-picked also needs picked rows, of which there are none).
+        assert.deepEqual(normal.buttons.map((b) => b.disabled), [true, true, true, true, true, true, true, false], 'clean repo keeps refresh enabled')
         assert.equal(await page.locator('.gp-changes__list .gp-empty').textContent(), '没有未提交的变更')
       }
       // Compact unmounts the font stepper (it lives on the config page).
@@ -257,7 +261,7 @@ async function tipsAndStageScenario() {
   for (let i = 0; i < ACTIONS.length; i++) {
     const button = page.locator('.gp-changes__' + ACTIONS[i])
     await button.hover()
-    await page.waitForFunction((text) => document.querySelector('.gp-tip')?.textContent === text, LABELS[i])
+    await page.waitForFunction((text) => document.querySelector('.gp-tip')?.textContent === text, TIPS[i])
     assert.equal(await page.locator('.gp-tip').evaluate((tip) => tip.parentElement === document.body), true, 'hover hint is portaled')
     await page.mouse.move(1430, 750)
     await page.waitForFunction(() => document.querySelector('.gp-tip') === null)
@@ -272,6 +276,63 @@ async function tipsAndStageScenario() {
   await page.locator('.gp-changes__unstage-all').click()
   await page.waitForFunction(() => window.__gpFixture.actions.length === 2)
   assert.deepEqual(await page.evaluate(() => window.__gpFixture.actions), [{ kind: 'stage-all' }, { kind: 'unstage-all' }], 'existing stage/unstage RPC kinds remain unchanged')
+  await page.close()
+}
+
+/**
+ * Batch stage (issue #82): the toolbar entry stages exactly the checked
+ * working-tree rows. A staged-only pick has nothing to stage and leaves it
+ * disabled; the request carries the deduped paths, never the whole work tree.
+ */
+async function stagePickedScenario() {
+  const page = await openPanel({
+    ...DIRTY, ahead: 5, staged: 2, modified: 3,
+    changes: [
+      ...DIRTY.changes,
+      { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
+      { path: 'dup.txt', status: 'modified', staged: true, isDirectory: false },
+      { path: 'dup.txt', status: 'modified', staged: false, isDirectory: false },
+    ],
+    stats: { ...DIRTY.stats, fileCount: 4, staged: 2, modified: 3 },
+  })
+  const button = page.locator('.gp-changes__stage-picked')
+  assert.equal(await button.isEnabled(), false, 'nothing picked → stage-picked is disabled')
+  const rowOf = (path, glyph) => page.locator('.gp-file-row', { hasText: path })
+    .filter({ has: page.locator('.gp-file-row__actions button', { hasText: glyph }) })
+  // An index-side pick is already staged: it never enables the entry nor
+  // widens the request.
+  await rowOf('dup.txt', '−').locator('input.gp-check').check()
+  assert.equal(await button.isEnabled(), false, 'a staged-only pick has nothing to stage')
+  await rowOf('dup.txt', '+').locator('input.gp-check').check()
+  await rowOf('a.txt', '+').locator('input.gp-check').check()
+  assert.equal(await button.isEnabled(), true, 'working-tree picks enable stage-picked')
+  await button.click()
+  await page.waitForFunction(() => window.__gpFixture.actions.length === 1)
+  assert.deepEqual(
+    await page.evaluate(() => window.__gpFixture.actions),
+    [{ kind: 'stage', paths: ['a.txt', 'dup.txt'] }],
+    'the request stages the picked working-tree paths, deduped and scoped',
+  )
+  // The accepted snapshot retires the staged `:w` rows (a now fully-staged
+  // path has no working-tree row at all); the selection prunes to the living
+  // keys and the entry falls back to disabled with nothing left to stage.
+  await page.evaluate(() => {
+    const fixture = window.__gpFixture
+    fixture.snapshot = {
+      ...fixture.snapshot,
+      changes: fixture.snapshot.changes.filter((c) => !(!c.staged && (c.path === 'a.txt' || c.path === 'dup.txt'))),
+      staged: 4, modified: 1,
+      stats: { ...fixture.snapshot.stats, staged: 4, modified: 1 },
+    }
+  })
+  await refresh(page)
+  assert.equal(await rowOf('a.txt', '+').count(), 0, 'the staged row leaves the working-tree group')
+  assert.equal(await rowOf('dup.txt', '+').count(), 0, 'a fully-staged path drops its working-tree row')
+  assert.equal(
+    await page.locator('.gp-file-row input.gp-check:checked').count(), 1,
+    'the surviving index-side pick keeps its selection; the retired :w keys prune',
+  )
+  assert.equal(await button.isEnabled(), false, 'a fresh snapshot with nothing stageable picked disables the entry')
   await page.close()
 }
 
@@ -424,7 +485,7 @@ async function pushScenario() {
   assert.equal(await page.locator('.gp-modal__footer .gp-btn--primary').isDisabled(), true, 'busy confirm disabled')
   assert.equal(await page.locator('.gp-modal__close').isDisabled(), true, 'busy close disabled')
   assert.equal(await page.locator('.gp-changes__push').isDisabled(), true, 'busy push opener disabled')
-  assert.equal(await page.locator('.gp-changes__toolbar button:disabled').count(), 7, 'push in flight disables the complete toolbar')
+  assert.equal(await page.locator('.gp-changes__toolbar button:disabled').count(), 8, 'push in flight disables the complete toolbar')
   await page.keyboard.press('Escape')
   await page.locator('.gp-modal-backdrop').click({ position: { x: 3, y: 3 } })
   await page.locator('.gp-modal__footer .gp-btn').first().evaluate((button) => button.click())
@@ -554,8 +615,9 @@ async function nothingToCommitScenario() {
 /** A disabled control must still explain itself on hover (issue #61). */
 async function disabledTipScenario() {
   const page = await openPanel(CLEAN)
-  // Clean repo: the first five entries are disabled, refresh stays enabled.
-  // A disabled button is pointer-events:none so the tip shell takes the hover.
+  // Clean repo: every entry but refresh is disabled (no changes, nothing
+  // picked). A disabled button is pointer-events:none so the tip shell takes
+  // the hover.
   const shell = page.locator('.gp-tip-wrap', { has: page.locator('.gp-changes__stage-all') })
   assert.equal(await page.locator('.gp-changes__stage-all').isDisabled(), true, 'stage-all is disabled on a clean repo')
   await shell.hover()
@@ -566,6 +628,14 @@ async function disabledTipScenario() {
   // The tip shell must not change the button box (geometry suite still pins it).
   const box = await page.locator('.gp-changes__stage-all').boundingBox()
   assert.ok(box !== null && box.width >= 24 && box.height >= 24, 'disabled button keeps its geometry')
+  // stage-picked carries its own scope wording (distinct from the accessible
+  // name), and it must explain itself while disabled like any other entry.
+  const pickedShell = page.locator('.gp-tip-wrap', { has: page.locator('.gp-changes__stage-picked') })
+  assert.equal(await page.locator('.gp-changes__stage-picked').isDisabled(), true, 'stage-picked is disabled with nothing picked')
+  await pickedShell.hover()
+  await page.waitForFunction(() => document.querySelector('.gp-tip')?.textContent === '暂存勾选文件在工作区的改动，未勾选的文件不受影响')
+  await page.mouse.move(1430, 750)
+  await page.waitForFunction(() => document.querySelector('.gp-tip') === null)
   await page.close()
 }
 
@@ -630,6 +700,7 @@ async function touchHintScenario() {
 try {
   await geometryScenario()
   await tipsAndStageScenario()
+  await stagePickedScenario()
   await disabledTipScenario()
   await errorDismissScenario()
   await nothingToCommitScenario()

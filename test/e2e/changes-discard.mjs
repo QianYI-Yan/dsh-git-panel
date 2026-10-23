@@ -169,8 +169,9 @@ async function batchScenario() {
     const toolbar = [...document.querySelectorAll('.gp-toolbar button')]
     result.toolbar = toolbar.map((b) => b.getAttribute('aria-label'))
     // The icon entry retains its accessible name and position between these actions.
-    result.entryAfterUnstageAll = toolbar[2] === picked() && toolbar[1].getAttribute('aria-label') === '全部取消暂存'
-    result.entryBeforeStash = (toolbar[4].getAttribute('aria-label') ?? '').includes('贮藏')
+    // Toolbar order: stage-picked, stage-all, unstage-all, discard-picked, …
+    result.entryAfterUnstageAll = toolbar[3] === picked() && toolbar[2].getAttribute('aria-label') === '全部取消暂存'
+    result.entryBeforeStash = (toolbar[5].getAttribute('aria-label') ?? '').includes('贮藏')
     result.entryLabel = picked().getAttribute('aria-label')
     result.disabledEmpty = picked().disabled === true
 

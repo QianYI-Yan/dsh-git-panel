@@ -11,10 +11,10 @@
  * a new side cannot update one without the other.
  *
  * Besides the codec this module holds the policies that consume keys:
- * `pickDiscardTargets`, the batch-discard split, and the group select-all
- * state (`groupPickState` / `toggleGroupKeys`). They are defined on the
- * same sides, so they live next to them rather than re-deriving them at the
- * call site.
+ * `pickDiscardTargets` (batch-discard split), `pickStageTargets` (batch-stage
+ * targets), and the group select-all state (`groupPickState` /
+ * `toggleGroupKeys`). They are defined on the same sides, so they live next to
+ * them rather than re-deriving them at the call site.
  */
 import type { GitChange } from './types.js'
 
@@ -50,27 +50,43 @@ export interface DiscardTargets {
 }
 
 /**
+ * Split keys into their per-side path buckets, deduped; keys with no known
+ * side are ignored. Total by construction: each side names its own bucket, so
+ * widening `ChangeSide` fails to compile here instead of letting a new side
+ * fall through to one bucket and silently drop out of a batch action.
+ */
+function splitBySide(keys: Iterable<string>): Record<ChangeSide, Set<string>> {
+  const bySide: Record<ChangeSide, Set<string>> = { w: new Set(), s: new Set() }
+  for (const key of keys) {
+    const side = sideOf(key)
+    if (side === null) continue
+    bySide[side].add(pathOfKey(key))
+  }
+  return bySide
+}
+
+/**
  * Batch-discard target resolution. `discard` only ever touches the working tree
  * (`git restore --`, untracked files are deleted), so a batch discard acts on
  * the `:w` picks and index-side picks are reported separately rather than being
  * silently swallowed by the count. Keys with no known side are ignored.
  */
 export function pickDiscardTargets(keys: Iterable<string>): DiscardTargets {
-  const worktree = new Set<string>()
-  const staged = new Set<string>()
-  // Total by construction: each side names its own bucket, so widening
-  // `ChangeSide` fails to compile here instead of letting a new side fall
-  // through to the index bucket and silently drop out of the discard set.
-  const bySide: Record<ChangeSide, Set<string>> = { w: worktree, s: staged }
-  for (const key of keys) {
-    const side = sideOf(key)
-    if (side === null) continue
-    bySide[side].add(pathOfKey(key))
-  }
+  const { w: worktree, s: staged } = splitBySide(keys)
   return {
     paths: [...worktree].sort(),
     stagedOnly: [...staged].filter((p) => !worktree.has(p)).sort(),
   }
+}
+
+/**
+ * Batch-stage targets from a selection: the working-tree-side picks (`:w`),
+ * deduped and sorted. An index-side pick (`:s`) is already staged, so it never
+ * widens the target set — a path picked on both sides stages once. Keys with no
+ * known side are ignored, like `pickDiscardTargets`.
+ */
+export function pickStageTargets(keys: Iterable<string>): readonly string[] {
+  return [...splitBySide(keys).w].sort()
 }
 
 /** Tri-state of one group's rows against the current selection. */

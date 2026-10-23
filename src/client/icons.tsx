@@ -128,6 +128,15 @@ export function StageAllIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'stack', d: 'M2 3h8M2 6h6M2 9h4' }), h('path', { key: 'plus', d: 'M11 8v6M8 11h6' })], size, true)
 }
 
+/** A ticked row plus a plus sign: stage only the picked rows. */
+export function StagePickedIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('path', { key: 'check', d: 'M2 4.2l1.4 1.4L6.2 2.8' }),
+    h('path', { key: 'row', d: 'M8.5 4.2H14' }),
+    h('path', { key: 'plus', d: 'M8 10.6v4M6 12.6h4' }),
+  ], size, true)
+}
+
 export function UnstageAllIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'stack', d: 'M2 3h8M2 6h6M2 9h4' }), h('path', { key: 'minus', d: 'M8 11h6' })], size, true)
 }

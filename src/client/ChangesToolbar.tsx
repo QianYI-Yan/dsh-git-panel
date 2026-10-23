@@ -3,7 +3,7 @@ import { createElement as h, useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import type { GitKey } from './locales.js'
 import type { GitSnapshot } from './types.js'
-import { RefreshIcon, StageAllIcon, StashIcon, TrashAllIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
+import { RefreshIcon, StageAllIcon, StagePickedIcon, StashIcon, TrashAllIcon, TrashIcon, UnstageAllIcon, UploadIcon } from './icons.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { pushIntent } from './push-policy.js'
 
@@ -11,6 +11,9 @@ interface ChangesToolbarProps {
   readonly snapshot: GitSnapshot
   readonly busy: boolean
   readonly hasDiscardTargets: boolean
+  /** Working-tree paths behind the checked rows; empty when nothing stageable is picked. */
+  readonly stageTargets: readonly string[]
+  readonly onStagePicked: (paths: readonly string[]) => void
   readonly onStageAll: () => void
   readonly onUnstageAll: () => void
   readonly onDiscard: () => void
@@ -60,6 +63,10 @@ export function ChangesToolbar(props: ChangesToolbarProps): JSX.Element {
     onClick: () => { hideTip(); onClick() },
   }, h('span', { 'aria-hidden': true }, icon)))
   return h('div', { className: 'gp-toolbar gp-changes__toolbar', role: 'group', 'aria-label': t('changes.actions') }, [
+    // Stages only the checked working-tree rows — the batch form of each row's
+    // own "+" (issue #82). Unavailable until a stageable row is picked, and
+    // scoped to the picked paths so it never stages the rest of the work tree.
+    button('stage-picked', 'changes.stagePicked', h(StagePickedIcon, { size: 16 }), props.stageTargets.length === 0, () => props.onStagePicked(props.stageTargets), '', 'changes.stagePickedTip'),
     button('stage-all', 'changes.stageAll', h(StageAllIcon, { size: 16 }), snapshot.changes.length === 0, props.onStageAll),
     button('unstage-all', 'changes.unstageAll', h(UnstageAllIcon, { size: 16 }), snapshot.staged === 0, props.onUnstageAll),
     button('discard-picked', 'changes.discardPicked', h(TrashIcon, { size: 16 }), !props.hasDiscardTargets, props.onDiscard),

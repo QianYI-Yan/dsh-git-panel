@@ -23,7 +23,7 @@ import { inertAttr } from './inert.js'
 import { NoticeBar, useDismissedNotices } from './notice.js'
 import { buildTops, windowRange } from './virtual-list.js'
 import { useViewportTracker } from './use-viewport.js'
-import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, toggleGroupKeys } from './selection-keys.js'
+import { changeKey, groupPickState, pathOfKey, pickDiscardTargets, pickStageTargets, toggleGroupKeys } from './selection-keys.js'
 import { DiscardPickedModal } from './DiscardPickedModal.js'
 import { TipWrapper, useHoverTip } from './tip.js'
 import { ChangesToolbar } from './ChangesToolbar.js'
@@ -280,6 +280,10 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   // Batch discard targets: the selected working-tree paths, plus the staged-only
   // picks the confirm dialog reports as unaffected instead of dropping silently.
   const discardTargets = useMemo(() => pickDiscardTargets(selected), [selected])
+  // Batch stage targets: the checked working-tree rows. Index-side picks are
+  // already staged and never widen the set; the fresh snapshot retires their
+  // `:w` keys, so nothing stale is carried into the next action.
+  const stageTargets = useMemo(() => pickStageTargets(selected), [selected])
 
   // A snapshot that removes every checked row empties the target set; close the
   // dialog rather than letting a stale "open" flag pop it back on the next pick.
@@ -574,6 +578,8 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
     h(ChangeStats, { key: 'stats', stats: snapshot.stats, compact, showTimes: !cramped, t }),
     h(ChangesToolbar, {
       key: 'toolbar', snapshot, busy, hasDiscardTargets: discardTargets.paths.length > 0,
+      stageTargets,
+      onStagePicked: (paths) => { if (paths.length > 0) void run({ kind: 'stage', paths: [...paths] }) },
       onStageAll: () => void run({ kind: 'stage-all' }),
       onUnstageAll: () => void run({ kind: 'unstage-all' }),
       onDiscard: () => { setError(null); setDiscardPickedOpen(true) },

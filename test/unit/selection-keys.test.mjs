@@ -1,6 +1,7 @@
 /**
  * Change-list selection keys: the single codec for `path:s` (index side) /
- * `path:w` (working tree), plus the batch-discard split defined on it.
+ * `path:w` (working tree), plus the batch-discard split and batch-stage targets
+ * defined on it.
  *
  * The evidence has two independent halves, because an embedded copy of the old
  * spelling can only ever lock the corpus it is handed:
@@ -16,7 +17,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { changeKey, sideOf, pathOfKey, pickDiscardTargets, groupPickState, toggleGroupKeys } from '../../lib/testkit.mjs'
+import { changeKey, sideOf, pathOfKey, pickDiscardTargets, pickStageTargets, groupPickState, toggleGroupKeys } from '../../lib/testkit.mjs'
 
 // The two spellings that used to live at the call sites, kept verbatim so the
 // refactor stays pinned to the behaviour it replaced. They are a lock on the
@@ -218,6 +219,26 @@ test('pickDiscardTargets ignores keys with no known side', () => {
 
 test('pickDiscardTargets only strips the trailing side suffix', () => {
   assert.deepEqual(pickDiscardTargets(['a:b.txt:w']), { paths: ['a:b.txt'], stagedOnly: [] })
+})
+
+// Batch stage (issue #82): the checked rows' working-tree paths, deduped and
+// sorted. An index-side pick is already staged, so it never adds a path.
+test('pickStageTargets keeps working-tree paths, sorted', () => {
+  assert.deepEqual(pickStageTargets(['b.txt:w', 'a.txt:w']), ['a.txt', 'b.txt'])
+})
+
+test('pickStageTargets ignores index-side picks, but keeps a worktree pick of the same path', () => {
+  assert.deepEqual(pickStageTargets(['a.txt:s', 'b.txt:s']), [])
+  assert.deepEqual(pickStageTargets(['a.txt:w', 'a.txt:s']), ['a.txt'])
+})
+
+test('pickStageTargets is empty for an empty selection and ignores keys with no known side', () => {
+  assert.deepEqual(pickStageTargets([]), [])
+  assert.deepEqual(pickStageTargets(['bare.txt', 'odd:x']), [])
+})
+
+test('pickStageTargets only strips the trailing side suffix', () => {
+  assert.deepEqual(pickStageTargets(['a:b.txt:w', ':w']), ['', 'a:b.txt'])
 })
 
 // Group select-all (issue #60): the head checkbox's tri-state and its toggle.
