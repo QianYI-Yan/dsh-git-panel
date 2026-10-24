@@ -196,6 +196,29 @@ try {
     assert.equal(m.types[0].keepMounted, true, 'a visited body stays mounted so unsaved work survives')
     assert.equal(m.types[0].guide.length, 1, 'the type contributes one guide entry')
     assert.equal(m.guideIconViewBox, '0 0 128 128', 'the guide capsule draws the plugin app icon, not a line glyph')
+
+    // The chip's title: the app glyph ahead of the label, matching what the
+    // platform's own chips (files, guide) lead with. A text-only chip reads as
+    // a stray label beside them.
+    const chip = await page.evaluate(async () => {
+      const entry = window.__ctl.registered['sidebar.right.pane.tab.title::@xbzbing/dsh-git-panel']
+      if (entry === undefined) return { missing: true }
+      const host = document.getElementById('pill')
+      window.ReactDOM.createRoot(host).render(entry.component({}))
+      await new Promise((r) => setTimeout(r, 200))
+      const icon = host.querySelector('svg')
+      const label = host.querySelector('.gp-sidebar-title')
+      return {
+        missing: false,
+        viewBox: icon?.getAttribute('viewBox') ?? null,
+        iconClass: icon?.getAttribute('class') ?? null,
+        label: label?.textContent ?? null,
+      }
+    })
+    assert.equal(chip.missing, false, 'the title seat is registered')
+    assert.equal(chip.viewBox, '0 0 128 128', 'the chip leads with the plugin app icon, not a line glyph')
+    assert.equal(chip.iconClass, 'gp-sidebar-title-icon', 'the glyph carries its not-shrink class')
+    assert.equal(chip.label, 'panel.tab', 'the label follows the glyph as one text run')
     await page.close()
   }
 

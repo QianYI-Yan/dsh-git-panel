@@ -13,7 +13,7 @@
  * service into the plugin's own `inject` list would leave the whole plugin
  * waiting on a host that may never provide it.
  */
-import { createElement as h } from 'react'
+import { createElement as h, Fragment } from 'react'
 import type { JSX } from 'react'
 import { Panel } from './Panel.js'
 import { PluginIcon } from './icons.js'
@@ -126,10 +126,18 @@ function bodyFor(ctx: ClientCtx, t: (key: GitKey) => string): (props: SidebarRig
   }
 }
 
-/** The chip's title. It reads no tab information: a title that asks for an
- * uncommitted record throws, and the registry's captured title is enough. */
+/** The chip's title: the app glyph ahead of the label — the same artwork the
+ * guide capsule leads with. The platform's own chips (files, guide) carry an
+ * icon the same way; a text-only chip reads as an unstyled label beside them.
+ * The glyph paints its own gradient instead of following currentColor, so it
+ * keeps the app's identity in both themes, and the label stays one text run
+ * for the chip's clip mask. It reads no tab information: a title that asks
+ * for an uncommitted record throws, and the registry's captured title is
+ * enough. */
 function titleFor(t: (key: GitKey) => string): () => JSX.Element {
-  return () => h('span', { className: 'gp-sidebar-title' }, t('panel.tab'))
+  return () => h(Fragment, null,
+    h(PluginIcon, { size: 16, className: 'gp-sidebar-title-icon' }),
+    h('span', { className: 'gp-sidebar-title' }, t('panel.tab')))
 }
 
 /**

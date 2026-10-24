@@ -43,6 +43,10 @@ export const CSS = `
  * supply the icon/label spans inside each tab's label. */
 .gp-tabbar__tabs{flex:0 1 auto;min-width:0}
 .gp-tab__icon{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;flex:none}
+/* The sidebar chip's leading glyph. The chip lays its own title slot out as a
+   flex row with a gap, so the icon only has to refuse shrinking when the chip
+   clips its title. */
+.gp-sidebar-title-icon{flex:none}
 .gp-tab__label{white-space:nowrap}
 /* Trailing cluster (font stepper + version bar). display:contents makes it
  * transparent to the tab-bar flex in the wide layout — font sits after the
