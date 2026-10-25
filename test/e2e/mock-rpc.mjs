@@ -39,6 +39,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     holdRun: null, releaseRun: null,
     secondaryQueryFailure: null, secondaryFailures: [], repeatedDiffRevision: null,
     deferBinaryDiff: false, releaseBinaryDiff: null,
+    // Nested-repository switcher fixtures (issue #83): the repositories the
+    // `repo-list` reply offers, and the repository tag of every snapshot
+    // request in call order ('' for the cwd's own checkout).
+    repos: [], snapshotRepos: [],
   }
   fixture.stashes = fixture.defaultStashes
   // Valid 64×64 PNG, served as both image-diff sides and the file preview.
@@ -88,6 +92,7 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
         const request = payload && payload.args && payload.args.request
         if (endpoint === 'gitPanel/snapshot') {
           fixture.snapshotCalls++
+          fixture.snapshotRepos.push(request != null && typeof request.repo === 'string' ? request.repo : '')
           fixture.lastSnapshotFullChanges = request != null && request.fullChanges === true
           if (fixture.holdSnapshot) await park('releaseSnapshot')
           fixture.snapshotReplies++
@@ -212,6 +217,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
           if (q.kind === 'pull-preview') return { ok: true, value: { ok: true, value: { kind: 'pull-preview', hasUpstream: true, commits: 2, files: 3, insertions: 10, deletions: 4 } } }
           if (q.kind === 'push-preview') return { ok: true, value: { ok: true, value: { kind: 'push-preview', hasUpstream: fixture.snapshot.hasUpstream === true, commits: 3, files: 2, insertions: 7, deletions: 1 } } }
           if (q.kind === 'stash-list') return { ok: true, value: { ok: true, value: { kind: 'stash-list', entries: fixture.stashes } } }
+          // The panel asks for the workspace's repository list on first paint.
+          // An empty list keeps the tab bar identical for every existing
+          // runner; a fixture that needs the switcher opts in below.
+          if (q.kind === 'repo-list') return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/mock', repos: fixture.repos ?? [] } } }
         }
         if (endpoint === 'gitPanel/run') {
           const act = request.action

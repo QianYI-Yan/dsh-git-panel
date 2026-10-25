@@ -36,7 +36,8 @@ Host 半 (Cordis + typert, lib/host)
 - `index.ts`：`GitPanelService`，只做端点委托与生命周期接线。
 - `git.ts`：把 `subprocess` 适配成带超时的 `GitRunner`；每条命令注入 `GIT_TERMINAL_PROMPT=0`，网络命令遇凭据 / 主机密钥交互时快速失败而非挂到超时。
 - `fs-deps.ts`：`SnapshotDeps` fs 面的唯一来源（`createFsDeps()`），host 服务与 `host-integration` 单测共用，不得另写一份，否则测试不再是对生产的断言。
-- `core.ts`：仓库根解析（realpath）+ `snapshotForSession`；`resolveBrowseRoot` 在非 Git 目录回退到 cwd。
+- `core.ts`：仓库根解析（realpath）+ `snapshotForSession`；`resolveBrowseRoot` 在非 Git 目录回退到 cwd。多仓库：`resolveWorkspace(deps, sessionId, repo)` 按 (cwd, repo) 缓存，子目录仓库必须自己的 toplevel 恰好等于所选目录（否则 `invalid-repo`），`listSessionRepos` 汇总工作区主仓库与扫描结果。
+- `repos.ts`：工作区内嵌套仓库扫描（BFS 最多 3 层、跳过 `.git` 与 `node_modules`、命中 `.git` 即不再下钻），以及 `repoDirFor` 把相对仓库路径解析回受信任目录（`isSafePath` + realpath 包含检查、排除 cwd 与 `.git`）。
 - `snapshot-fingerprint.ts`：快照的 `stateFingerprint`（键排序后 SHA-256，排除 `checkedAt`）。
 - `actions.ts`：`GitAction` → git 命令序列，以及 git 输出 → 错误码映射（冲突、`index-busy`、`not-found`、`auth-failed`、`push-rejected`、`not-ff` 等，兜底 `git-error`）。
 - `queries.ts`：`query` 端点的各类按需查询（history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / pull-preview / push-preview / model-catalog 等）。

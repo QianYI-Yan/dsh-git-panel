@@ -53,6 +53,11 @@ export const CSS = `
  * tabs, version bar floats right via its own margin-left:auto — identical to a
  * flat layout. The compact layout re-materializes it as a single trailing item. */
 .gp-tabbar__trailing{display:contents}
+/* Repository switcher. Rendered only when the cwd has nested repositories; it
+ * must not push the tab list out of the bar, so it caps its own width and lets
+ * the trigger ellipsize the repository name. */
+.gp-tabbar__repo{flex:0 1 auto;min-width:0;max-width:40%}
+.gp-tabbar__repo .gp-select-trigger{font-size:12px}
 .gp-font{margin-left:4px;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
 .gp-font button{border:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:22px;width:24px;height:24px;padding:0;cursor:pointer}
 .gp-font button:first-child{border-left:0}

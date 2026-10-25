@@ -17,6 +17,8 @@ export const zh = {
   'tab.overviewShort': 'Git',
   'tab.changesShort': '变更',
   'tab.filesShort': '文件',
+  // repository switcher
+  'repo.primary': '仓库',
   // pill
   'pill.unavailable': 'Git 不可用',
   'pill.detached': '游离 HEAD',
@@ -442,6 +444,7 @@ export const en: Record<GitKey, string> = {
   'tab.overviewShort': 'Overview',
   'tab.changesShort': 'Changes',
   'tab.filesShort': 'Files',
+  'repo.primary': 'Repository',
   'pill.unavailable': 'Git unavailable',
   'pill.detached': 'detached HEAD',
   'pill.synced': 'Everything committed',

@@ -9,6 +9,7 @@
 import type { GitPanelRemote } from './rpc.js'
 import type { GitSnapshot } from './types.js'
 import { pageVisibility, type VisibilitySource } from './visibility.js'
+import { selectedRepo } from './repo-select.js'
 
 export type GitView =
   | { readonly state: 'cold' }
@@ -45,12 +46,19 @@ export class GitController {
   // the maxChanges slice, so the polled list stays complete (a one-shot expand
   // would be re-truncated by the next poll and the selection pruned away).
   private fullChanges = false
+  // Which repository this controller samples: '' is the repository the session
+  // cwd belongs to (walk-up behavior), anything else is a nested repository's
+  // path relative to that cwd. Rides every snapshot request; the tabs get it
+  // through the remote face the panel hands them.
+  private repo: string
 
   constructor(
     private readonly remote: GitPanelRemote,
     private readonly sessionId: string,
     private readonly visibility: VisibilitySource = pageVisibility,
+    repo?: string,
   ) {
+    this.repo = repo ?? selectedRepo(sessionId)
     this.unsubscribeVisibility = visibility.subscribe(() => {
       if (this.disposed) return
       this.visibilityGeneration += 1
@@ -101,7 +109,11 @@ export class GitController {
     const generation = this.visibilityGeneration
     const requestGeneration = this.requestGeneration
     if (this.view.state === 'cold') this.setView({ state: 'loading' })
-    this.inflight = this.remote.snapshot({ sessionId: this.sessionId, ...(this.fullChanges ? { fullChanges: true } : {}) })
+    this.inflight = this.remote.snapshot({
+      sessionId: this.sessionId,
+      ...(this.fullChanges ? { fullChanges: true } : {}),
+      ...(this.repo !== '' ? { repo: this.repo } : {}),
+    })
       .then((result) => {
         if (this.disposed || requestGeneration !== this.requestGeneration) return
         if (result.ok) {
@@ -153,6 +165,23 @@ export class GitController {
     if (this.disposed) return Promise.resolve()
     this.fullChanges = full
     this.requestGeneration += 1
+    return this.refresh()
+  }
+
+  /** The repository this controller follows ('' = the cwd's own). */
+  getRepo(): string {
+    return this.repo
+  }
+
+  /** Follow another repository and re-sample. The old snapshot describes a
+   * different work tree, so it is replaced by the loading state instead of
+   * being kept while the new one is in flight (a stale root would let child
+   * queries answer from the previous repository). */
+  setRepo(repo: string): Promise<void> {
+    if (this.disposed || repo === this.repo) return Promise.resolve()
+    this.repo = repo
+    this.requestGeneration += 1
+    if (this.view.state === 'ready' || this.view.state === 'error') this.setView({ state: 'loading' })
     return this.refresh()
   }
 

@@ -3,10 +3,10 @@
  * slot. Snapshot state chooses the initial tab unless the input-bar pill
  * supplied a one-shot focus request.
  */
-import { createElement as h, useEffect, useId, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { SegmentedTabs, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
-import { gitPanelRemoteOf, hasSession, type ClientCtx, type GitPanelRemote } from './rpc.js'
+import { Menu, SegmentedTabs, type MenuItem, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
+import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx, type GitPanelRemote } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
 import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump.js'
 import { OverviewTab } from './OverviewTab.js'
@@ -17,11 +17,13 @@ import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
-import type { FontDelta, GitAction, GitVersionInfo } from './types.js'
+import type { FontDelta, GitAction, GitRepoEntry, GitVersionInfo } from './types.js'
 import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
+import { selectedRepo, selectRepo, withRepo } from './repo-select.js'
+import { selectTrigger } from './select-trigger.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -134,9 +136,71 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // The git-not-installed banner can be dismissed for this mount.
   const [gitNoticeClosed, setGitNoticeClosed] = useState(false)
 
+  // Repository selection: '' follows the repository the session cwd belongs to
+  // (walk-up), anything else follows a nested repository below that cwd. The
+  // pick is remembered per session (repo-select.ts); carrying a state pair lets
+  // a session switch derive the new session's pick instead of showing the
+  // previous session's repository for one render.
+  const [repos, setRepos] = useState<readonly GitRepoEntry[]>([])
+  const [repoState, setRepoState] = useState<{ readonly session?: string; readonly path: string }>({
+    session: sessionId,
+    path: sessionId === undefined ? '' : selectedRepo(sessionId),
+  })
+  const repo = repoState.session === sessionId
+    ? repoState.path
+    : sessionId === undefined ? '' : selectedRepo(sessionId)
+  const [repoMenuOpen, setRepoMenuOpen] = useState(false)
+  // The list belongs to one session's cwd: drop it when the session changes so
+  // the switcher cannot offer the previous workspace's repositories.
+  useEffect(() => { setRepos([]) }, [sessionId])
+  const snapshotRoot = view.state === 'ready' ? view.snapshot.root : ''
+  // Every repository-scoped call of the panes and of the write path goes
+  // through this face: the tabs stay unaware of the selection.
+  const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
+  // The controller samples exactly one repository; keep it aligned with the
+  // switcher. setRepo() publishes the loading state itself, so no pane keeps
+  // reading the previous work tree's snapshot under the new selection.
+  useEffect(() => {
+    if (!hasSession(sessionId)) return
+    const controller = controllerFor(sessionId)
+    if (controller.getRepo() === repo) return
+    void controller.setRepo(repo)
+  }, [sessionId, repo])
+
+  const chooseRepo = (next: string): void => {
+    setRepoMenuOpen(false)
+    if (!hasSession(sessionId) || next === repo) return
+    selectRepo(sessionId, next)
+    setRepoState({ session: sessionId, path: next })
+    // Another repository means another directory tree: drop the Files cache.
+    setWorktreeGen((n) => n + 1)
+  }
+
+  useEffect(() => {
+    if (!queryVisible) return
+    let alive = true
+    void (async () => {
+      const listed = queryAs(
+        await remote.query({ sessionId: sessionId as string, query: { kind: 'repo-list' } }),
+        'repo-list',
+      )
+      if (!alive || listed === null) return
+      // A reply without the list (an older host) degrades to "one repository"
+      // rather than blanking the tab bar on a missing field.
+      const found = Array.isArray(listed.repos) ? listed.repos : []
+      setRepos(found)
+      // A remembered pick that disappeared (deleted, or no longer a repository)
+      // falls back to the cwd's own repository instead of erroring forever.
+      if (repo !== '' && !found.some((entry) => entry.path === repo)) chooseRepo('')
+    })()
+    return () => { alive = false }
+    // chooseRepo is rebuilt every render; the query only depends on its inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote, sessionId, queryVisible, snapshotRoot, repo])
+
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
-    const result = await remote.run({ sessionId, action })
+    const result = await repoRemote.run({ sessionId, action })
     if (result.ok) {
       // The run already returned a fresh snapshot; feed it to the controller
       // instead of triggering another git round-trip.
@@ -241,23 +305,23 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!hasSession(sessionId)) return null
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, stacked, worktreeGen, snapshot: null, t }) : null
+      return filesVisited ? h(FilesTab, { key: sessionId, remote: repoRemote, sessionId, compact, stacked, worktreeGen, snapshot: null, t }) : null
     }
     if (view.state !== 'ready') return null
     const snapshot = view.snapshot
     if (key === 'overview') {
       return visited.current.tabs.has('overview')
-        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, tight: stackedTight, phone: layout.phone ?? false, t })
+        ? h(OverviewTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, tight: stackedTight, phone: layout.phone ?? false, t })
         : null
     }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
     // until the user opens it), then stays mounted to retain its tree state.
-    return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, stacked, worktreeGen, snapshot, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: repoRemote, sessionId, compact, stacked, worktreeGen, snapshot, t }) : null
   }
 
   const panes = tabs.map((tb) => h('div', {
@@ -280,9 +344,40 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // own overflow, and the composer/input bar floats over the bottom. Without
   // it the view grows with content and the whole conversation scrolls. The
   // sidebar has no composer under it, so it opts out.
+  // The repository switcher appears only when there is something to switch to
+  // (the cwd's own repository plus at least one nested one). A lone repository
+  // keeps the bar exactly as before.
+  const currentRepoLabel = repo === ''
+    ? repos.find((entry) => entry.kind === 'workspace')?.name ?? t('repo.primary')
+    : repos.find((entry) => entry.path === repo)?.name ?? t('repo.primary')
+  const repoItems: readonly MenuItem[] = repos.map((entry) => ({
+    id: entry.path,
+    // The relative path disambiguates two nested checkouts sharing a basename;
+    // repeating it when the basename already is the whole path ("site (site)")
+    // only adds noise.
+    label: entry.kind === 'workspace' || entry.name === entry.path ? entry.name : `${entry.name} (${entry.path})`,
+  }))
+  const repoSwitcher = repos.length > 1 || repo !== ''
+    ? h('div', { key: 'repo', className: 'gp-tabbar__repo' }, [
+      h(Menu, {
+        key: 'menu',
+        open: repoMenuOpen,
+        onClose: () => setRepoMenuOpen(false),
+        items: repoItems,
+        selectedId: repo,
+        onSelect: (id: string) => chooseRepo(id),
+        align: 'start',
+        portal: true,
+        className: 'gp-filter',
+        anchor: selectTrigger(repoMenuOpen, currentRepoLabel, () => setRepoMenuOpen((v) => !v), { extraClass: 'gp-repo-trigger' }),
+      }),
+    ])
+    : null
+
   const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
   return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode }, [
     h('div', { key: 'tabs', className: 'gp-tabbar' }, [
+      repoSwitcher,
       h(SegmentedTabs, {
         key: 'switcher',
         // A lone tab (non-git directory → Files only) has nothing to switch

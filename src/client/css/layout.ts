@@ -35,6 +35,9 @@ export const CSS = `
 /* Slightly shorter cells + less side padding so "Overview" fits on a phone. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs>[role="tab"]{height:30px;padding:0 8px;font-size:12px}
 .gp-panel[data-layout="compact"] .gp-tabbar__trailing{display:flex;flex:none;align-items:center;margin-left:auto}
+/* A phone bar spends its width on the three tab cells; the repository chip
+ * keeps a third so it stays tappable without clipping the short labels. */
+.gp-panel[data-layout="compact"] .gp-tabbar__repo{flex:0 1 auto;max-width:32%}
 
 /* Shared drill-in back bar (overview detail / files preview). The Changes
  * diff and Files bar reuse just the .gp-subhead__back button inline. */

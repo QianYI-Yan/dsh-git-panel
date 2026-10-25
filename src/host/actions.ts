@@ -252,7 +252,7 @@ export async function runAction(
   config: GitPanelConfig,
   request: GitActionRequest,
 ): Promise<GitActionResult> {
-  const workspace = await resolveWorkspace(deps, request.sessionId)
+  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
 
@@ -318,7 +318,7 @@ export async function runAction(
     // contract as the picked batch), so `:w` picks are the whole target set.
     const paths = [...new Set(all.filter((c) => !c.staged).map((c) => c.path))].sort()
     if (paths.length === 0) {
-      const snapshot = await snapshotForSession(deps, config, request.sessionId)
+      const snapshot = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
       if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
       return { ok: true, snapshot: snapshot.value, output: '' }
     }
@@ -329,11 +329,11 @@ export async function runAction(
   // not match a known file); delete those from the work tree directly, with a
   // realpath-containment check, and let git restore only the tracked ones.
   if (request.action.kind === 'discard') {
-    const removed = await discardUntracked(deps, config, root, request.sessionId, request.action.paths)
+    const removed = await discardUntracked(deps, config, root, request.sessionId, request.repo, request.action.paths)
     if (removed !== null) {
       if (!removed.ok) return removed.result
       if (removed.remainingTracked.length === 0) {
-        const snapshot = await snapshotForSession(deps, config, request.sessionId)
+        const snapshot = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
         if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
         return { ok: true, snapshot: snapshot.value, output: '' }
       }
@@ -422,7 +422,7 @@ export async function runAction(
     }
   }
 
-  const snapshot = await snapshotForSession(deps, config, request.sessionId)
+  const snapshot = await snapshotForSession(deps, config, request.sessionId, { repo: request.repo })
   if (!snapshot.ok) {
     return { ok: false, error: { code: 'git-error', message: 'snapshot after action failed' } }
   }
@@ -481,9 +481,10 @@ async function discardUntracked(
   config: GitPanelConfig,
   root: string,
   sessionId: string,
+  repo: string | undefined,
   paths: readonly string[],
 ): Promise<null | { ok: true; remainingTracked: readonly string[] } | { ok: false; result: GitActionResult }> {
-  const snap = await snapshotForSession(deps, config, sessionId)
+  const snap = await snapshotForSession(deps, config, sessionId, { repo })
   if (!snap.ok) return null
   const untrackedSet = new Set(snap.value.changes.filter((c) => c.status === 'untracked').map((c) => c.path))
   const untracked = paths.filter((p) => untrackedSet.has(p))
