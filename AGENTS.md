@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-`dsh-git-panel` 是 DeepSeek Harness（dsh）的插件，在 Web GUI 里提供 Git 面板（许可：MIT）：工作区常驻面板 tab「Git」，含三个子 tab——**Git 总览**（分支树 / 提交历史图 / 提交详情与操作、分支切换与远程同步）、**变更记录**（暂存 / 放弃 / 提交 / 贮藏 / 文件差异）、**文件浏览**（目录树 + 预览）。功能细节见 README「功能」；非 Git 目录或系统未装 git 时只显示文件浏览，以 cwd 为根。
+`dsh-git-panel` 是 DeepSeek Harness（dsh）的插件，在 Web GUI 里提供 Git 面板（许可：MIT）：工作区常驻面板 tab「Git」，含四个子 tab——**存储库**（工作区内仓库列表，选中的那份决定另外三个页签作用于哪个工作树）、**Git 总览**（分支树 / 提交历史图 / 提交详情与操作、分支切换与远程同步）、**变更记录**（暂存 / 放弃 / 提交 / 贮藏 / 文件差异）、**文件浏览**（目录树 + 预览）。功能细节见 README「功能」；非 Git 目录或系统未装 git 时只显示文件浏览，以 cwd 为根。
 
 - 输入框左侧 zsh 风格标记 `<仓库名> (<分支>)`（绿=已同步、橙=有待提交，点击跳转面板）；插件详情页可隐藏标记，隐藏时改在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），**两者互斥**。详情页配置表单是 `PillConfig.tsx`，写入被接受后立即 `resyncAll()`。
 - 面板布局判据都在容器上量：`layout.ts` 测量、`panel-fit.ts` 出纯策略（`panelMode` → `wide | stacked | compact`，按宿主分支）。所有断点、档位与抽屉规则以 **ADR-0023** 和 `panel-fit.ts` 单测为准，本文件只记两条踩过的坑：**判手机必须同时要求 `(pointer: coarse)`**（`screen` 报 CSS px，1366×768@125% 的短边只有 614，只看屏宽会把缩放桌面读成手机）；**提交字段持有光标时不折叠编辑器**（手机输入法会把面板压进矮档，折叠=卸载正在输入的字段并连带关掉键盘），折叠只由显式操作触发且先 blur。**藏东西只认 `isCramped`（窄且矮）组合**，stacked 不藏。
@@ -50,9 +50,9 @@ Host 半 (Cordis + typert, lib/host)
 
 - 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
 - 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
-- 页面：`Panel.tsx`（子 tab 路由、字号、版本条）+ `OverviewTab` / `ChangesTab` / `FilesTab` 三个页签及其 `*-hooks`、工具栏与弹窗伴星文件——单个文件的职责看目录与文件头注释即可。
-- 纯算法（有单测，新增纯逻辑放这里、别塞进组件）：`branch-tree` / `git-graph` / `filtered-graph` / `file-tree` / `diff` / `code-spans` / `virtual-list` / `zoom` / `selection-keys` / `branch-options` / `push-policy` / `panel-fit`（三档判据，测量与策略分离才可单测）/ `path-images` / `mermaid-blocks`（kbd 只能在送入 MarkdownText **之前**文本替换，围栏与行内代码内不替换）/ `html-pack`（HTML 预览文档变换，ADR-0020）。
-- 样式表：`styles.ts` 只是装配入口（`ensureStyles` + `CSS_PARTS` 拼接），规则在 `css/` 下按功能域九个模块（base / overview / changes / diff / modal / actions / config / layout / stacked）。**`CSS_PARTS` 的数组顺序即层叠顺序**，写在后面的模块覆盖前面的——所以「写进对应功能域模块」还不够：要让一条新规则赢过某条既有规则，它必须落在**那条规则所在模块之后**（同模块内则在其后），否则会被静默覆盖；跨档覆盖（compact、触摸媒体查询）进 `layout.ts`，侧栏 stacked 覆盖进 `stacked.ts`。不要重排既有模块或改动 `CSS_PARTS` 的顺序，`test/unit/stylesheet.test.mjs` 会拦。
+- 页面：`Panel.tsx`（子 tab 路由、字号、版本条）+ `ReposTab` / `OverviewTab` / `ChangesTab` / `FilesTab` 四个页签及其 `*-hooks`、工具栏与弹窗伴星文件——单个文件的职责看目录与文件头注释即可。
+- 纯算法（有单测，新增纯逻辑放这里、别塞进组件）：`repo-select`（每会话记住所选仓库 + 给仓库相关请求打 `repo` 标签）/ `repo-list`（存储库页签的行模型与标签规则）/ `branch-tree` / `git-graph` / `filtered-graph` / `file-tree` / `diff` / `code-spans` / `virtual-list` / `zoom` / `selection-keys` / `branch-options` / `push-policy` / `panel-fit`（三档判据，测量与策略分离才可单测）/ `path-images` / `mermaid-blocks`（kbd 只能在送入 MarkdownText **之前**文本替换，围栏与行内代码内不替换）/ `html-pack`（HTML 预览文档变换，ADR-0020）。
+- 样式表：`styles.ts` 只是装配入口（`ensureStyles` + `CSS_PARTS` 拼接），规则在 `css/` 下按功能域十个模块（base / overview / changes / diff / modal / actions / config / layout / repos / stacked）。**`CSS_PARTS` 的数组顺序即层叠顺序**，写在后面的模块覆盖前面的——所以「写进对应功能域模块」还不够：要让一条新规则赢过某条既有规则，它必须落在**那条规则所在模块之后**（同模块内则在其后），否则会被静默覆盖；跨档覆盖（compact、触摸媒体查询）进 `layout.ts`，侧栏 stacked 覆盖进 `stacked.ts`。不要重排既有模块或改动 `CSS_PARTS` 的顺序，`test/unit/stylesheet.test.mjs` 会拦。
 - 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`、`notice.tsx`、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（懒加载 mermaid chunk 的唯一引用点，见「依赖策略」）。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 

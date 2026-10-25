@@ -28,6 +28,10 @@ export const CSS = `
 .gp-panel[data-layout="stacked"] .gp-tabbar__tabs{flex:1 1 auto;padding:2px;border-radius:8px}
 .gp-panel[data-layout="stacked"] .gp-tabbar__tabs--single{flex:0 0 auto}
 .gp-panel[data-layout="stacked"] .gp-tabbar__tabs>span[aria-hidden="true"]{inset:2px auto 2px 2px;width:calc((100% - 4px) / 3) !important}
+/* Same divisor restatement as compact: the Repositories tab is conditional, so
+ * the pill's width has to follow the count the panel puts on the bar. */
+.gp-panel[data-layout="stacked"] .gp-tabbar[data-tab-count="2"] .gp-tabbar__tabs>span[aria-hidden="true"]{width:calc((100% - 4px) / 2) !important}
+.gp-panel[data-layout="stacked"] .gp-tabbar[data-tab-count="4"] .gp-tabbar__tabs>span[aria-hidden="true"]{width:calc((100% - 4px) / 4) !important}
 .gp-panel[data-layout="stacked"] .gp-tabbar__tabs--single>span[aria-hidden="true"]{width:calc(100% - 4px) !important}
 .gp-panel[data-layout="stacked"] .gp-tabbar__tabs>[role="tab"]{height:30px;padding:0 8px;font-size:12px}
 .gp-panel[data-layout="stacked"] .gp-tabbar__trailing{display:flex;flex:none;align-items:center;margin-left:auto}

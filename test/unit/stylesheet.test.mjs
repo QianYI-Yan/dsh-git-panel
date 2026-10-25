@@ -40,7 +40,7 @@ function moduleLiteral(name) {
 }
 
 /** Cascade order: base first, layout overrides last. */
-const ORDER = ['base', 'overview', 'changes', 'diff', 'modal', 'actions', 'config', 'layout', 'stacked']
+const ORDER = ['base', 'overview', 'changes', 'diff', 'modal', 'actions', 'config', 'layout', 'repos', 'stacked']
 
 test('the sheet is exactly the declared modules, in cascade order', () => {
   assert.deepEqual(CSS_PARTS.map(([name]) => name), ORDER)

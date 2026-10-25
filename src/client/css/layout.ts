@@ -29,15 +29,17 @@ export const CSS = `
 /* Indicator width is an inline calc((100% - 8px) / n) from the primitive.
  * Platform DOM contract pinned here: the indicator is a DIRECT span child with
  * aria-hidden and that inline width — if the primitive wraps it or changes the
- * width formula, compact indicator geometry breaks silently (watch the e2e). */
+ * width formula, compact indicator geometry breaks silently (watch the e2e).
+ * The compact override has to restate the divisor, so it is keyed off the tab
+ * count the panel puts on the bar: the Repositories tab is conditional, and a
+ * hard-coded three would slide the pill off its cell. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs>span[aria-hidden="true"]{inset:2px auto 2px 2px;width:calc((100% - 4px) / 3) !important}
+.gp-panel[data-layout="compact"] .gp-tabbar[data-tab-count="2"] .gp-tabbar__tabs>span[aria-hidden="true"]{width:calc((100% - 4px) / 2) !important}
+.gp-panel[data-layout="compact"] .gp-tabbar[data-tab-count="4"] .gp-tabbar__tabs>span[aria-hidden="true"]{width:calc((100% - 4px) / 4) !important}
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs--single>span[aria-hidden="true"]{width:calc(100% - 4px) !important}
 /* Slightly shorter cells + less side padding so "Overview" fits on a phone. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs>[role="tab"]{height:30px;padding:0 8px;font-size:12px}
 .gp-panel[data-layout="compact"] .gp-tabbar__trailing{display:flex;flex:none;align-items:center;margin-left:auto}
-/* A phone bar spends its width on the three tab cells; the repository chip
- * keeps a third so it stays tappable without clipping the short labels. */
-.gp-panel[data-layout="compact"] .gp-tabbar__repo{flex:0 1 auto;max-width:32%}
 
 /* Shared drill-in back bar (overview detail / files preview). The Changes
  * diff and Files bar reuse just the .gp-subhead__back button inline. */

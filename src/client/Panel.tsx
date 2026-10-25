@@ -1,18 +1,21 @@
 /**
- * Main Git panel shell: Overview / Changes / Files over the conversation.view
- * slot. Snapshot state chooses the initial tab unless the input-bar pill
- * supplied a one-shot focus request.
+ * Main Git panel shell: Repositories / Overview / Changes / Files over the
+ * conversation.view slot. Snapshot state chooses the initial tab unless the
+ * input-bar pill supplied a one-shot focus request; the Repositories tab leads
+ * the bar whenever the workspace scan returns a checkout to pick from.
  */
 import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { Menu, SegmentedTabs, type MenuItem, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SegmentedTabs, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx, type GitPanelRemote } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
 import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump.js'
 import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
-import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
+import { ReposTab } from './ReposTab.js'
+import { repoChoices } from './repo-list.js'
+import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, RepoIcon, StarIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { useHoverTip } from './tip.js'
@@ -23,7 +26,6 @@ import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
 import { selectedRepo, selectRepo, withRepo } from './repo-select.js'
-import { selectTrigger } from './select-trigger.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -85,7 +87,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const gitMissingInRepo = gitUnavailable && view.state === 'error' && view.error.isGitRepo === true
   // Wait for the snapshot before mounting any git-backed pane. An explicit pill
   // jump takes priority; switching sessions resets the one-shot default.
-  const activeTab = filesOnly ? 'files' : selection !== null && selection.sessionId === sessionId ? selection.tab : null
+  const pickedTab = selection !== null && selection.sessionId === sessionId ? selection.tab : null
+  // A cwd that is not a checkout keeps the Repositories tab: the nested
+  // repositories it lists are the only way to reach any git view at all.
+  const activeTab: SubTab | null = filesOnly && pickedTab !== 'repos' ? 'files' : pickedTab
   const visited = useRef<{ sessionId?: string; tabs: Set<SubTab> }>({ tabs: new Set() })
   if (visited.current.sessionId !== sessionId) visited.current = { sessionId, tabs: new Set() }
   if (activeTab !== null) visited.current.tabs.add(activeTab)
@@ -93,7 +98,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   useEffect(() => {
     if (!hasSession(sessionId)) return
-    if (filesOnly) { setSelection(null); return }
+    if (filesOnly) {
+      // Only Repositories and Files exist here; an explicit pick of either is
+      // already the answer, anything else lands on the browser as before.
+      if (selection?.sessionId === sessionId && (selection.tab === 'repos' || selection.tab === 'files')) return
+      setSelection({ sessionId, tab: 'files' })
+      return
+    }
     if (selection?.sessionId === sessionId) return
     const pending = takeSubTab(sessionId)
     if (pending !== null) { setSelection({ sessionId, tab: pending }); return }
@@ -103,7 +114,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const recent = recentSubTab(sessionId)
     if (recent !== null) { setSelection({ sessionId, tab: recent }); return }
     if (view.state === 'ready') setSelection({ sessionId, tab: view.snapshot.dirty ? 'changes' : 'overview' })
-  }, [sessionId, view, filesOnly, selection?.sessionId])
+  }, [sessionId, view, filesOnly, selection?.sessionId, selection?.tab])
 
   // While mounted, receive pill jumps live (a click when the panel is already
   // visible must still switch sub-tabs, not sit in the pending map).
@@ -149,7 +160,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const repo = repoState.session === sessionId
     ? repoState.path
     : sessionId === undefined ? '' : selectedRepo(sessionId)
-  const [repoMenuOpen, setRepoMenuOpen] = useState(false)
   // The list belongs to one session's cwd: drop it when the session changes so
   // the switcher cannot offer the previous workspace's repositories.
   useEffect(() => { setRepos([]) }, [sessionId])
@@ -168,12 +178,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   }, [sessionId, repo])
 
   const chooseRepo = (next: string): void => {
-    setRepoMenuOpen(false)
     if (!hasSession(sessionId) || next === repo) return
     selectRepo(sessionId, next)
     setRepoState({ session: sessionId, path: next })
     // Another repository means another directory tree: drop the Files cache.
     setWorktreeGen((n) => n + 1)
+    // Land where the new checkout has something to say. The workspace-root
+    // entry of a non-checkout cwd is not in the scan (it has no checkout), so it
+    // opens the browser instead of a git view that cannot resolve.
+    const target = repos.find((entry) => entry.path === next)
+    setSelection({ sessionId, tab: target !== undefined ? 'overview' : 'files' })
   }
 
   useEffect(() => {
@@ -200,11 +214,21 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
+    // The selection can move while the write is in flight; the reply carries a
+    // snapshot of the work tree it started in. Handing that to a controller
+    // that already switched repositories would both paint the old tree and
+    // bump the generation, discarding the refresh the switch had started.
+    const startedRepo = repo
     const result = await repoRemote.run({ sessionId, action })
     if (result.ok) {
+      const controller = controllerFor(sessionId)
+      if (controller.getRepo() !== startedRepo) {
+        void controller.refresh()
+        return { ok: true }
+      }
       // The run already returned a fresh snapshot; feed it to the controller
       // instead of triggering another git round-trip.
-      controllerFor(sessionId).accept(result.snapshot)
+      controller.accept(result.snapshot)
       if (action.kind === 'branch-checkout') setWorktreeGen((n) => n + 1)
       return { ok: true }
     }
@@ -257,17 +281,32 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // stacked sidebar show the short pair so the three cells still read as words
   // next to the trailing controls.
   const tabLabelKeys: Record<SubTab, { full: GitKey; short: GitKey }> = {
+    repos: { full: 'tab.repos', short: 'tab.reposShort' },
     overview: { full: 'tab.overview', short: 'tab.overviewShort' },
     changes: { full: 'tab.changes', short: 'tab.changesShort' },
     files: { full: 'tab.files', short: 'tab.filesShort' },
   }
-  const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
-    { key: 'overview', label: t(shortLabels ? tabLabelKeys.overview.short : tabLabelKeys.overview.full), icon: h(CommitIcon, { size: 14 }) },
-    { key: 'changes', label: t(shortLabels ? tabLabelKeys.changes.short : tabLabelKeys.changes.full), icon: h(DiffIcon, { size: 14 }) },
-    { key: 'files', label: t(shortLabels ? tabLabelKeys.files.short : tabLabelKeys.files.full), icon: h(FilesIcon, { size: 14 }) },
-  ]
-  // A non-git directory exposes only the Files tab.
-  const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
+  const tabIcons: Record<SubTab, JSX.Element> = {
+    repos: h(RepoIcon, { size: 14 }),
+    overview: h(CommitIcon, { size: 14 }),
+    changes: h(DiffIcon, { size: 14 }),
+    files: h(FilesIcon, { size: 14 }),
+  }
+  const repoList = repoChoices(repos)
+  // Repositories leads the bar: it is where the checkout the other three act
+  // on is chosen. A workspace with a single checkout still gets the tab, so its
+  // path and branch stay readable without switching anywhere.
+  const tabOrder: SubTab[] = repoList.length > 0
+    ? ['repos', 'overview', 'changes', 'files']
+    : ['overview', 'changes', 'files']
+  const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = tabOrder.map((key) => ({
+    key,
+    label: t(shortLabels ? tabLabelKeys[key].short : tabLabelKeys[key].full),
+    icon: tabIcons[key],
+  }))
+  // A non-git directory exposes the browser — and the picker, which is the only
+  // way to reach a repository that lives below that directory.
+  const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files' || tb.key === 'repos') : allTabs
   // The switcher is the platform SegmentedTabs primitive: it owns the tablist
   // role, the sliding indicator and the keyboard walk; we own the panes and
   // wire them up with instance-scoped ids (a panel can be mounted per session).
@@ -298,6 +337,21 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   })()
 
   const paneContent = (key: SubTab): JSX.Element | null => {
+    // The picker renders ahead of the state placeholder: it reads the scan
+    // result and the one snapshot, needs neither a resolvable checkout nor a
+    // finished sample, and is the way out of a cwd that has no git view — in
+    // particular while the sample of a just-picked repository is still pending.
+    if (key === 'repos' && hasSession(sessionId)) {
+      return h(ReposTab, {
+        key: sessionId,
+        choices: repoList,
+        current: repo,
+        snapshot: view.state === 'ready' ? view.snapshot : null,
+        compact,
+        onChoose: chooseRepo,
+        t,
+      })
+    }
     // The state placeholder (loading / no-cwd / error, including no-session)
     // lives in the selected pane; the guard below only narrows sessionId for the
     // tab components.
@@ -344,40 +398,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // own overflow, and the composer/input bar floats over the bottom. Without
   // it the view grows with content and the whole conversation scrolls. The
   // sidebar has no composer under it, so it opts out.
-  // The repository switcher appears only when there is something to switch to
-  // (the cwd's own repository plus at least one nested one). A lone repository
-  // keeps the bar exactly as before.
-  const currentRepoLabel = repo === ''
-    ? repos.find((entry) => entry.kind === 'workspace')?.name ?? t('repo.primary')
-    : repos.find((entry) => entry.path === repo)?.name ?? t('repo.primary')
-  const repoItems: readonly MenuItem[] = repos.map((entry) => ({
-    id: entry.path,
-    // The relative path disambiguates two nested checkouts sharing a basename;
-    // repeating it when the basename already is the whole path ("site (site)")
-    // only adds noise.
-    label: entry.kind === 'workspace' || entry.name === entry.path ? entry.name : `${entry.name} (${entry.path})`,
-  }))
-  const repoSwitcher = repos.length > 1 || repo !== ''
-    ? h('div', { key: 'repo', className: 'gp-tabbar__repo' }, [
-      h(Menu, {
-        key: 'menu',
-        open: repoMenuOpen,
-        onClose: () => setRepoMenuOpen(false),
-        items: repoItems,
-        selectedId: repo,
-        onSelect: (id: string) => chooseRepo(id),
-        align: 'start',
-        portal: true,
-        className: 'gp-filter',
-        anchor: selectTrigger(repoMenuOpen, currentRepoLabel, () => setRepoMenuOpen((v) => !v), { extraClass: 'gp-repo-trigger' }),
-      }),
-    ])
-    : null
-
   const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
   return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode }, [
-    h('div', { key: 'tabs', className: 'gp-tabbar' }, [
-      repoSwitcher,
+    // data-tab-count feeds the compact indicator width (layout.ts): the
+    // Repositories tab is conditional, and the platform's sliding pill needs the
+    // same divisor the compact override restates.
+    h('div', { key: 'tabs', className: 'gp-tabbar', 'data-tab-count': tabs.length }, [
       h(SegmentedTabs, {
         key: 'switcher',
         // A lone tab (non-git directory → Files only) has nothing to switch
