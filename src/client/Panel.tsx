@@ -335,8 +335,24 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     panelId: `${tabsId}-${tb.key}-panel`,
   }))
   // SegmentedTabs requires the value to belong to items; before a snapshot lands
-  // (cold/loading/no-cwd) there is no active pane, so show the first tab.
-  const selectedTab: SubTab = activeTab ?? tabs[0]?.key ?? 'overview'
+  // (cold/loading/no-cwd) there is no active pane, so show the first tab. A
+  // layout change can also retire the tab the selection points at — compact
+  // shows the picker, wide hosts the list in the overview — and a value that
+  // belongs to no item would leave every pane hidden.
+  const tabKeys = tabs.map((tb) => tb.key)
+  const selectedTab: SubTab = activeTab !== null && tabKeys.includes(activeTab)
+    ? activeTab
+    : tabs[0]?.key ?? 'overview'
+  // Keep the stored selection on a tab that exists, so leaving the compact
+  // layout does not strand the session on the retired picker tab.
+  const tabKeyList = tabKeys.join(' ')
+  useEffect(() => {
+    if (!hasSession(sessionId) || selection?.sessionId !== sessionId) return
+    const keys = tabKeyList === '' ? [] : tabKeyList.split(' ')
+    if (keys.includes(selection.tab)) return
+    const fallback = keys[0]
+    if (fallback !== undefined) setSelection({ sessionId, tab: fallback as SubTab })
+  }, [sessionId, tabKeyList, selection?.sessionId, selection?.tab])
 
   // Every tab in `tabs` always gets its own role=tabpanel node — in the ready
   // view and in the loading / no-cwd / error / files-only states alike — so a
@@ -428,7 +444,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   }
 
   // One panel per tab, so every tab's aria-controls resolves.
-  const paneKeys: SubTab[] = tabs.map((tb) => tb.key)
+  const paneKeys: SubTab[] = tabKeys
   const panes = paneKeys.map((key) => h('div', {
     key, id: `${tabsId}-${key}-panel`, role: 'tabpanel',
     'aria-labelledby': `${tabsId}-${key}`,
