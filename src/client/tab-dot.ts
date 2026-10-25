@@ -3,8 +3,10 @@
  *
  * The shell renders the view-tab label as plain text resolved globally (no
  * per-session context, not reactive to git status), so the dot is injected
- * imperatively next to the label from the always-mounted, session-aware pill.
- * The dot carries no text, so the tab's textContent stays the plain label and
+ * imperatively into the label's own element from the always-mounted,
+ * session-aware pill — inside a `white-space: nowrap` label it stays on the
+ * name's line; as a sibling of that block-level label it drops below it. The
+ * dot carries no text, so the tab's textContent stays the plain label and
  * the pill's `activateGitTab` matcher keeps working. A narrowly-scoped
  * MutationObserver on the tab list re-applies the dot if the shell re-renders
  * the button. Color mirrors the input-bar pill: green synced / orange dirty.
@@ -34,6 +36,22 @@ function findTab(label: string): HTMLButtonElement | null {
   return null
 }
 
+/**
+ * The element that directly holds the label text. The dot goes inside it so it
+ * joins the label's own line: the shell renders the label as a `nowrap` block
+ * span, so a sibling after that span lands in the button's next line box — the
+ * dot would fall below the tab name and stretch the tab row.
+ */
+function labelHost(btn: HTMLButtonElement, label: string): HTMLElement {
+  const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    if ((node.nodeValue ?? '').trim() !== label) continue
+    const parent = node.parentElement
+    if (parent !== null) return parent
+  }
+  return btn
+}
+
 /** Reconcile the dot on the current tab to the current desired status. */
 function apply(): void {
   const btn = findTab(currentLabel)
@@ -44,15 +62,19 @@ function apply(): void {
     return
   }
   const cls = `gp-tab-dot gp-tab-dot--${currentStatus}`
+  const host = labelHost(btn, currentLabel)
   if (existing !== null) {
     if (existing.className !== cls) existing.className = cls
+    // A shell re-render can move the label span; follow it instead of staying
+    // behind on the button.
+    if (existing.parentElement !== host) host.appendChild(existing)
     return
   }
   const dot = document.createElement('span')
   dot.className = cls
   dot.setAttribute(DOT_ATTR, '')
   dot.setAttribute('aria-hidden', 'true')
-  btn.appendChild(dot)
+  host.appendChild(dot)
 }
 
 /** (Re)attach the observer to the live tab-list container. */

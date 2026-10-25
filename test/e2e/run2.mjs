@@ -76,17 +76,30 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   result.cleanAfterSessionSwitch = cleanPanel.querySelector('.gp-panel [role="tab"][aria-selected="true"]')?.textContent?.includes('tab.overview') ?? false
 
   // Fake tab bar → the pill click should click a role=tab button labeled panel.tab.
-  // The real shell wraps view tabs in [data-conversation-tabs]; mirror that here,
-  // and add a sibling "chat" tab so the toggle-back path has somewhere to go.
+  // The real shell wraps view tabs in [data-conversation-tabs] and puts each
+  // name in its own nowrap block span (its `.tabLabel`); mirror that here so the
+  // dot's line placement is the one the shell produces, and add a sibling
+  // "chat" tab so the toggle-back path has somewhere to go.
+  const mkShellTab = (label) => {
+    const btn = document.createElement('button')
+    btn.setAttribute('role', 'tab')
+    btn.setAttribute('aria-selected', 'false')
+    const span = document.createElement('span')
+    span.className = 'shell-tab-label'
+    span.style.cssText = 'display:block;white-space:nowrap;max-width:88px;'
+      + 'overflow:hidden;text-overflow:ellipsis;line-height:16px'
+    span.textContent = label
+    btn.appendChild(span)
+    return btn
+  }
   document.getElementById('tabbar').setAttribute('data-conversation-tabs', '')
-  const chatTab = document.createElement('button')
-  chatTab.setAttribute('role', 'tab'); chatTab.textContent = 'chat'; chatTab.setAttribute('aria-selected', 'true')
+  const chatTab = mkShellTab('chat')
+  chatTab.setAttribute('aria-selected', 'true')
   chatTab.addEventListener('click', () => {
     chatTab.setAttribute('aria-selected', 'true'); fakeTab.setAttribute('aria-selected', 'false')
   })
   document.getElementById('tabbar').appendChild(chatTab)
-  const fakeTab = document.createElement('button')
-  fakeTab.setAttribute('role', 'tab'); fakeTab.textContent = 'panel.tab'; fakeTab.setAttribute('aria-selected', 'false')
+  const fakeTab = mkShellTab('panel.tab')
   let clicked = false
   fakeTab.addEventListener('click', () => {
     clicked = true; fakeTab.setAttribute('aria-selected', 'true'); chatTab.setAttribute('aria-selected', 'false')
@@ -131,6 +144,22 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   result.dotPillHidden = document.querySelector('#pill .gp-pill') === null
   result.dotOnTab = document.querySelector('[data-gp-tab-dot]') !== null
   result.dotDirty = document.querySelector('.gp-tab-dot--dirty') !== null
+  // issue #84: the dot belongs beside the tab name, on the label's own line.
+  // As a sibling of the shell's block-level label it fell to the line below the
+  // name and stretched the tab row, so measure the real boxes.
+  const dotEl = document.querySelector('[data-gp-tab-dot]')
+  const labelEl = fakeTab.querySelector('.shell-tab-label')
+  const nameNode = labelEl === null ? null
+    : [...labelEl.childNodes].find((n) => n.nodeType === 3 && (n.textContent ?? '').trim() !== '')
+  const nameRange = document.createRange()
+  if (nameNode !== undefined && nameNode !== null) nameRange.selectNode(nameNode)
+  const nameBox = nameNode === undefined || nameNode === null ? null : nameRange.getBoundingClientRect()
+  const dotBox = dotEl === null ? null : dotEl.getBoundingClientRect()
+  result.dotBesideName = nameBox !== null && dotBox !== null
+    && dotBox.left >= nameBox.right - 1
+    && dotBox.top < nameBox.bottom && dotBox.bottom > nameBox.top
+  result.dotKeepsTabHeight = dotBox !== null
+    && Math.abs(fakeTab.getBoundingClientRect().height - chatTab.getBoundingClientRect().height) <= 1
 
   // Case 4: the input-bar marker collapses to a status dot by workspace WIDTH
   // (not sidebar open/close state), so it expands back as the workspace widens.
@@ -176,6 +205,8 @@ try {
   assert.equal(out.dotPillHidden, true, 'showInputPill=false hides the input-bar marker')
   assert.equal(out.dotOnTab, true, 'showInputPill=false injects the Git tab status dot')
   assert.equal(out.dotDirty, true, 'the tab dot is the dirty (orange) variant')
+  assert.equal(out.dotBesideName, true, 'the tab dot sits beside the tab name, on the label line')
+  assert.equal(out.dotKeepsTabHeight, true, 'the tab dot does not stretch the tab row (issue #84)')
   assert.equal(out.compactWhenNarrow, true, 'a narrow workspace collapses the marker to a dot')
   assert.equal(out.compactKeepsStatus, true, 'the collapsed marker keeps its git status class')
   assert.equal(out.compactDotShown, true, 'the status dot is visible when collapsed')
