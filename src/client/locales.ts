@@ -232,6 +232,7 @@ export const zh = {
   'files.enterFullscreen': '进入全屏',
   'files.exitFullscreen': '退出全屏',
   'files.fullscreen': '全屏查看文件',
+  'files.screenFullRefused': '浏览器拒绝了全屏请求，预览仍留在面板内。',
   'files.gitNotInstalled': '系统未安装 Git，Git 面板不可用，请安装 Git 工具后重试。',
   // file properties dialog
   'files.propsTitle': '文件属性',
@@ -644,6 +645,7 @@ export const en: Record<GitKey, string> = {
   'files.enterFullscreen': 'Enter full screen',
   'files.exitFullscreen': 'Exit full screen',
   'files.fullscreen': 'View file full screen',
+  'files.screenFullRefused': 'The browser refused the full-screen request; the preview stays in the panel.',
   'files.gitNotInstalled': 'Git is not installed; the Git panel is unavailable. Please install Git and try again.',
   // file properties dialog
   'files.propsTitle': 'File properties',

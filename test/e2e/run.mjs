@@ -1488,6 +1488,8 @@ const out = await page.evaluate(async (snap) => {
   await new Promise((r) => setTimeout(r, 120))
   result.screenFullRefused = document.querySelector('.gp-files__preview--full') !== null
     && screenBtn?.getAttribute('aria-pressed') === 'false'
+    // A refusal is not console-only: the card says so, as a live notice.
+    && document.querySelector('.gp-files__preview--full .gp-notice')?.textContent === 'files.screenFullRefused'
   let exits = 0
   const realExit = document.exitFullscreen
   Element.prototype.requestFullscreen = function () {
@@ -1504,6 +1506,8 @@ const out = await page.evaluate(async (snap) => {
   screenBtn?.click()
   await new Promise((r) => setTimeout(r, 120))
   result.screenFullGranted = screenBtn?.getAttribute('aria-pressed') === 'true'
+    // A granted request retires the refusal notice.
+    && document.querySelector('.gp-files__preview--full .gp-notice') === null
   screenBtn?.click()
   await new Promise((r) => setTimeout(r, 120))
   result.screenFullExited = exits === 1 && screenBtn?.getAttribute('aria-pressed') === 'false'

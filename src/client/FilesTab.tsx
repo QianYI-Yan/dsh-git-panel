@@ -24,6 +24,7 @@ import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
 import { formatBytes } from './bytes.js'
 import { renderModalShell } from './ops-modals.js'
+import { NoticeBar } from './notice.js'
 import { inertAttr } from './inert.js'
 import { HtmlFrame, type HtmlFrameSpec } from './HtmlFrame.js'
 import { useHtmlPreview } from './use-html-preview.js'
@@ -136,6 +137,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const [fullscreen, setFullscreen] = useState(false)
   // Browser fullscreen of the reader card, tracked from the browser's own state.
   const [screenFull, setScreenFull] = useState(false)
+  // Set when the browser refuses the request: the toggle then does nothing on
+  // its own, so the panel states it instead of leaving a dead control silent.
+  const [screenRefused, setScreenRefused] = useState(false)
   const fsCardRef = useRef<HTMLDivElement | null>(null)
   const fsCloseRef = useRef<HTMLButtonElement | null>(null)
   const fsTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -194,7 +198,13 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // it, so the button mirrors `fullscreenchange` instead of a local flag. Only
   // this card counts — another element going full screen is not our state.
   useEffect(() => {
-    const sync = (): void => setScreenFull(document.fullscreenElement === fsCardRef.current)
+    const sync = (): void => {
+      const own = document.fullscreenElement === fsCardRef.current
+      setScreenFull(own)
+      // A granted request (or any later state where the card owns the screen)
+      // retires the refusal notice.
+      if (own) setScreenRefused(false)
+    }
     document.addEventListener('fullscreenchange', sync)
     return () => document.removeEventListener('fullscreenchange', sync)
   }, [])
@@ -202,6 +212,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     if (document.fullscreenElement !== null && document.fullscreenElement === fsCardRef.current) {
       void document.exitFullscreen().catch(() => undefined)
     }
+    setScreenRefused(false)
     setFullscreen(false)
   }, [])
   const toggleScreenFull = useCallback(() => {
@@ -209,9 +220,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     if (card === null) return
     if (document.fullscreenElement === card) { void document.exitFullscreen().catch(() => undefined); return }
     // A host that denies fullscreen (a Permissions-Policy on an embedded GUI)
-    // rejects here; the button follows the browser's state, so all that is left
-    // is to say the request did not happen.
-    void card.requestFullscreen().catch((error: unknown) => { console.warn('git-panel: full screen was refused', error) })
+    // rejects here; the button follows the browser's state, so the request is
+    // reported through the notice bar below instead of the console.
+    void card.requestFullscreen().catch(() => { setScreenRefused(true) })
   }, [])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
@@ -630,6 +641,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
     heavyNotice,
+    // The browser-fullscreen toggle sits in this same card, so a refusal is
+    // reported where the user just clicked (the live region announces it).
+    screenRefused
+      ? h(NoticeBar, {
+        key: 'fs-refused', status: true,
+        text: t('files.screenFullRefused'), closeLabel: t('common.close'),
+        onClose: () => setScreenRefused(false),
+      })
+      : null,
     // Hover tip for the copy-content icon, next to the only bar that can raise
     // it (the compact bar carries no copy button); portaled, so it is not
     // clipped here.
