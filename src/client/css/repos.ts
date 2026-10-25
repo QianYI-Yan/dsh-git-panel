@@ -33,6 +33,20 @@ export const CSS = `
 /* Stacked: the left column is a band above the history, so the list may take a
  * little more of it before the branch tree starts scrolling. */
 .gp-panel[data-layout="stacked"] .gp-repolist{max-height:34%}
+/* Strip (a cwd that is not a checkout): the same rows above the file tree.
+ * Wrapping beats a tall column here — the browser below must keep its height. */
+.gp-repolist--strip{max-height:none;padding:8px 10px 10px;background:var(--dsw-alias-bg-layer-1)}
+.gp-repolist--strip .gp-repolist__list{display:flex;flex-wrap:wrap;gap:6px;max-height:128px;overflow:auto}
+.gp-repolist--strip .gp-repolist__row{flex:0 1 auto;max-width:280px}
+.gp-repolist--strip .gp-repolist__item{min-width:180px;padding:6px 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px}
+.gp-repolist--strip .gp-repolist__item--active{border-color:transparent}
+/* The strip rides above the browser: the shell keeps the file area scrolling
+ * instead of letting the strip shrink with it. */
+.gp-files-shell{display:flex;flex-direction:column;width:100%;min-width:0;min-height:0;height:100%}
+.gp-files-shell>.gp-files{flex:1 1 auto;min-height:0}
+/* A switch keeps the previous sample on screen: dim the body so the stale panes
+ * read as "being replaced" rather than as the new checkout's state. */
+.gp-panel[data-repo-switching="true"] .gp-body{opacity:.55;transition:opacity .12s ease}
 /* Standalone page (compact layout, and a cwd that is not a checkout): the list
  * is the whole pane, so it keeps the card grammar — one card per checkout,
  * laid out in as many columns as the width allows. */

@@ -26,6 +26,9 @@ export const CSS = `
  * short labels get more of the row width. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs{flex:1 1 auto;padding:2px;border-radius:8px}
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs--single{flex:0 0 auto}
+/* The switch badge keeps its dot only: the compact bar has no room for a label
+ * beside the tabs (base.ts paints the full badge). */
+.gp-panel[data-layout="compact"] .gp-tabbar__switching-label{display:none}
 /* Indicator width is an inline calc((100% - 8px) / n) from the primitive.
  * Platform DOM contract pinned here: the indicator is a DIRECT span child with
  * aria-hidden and that inline width — if the primitive wraps it or changes the

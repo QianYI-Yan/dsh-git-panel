@@ -173,15 +173,16 @@ export class GitController {
     return this.repo
   }
 
-  /** Follow another repository and re-sample. The old snapshot describes a
-   * different work tree, so it is replaced by the loading state instead of
-   * being kept while the new one is in flight (a stale root would let child
-   * queries answer from the previous repository). */
+  /** Follow another repository and re-sample. The previous snapshot now
+   * describes a different work tree, but it stays published while the new
+   * sample is in flight: blanking the view here collapses the panel to a
+   * placeholder, so the tabs, the repository list and the branch tree all
+   * disappear and come back. The panel dims its body and shows a switching
+   * badge instead, and the new snapshot replaces the old one in one step. */
   setRepo(repo: string): Promise<void> {
     if (this.disposed || repo === this.repo) return Promise.resolve()
     this.repo = repo
     this.requestGeneration += 1
-    if (this.view.state === 'ready' || this.view.state === 'error') this.setView({ state: 'loading' })
     return this.refresh()
   }
 

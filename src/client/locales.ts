@@ -19,6 +19,7 @@ export const zh = {
   'tab.filesShort': '文件',
   // repositories tab
   'repo.root': '工作区根目录',
+  'repo.switching': '正在切换…',
   'tab.repos': '存储库',
   'tab.reposShort': '仓库',
   'repos.hint': '工作区内容最多向下扫描 3 层，跳过 node_modules；目录里有 .git 即视为仓库根。',
@@ -450,6 +451,7 @@ export const en: Record<GitKey, string> = {
   'tab.changesShort': 'Changes',
   'tab.filesShort': 'Files',
   'repo.root': 'Workspace root',
+  'repo.switching': 'Switching…',
   'tab.repos': 'Repositories',
   'tab.reposShort': 'Repos',
   'repos.hint': 'The workspace is scanned up to 3 levels deep and node_modules is skipped; a directory holding .git is a repository root.',

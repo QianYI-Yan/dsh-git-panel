@@ -23,12 +23,18 @@ interface ReposSectionProps {
   readonly snapshot: GitSnapshot | null
   readonly onChoose: (path: string) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
+  /** `list` is the narrow column of the overview; `strip` is the horizontal
+   * band above the file tree, where wrapping beats a tall narrow column. */
+  readonly variant?: 'list' | 'strip'
+  /** Render even for a single choice: a non-checkout cwd needs the row to reach
+   * the one repository nested below it. */
+  readonly always?: boolean
 }
 
-export function ReposSection({ choices, current, snapshot, onChoose, t }: ReposSectionProps): JSX.Element | null {
+export function ReposSection({ choices, current, snapshot, onChoose, t, variant = 'list', always = false }: ReposSectionProps): JSX.Element | null {
   // One checkout is not a choice: a single row would only repeat the pill, and
   // the branch tree below already names it.
-  if (choices.length < 2) return null
+  if (!always && choices.length < 2) return null
   const branch = snapshot === null ? null : snapshot.branch
   const changed = snapshot === null ? 0 : snapshot.staged + snapshot.modified + snapshot.untracked
   const rows = choices.map((choice) => {
@@ -68,7 +74,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t }: ReposS
           : null,
       ]))
   })
-  return h('div', { className: 'gp-repolist' }, [
+  return h('div', { className: variant === 'strip' ? 'gp-repolist gp-repolist--strip' : 'gp-repolist' }, [
     h('div', { key: 'head', className: 'gp-repolist__head' }, [
       h('span', { key: 'label', className: 'gp-repolist__label' }, t('tab.repos')),
       h('span', { key: 'n', className: 'gp-repolist__badge' }, String(choices.length)),
