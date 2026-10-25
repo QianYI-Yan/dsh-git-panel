@@ -1,12 +1,14 @@
 /**
- * E2E: the Repositories tab and the checkout it selects.
+ * E2E: the repository list and the checkout it selects.
  *
  * A workspace may hold nested repositories beside its own checkout (issue
- * #83). The bar gains a leading Repositories tab that lists every checkout —
- * name, relative path, and for the checked one its branch and pending-change
- * count — and carrying the picked repository on every repository-scoped
- * request; the panes themselves never learn about it. A host that cannot
- * answer the scan keeps the three-pane panel unchanged.
+ * #83). The Git overview lists every checkout in its left column, above the
+ * branch tree, so picking one keeps branches, commit list and the list itself
+ * on screen together; the pick rides every repository-scoped request while the
+ * panes themselves never learn about it. Two layouts fall back to a page of
+ * their own: the compact one (no left column) and a cwd that is not a checkout
+ * (no overview to put a list in). A host that cannot answer the scan keeps the
+ * three-pane panel unchanged.
  *
  * Fully isolated — a local file:// harness, no dsh server, no touch of any
  * running instance. Requires the e2e fixtures (run test/e2e/setup.mjs first,
@@ -20,7 +22,7 @@ import { dirname, resolve } from 'node:path'
 const DIR = dirname(fileURLToPath(import.meta.url))
 const harness = 'file://' + resolve(DIR, 'harness.html')
 
-// A clean checkout: the tab is what this runner measures, so the panes stay
+// A clean checkout: the list is what this runner measures, so the panes stay
 // quiet (no expanded lists, no diffs, no image fetches).
 const SNAP = {
   root: 'fixture-repo', branch: 'main', head: 'de54fc0', unborn: false, dirty: false,
@@ -102,6 +104,10 @@ async function mount(repos, action, options = {}) {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     await wait(500)
 
+    const textOf = (node, selector) => {
+      const found = node.querySelector(selector)
+      return found === null ? '' : found.textContent.trim()
+    }
     const tabNodes = () => [...document.querySelectorAll('.gp-panel .gp-tabbar__tabs [role="tab"]')]
     const tabLabels = () => tabNodes().map((node) => (node.querySelector('.gp-tab__label') || node).textContent.trim())
     const activeTabLabel = () => {
@@ -113,43 +119,66 @@ async function mount(repos, action, options = {}) {
       if (!node) throw new Error('no tab ' + label + ' in ' + tabLabels().join('|'))
       node.click()
     }
-    const repoRows = () => [...document.querySelectorAll('.gp-panel .gp-repos__item')].map((node) => ({
-      name: (node.querySelector('.gp-repos__name') || { textContent: '' }).textContent.trim(),
-      path: (node.querySelector('.gp-repos__path') || { textContent: '' }).textContent.trim(),
+    // The left column of the overview: the list has to live inside it, beside
+    // the branch tree, not on a page of its own.
+    const listInLeftColumn = () => {
+      const left = document.querySelector('.gp-panel .gp-col--left')
+      return left !== null && left.querySelector('.gp-repolist') !== null
+    }
+    const listRows = () => [...document.querySelectorAll('.gp-panel .gp-repolist__item')].map((node) => ({
+      name: textOf(node, '.gp-repolist__name'),
+      meta: textOf(node, '.gp-repolist__meta'),
+      active: node.classList.contains('gp-repolist__item--active'),
+      current: node.getAttribute('aria-current'),
+      count: textOf(node, '.gp-repolist__count'),
+    }))
+    const cardRows = () => [...document.querySelectorAll('.gp-panel .gp-repos__item')].map((node) => ({
+      name: textOf(node, '.gp-repos__name'),
+      path: textOf(node, '.gp-repos__path'),
       active: node.classList.contains('gp-repos__item--active'),
       current: node.getAttribute('aria-current'),
-      branch: (node.querySelector('.gp-repos__branch') || { textContent: '' }).textContent.trim(),
-      count: (node.querySelector('.gp-repos__count') || { textContent: '' }).textContent.trim(),
     }))
-    const pickRepo = (name) => {
-      const row = [...document.querySelectorAll('.gp-panel .gp-repos__item')]
-        .find((node) => (node.querySelector('.gp-repos__name') || { textContent: '' }).textContent.trim() === name)
-      if (!row) throw new Error('no repository row ' + name)
+    const pickRow = (selector, name) => {
+      const row = [...document.querySelectorAll('.gp-panel ' + selector)]
+        .find((node) => textOf(node, selector.replace('__item', '__name')) === name)
+      if (!row) throw new Error('no repository row ' + name + ' in ' + selector)
       row.click()
     }
 
-    const observed = { tabs: tabLabels(), tabCount: document.querySelector('.gp-panel .gp-tabbar').getAttribute('data-tab-count') }
-    if (!observed.tabs.includes('tab.repos')) return { observed, calls }
-
-    clickTab('tab.repos')
-    await wait(250)
+    const observed = {
+      tabs: tabLabels(),
+      tabCount: document.querySelector('.gp-panel .gp-tabbar').getAttribute('data-tab-count'),
+    }
+    if (action === 'switch') {
+      // A dirty checkout opens on Changes; the list lives in the overview.
+      if (activeTabLabel() !== 'tab.overview') {
+        clickTab('tab.overview')
+        await wait(300)
+      }
+    }
     observed.activeTab = activeTabLabel()
-    observed.rows = repoRows()
-    if (action !== 'switch') return { observed, calls }
+    observed.inLeftColumn = listInLeftColumn()
+    observed.rows = listRows()
+    if (action !== 'switch') {
+      // The standalone page (compact layout, non-checkout cwd) only exists when
+      // the bar carries a Repositories tab; read its cards from there.
+      if (observed.tabs.includes('tab.repos')) {
+        clickTab('tab.repos')
+        await wait(250)
+        observed.cards = cardRows()
+        observed.activeTab = activeTabLabel()
+      }
+      return { observed, calls }
+    }
 
     let mark = calls.length
-    pickRepo('site')
+    pickRow('.gp-repolist__item', 'site')
     await wait(600)
-    observed.afterNested = { activeTab: activeTabLabel(), calls: calls.slice(mark) }
-    // Back to the workspace's own checkout: the empty path is the default, so
-    // the tag has to disappear again while the list keeps both rows.
-    clickTab('tab.repos')
-    await wait(250)
-    observed.rowsAfterSwitch = repoRows()
+    observed.afterNested = { activeTab: activeTabLabel(), inLeftColumn: listInLeftColumn(), rows: listRows(), calls: calls.slice(mark) }
     mark = calls.length
-    pickRepo('fixture-repo')
+    pickRow('.gp-repolist__item', 'fixture-repo')
     await wait(600)
-    observed.afterBack = { activeTab: activeTabLabel(), calls: calls.slice(mark) }
+    observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     return { observed, calls }
   }, { snap, repos, action, snapshotFails })
   await page.close()
@@ -158,14 +187,15 @@ async function mount(repos, action, options = {}) {
 
 const failures = []
 
-// 1. A host that cannot answer the scan: the panel keeps its three panes and
-// never tags a request.
+// 1. A host that cannot answer the scan: the panel keeps its three panes, no
+// list, and never tags a request.
 {
   const { out, errors } = await mount([], 'inspect')
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
-    assert.deepEqual(out.observed.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'no scan result means no Repositories tab')
+    assert.deepEqual(out.observed.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'no scan result means no repository list')
     assert.equal(out.observed.tabCount, '3', 'the bar reports its tab count for the compact indicator')
+    assert.equal(out.observed.inLeftColumn, false, 'nothing to list')
     assert.ok(out.calls.length > 0, 'the panel still asked for a snapshot')
     assert.ok(out.calls.every((call) => call.repo === ''), 'a single checkout never tags requests')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
@@ -175,83 +205,87 @@ const failures = []
   }
 }
 
-// 2. A lone checkout: the tab exists so its path and pending work stay
-// readable, but the picker has nothing to switch between.
+// 2. A lone checkout: there is nothing to pick between, so the bar stays at
+// three tabs and the overview shows no list at all.
 {
   const { out, errors } = await mount([WORKSPACE_REPO], 'inspect', { dirty: true })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
-    assert.deepEqual(seen.tabs, ['tab.repos', 'tab.overview', 'tab.changes', 'tab.files'], 'the Repositories tab leads the bar')
-    assert.equal(seen.tabCount, '4')
-    assert.equal(seen.activeTab, 'tab.repos', 'the tab opens on its own page')
-    assert.deepEqual(seen.rows, [
-      { name: 'fixture-repo', path: '', active: true, current: 'true', branch: 'main', count: '2' },
-    ], 'the single checkout is listed with its branch and pending count')
+    assert.deepEqual(seen.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'one checkout needs no tab')
+    assert.equal(seen.inLeftColumn, false, 'and no list either')
+    assert.deepEqual(seen.rows, [], 'no rows are rendered')
     assert.ok(out.calls.every((call) => call.repo === ''), 'nothing is tagged while only one checkout exists')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
-    console.error('single-checkout observation: ' + JSON.stringify({ observed: out.observed, errors }))
+    console.error('single-checkout observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }
 
-// 3. A workspace plus a nested checkout: switch out and back.
+// 3. A workspace plus nested checkouts: the list rides in the overview's left
+// column, and a pick moves the requests without leaving that page.
 {
-  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'switch')
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'switch', { dirty: true })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
+    assert.deepEqual(seen.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'the list needs no tab of its own')
+    assert.equal(seen.inLeftColumn, true, 'the list sits in the overview left column')
     assert.deepEqual(seen.rows.map((row) => row.name), ['fixture-repo', 'site', 'web (apps/web)'], 'every checkout is listed')
     assert.deepEqual(seen.rows.map((row) => row.active), [true, false, false], 'the workspace checkout starts checked')
-    assert.equal(seen.rows[1].path, '', 'a folder that names the checkout needs no second line')
-    assert.equal(seen.rows[2].path, 'apps/web', 'a nested row carries its relative path')
-    assert.equal(seen.afterNested.activeTab, 'tab.overview', 'picking a checkout lands on its Git view')
+    assert.equal(seen.rows[1].meta, '', 'a folder that names the checkout needs no second line')
+    assert.equal(seen.rows[2].meta, 'apps/web', 'a nested row carries its relative path')
+    assert.equal(seen.rows[0].current, 'true')
+    assert.ok(seen.rows[0].meta.includes('main'), 'the checked row reports its branch: ' + seen.rows[0].meta)
+    assert.equal(seen.rows[0].count, '2', 'and how many files are pending')
     // `repo-list` is the one query that spans the whole workspace — it has to
-    // stay untagged, or the tab could not offer the checkouts it switches
+    // stay untagged, or the list could not offer the checkouts it switches
     // between.
     const scoped = (calls) => calls.filter((call) => call.kind !== 'repo-list')
     const nestedCalls = seen.afterNested.calls
+    assert.equal(seen.afterNested.activeTab, 'tab.overview', 'picking a checkout stays on the overview')
+    assert.equal(seen.afterNested.inLeftColumn, true, 'the list stays on screen while the panes reload')
+    assert.deepEqual(seen.afterNested.rows.map((row) => row.active), [false, true, false], 'the list marks the checkout the panes act on')
     assert.ok(nestedCalls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the switch refetched a snapshot')
     assert.ok(nestedCalls.length > scoped(nestedCalls).length, 'the workspace listing was re-read after the switch')
     assert.ok(scoped(nestedCalls).every((call) => call.repo === 'site'), 'every repository-scoped request carries the picked checkout: ' + JSON.stringify(nestedCalls))
-    assert.deepEqual(seen.rowsAfterSwitch.map((row) => row.active), [false, true, false], 'the list marks the checkout the panes act on')
-    assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back lands on the workspace checkout again')
-    const backCalls = seen.afterBack.calls
-    assert.ok(backCalls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'switching back refetched a snapshot')
-    assert.ok(scoped(backCalls).every((call) => call.repo === ''), 'the workspace checkout sends no tag: ' + JSON.stringify(backCalls))
+    assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back stays on the overview')
+    assert.deepEqual(seen.afterBack.rows.map((row) => row.active), [true, false, false], 'and marks the workspace checkout again')
+    assert.ok(scoped(seen.afterBack.calls).every((call) => call.repo === ''), 'the workspace checkout sends no tag: ' + JSON.stringify(seen.afterBack.calls))
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
-    console.error('switch observation: ' + JSON.stringify({ observed: out.observed, errors }))
+    console.error('switch observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }
 
 // 4. A workspace directory that is not a checkout, holding a single nested
-// repository: the Git panes only exist for that repository, so the tab has to
-// appear anyway — and offer a way back to the session root.
+// repository: there is no overview to dock under, so the list stays a page of
+// its own and leads the bar.
 {
   const { out, errors } = await mount([NESTED_REPO], 'inspect', { snapshotFails: true })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
-    assert.deepEqual(seen.tabs, ['tab.repos', 'tab.files'], 'only the picker and the browser exist here')
-    assert.equal(seen.activeTab, 'tab.repos', 'the picker is the entry point of a non-checkout workspace')
-    assert.deepEqual(seen.rows.map((row) => row.name), ['repo.root', 'site'], 'the session root leads the nested checkout')
-    assert.deepEqual(seen.rows.map((row) => row.active), [true, false], 'the session root starts checked')
-    assert.equal(seen.rows[1].path, '', 'the folder name already is the whole path')
-    // No snapshot means no HEAD at all: the checked row must not claim a
-    // detached one just because the sample was refused.
-    assert.deepEqual(seen.rows.map((row) => row.branch), ['', ''], 'a snapshot-less selection reports no HEAD')
+    assert.deepEqual(seen.tabs, ['tab.repos', 'tab.files'], 'without an overview the list is a page')
+    assert.equal(seen.inLeftColumn, false, 'and it is not in a column')
+    assert.equal(seen.activeTab, 'tab.repos', 'the tab opens on the picker')
+    assert.deepEqual(seen.cards, [
+      { name: 'repo.root', path: '', active: true, current: 'true' },
+      { name: 'site', path: '', active: false, current: null },
+    ], 'the workspace root leads as the way back, then the one checkout')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
-    console.error('non-repo root observation: ' + JSON.stringify({ observed: out.observed, errors }))
+    console.error('non-checkout observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }
 
 await browser.close()
+
 if (failures.length > 0) {
+  console.error('repo-switcher: ' + failures.length + ' failed')
   for (const failure of failures) console.error(failure)
   process.exit(1)
 }

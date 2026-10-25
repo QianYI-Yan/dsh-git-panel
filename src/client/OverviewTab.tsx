@@ -14,6 +14,7 @@ import { selectTrigger } from './select-trigger.js'
 import { OVERLAY_ATTR, hasOverlay } from './dialog-focus.js'
 import { renderBranchDrawer } from './overview-drawer.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
+import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
@@ -37,6 +38,7 @@ import { buildBranchOptions, isSelectable, type BranchOption } from './branch-op
 import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
 import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
+import { ReposSection } from './ReposSection.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
@@ -87,6 +89,14 @@ interface OverviewProps {
    * filter is the same left drawer the tight stacked sidebar uses, not the
    * bottom sheet a squeezed desktop column pops. */
   readonly phone?: boolean
+  /** Repository list for the left column. The overview hosts it — rather than a
+   * page of its own — so a pick never hides the branches or the commit list. */
+  readonly repositories?: {
+    readonly choices: readonly RepoChoice[]
+    /** Request tag of the checkout the panes act on ('' = cwd). */
+    readonly current: string
+    readonly onChoose: (path: string) => void
+  }
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -127,7 +137,7 @@ function useNarrow(el: HTMLElement | null, min: number): boolean {
   return narrow
 }
 
-export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, t }: OverviewProps): JSX.Element {
+export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView, snapshot, onAction, onResync, compact, stacked, tight = false, phone = false, repositories, t }: OverviewProps): JSX.Element {
   const { signal: querySignal, queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [filter, setFilter] = useState<HistoryFilter>({ ref: null, search: '', author: '', since: '' })
   const [searchInput, setSearchInput] = useState('')
@@ -793,7 +803,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       t,
     }, branchTrees))
     const status = renderStatusBar(snapshot, statusCbs)
-    const leftChildren: JSX.Element[] = [branchList, status]
+    const leftChildren: JSX.Element[] = [
+      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, t }),
+      branchList,
+      status,
+    ].filter((node): node is JSX.Element => node !== null)
     const topChildren: JSX.Element[] = tight
       ? [
         // Backdrop first (click the blank band to dismiss), then the drawer
@@ -879,6 +893,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ...opModals,
     // left: branches (scroll) + a fixed status bar footer (repo link + sync)
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, [
+      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, t }),
       h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => setRef(ref),
         switchOptions,

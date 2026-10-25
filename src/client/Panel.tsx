@@ -3,6 +3,12 @@
  * conversation.view slot. Snapshot state chooses the initial tab unless the
  * input-bar pill supplied a one-shot focus request; the Repositories tab leads
  * the bar whenever the workspace scan returns a checkout to pick from.
+ *
+ * Repositories is a dock of the overview rather than a fourth page: picking a
+ * checkout splits the overview (the panes above, the list below, like an
+ * editor's source-control view), and the Overview tab closes the dock again.
+ * Only a cwd with no checkout of its own gives the list a page of its own,
+ * because there is nothing to split there.
  */
 import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
@@ -187,7 +193,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // entry of a non-checkout cwd is not in the scan (it has no checkout), so it
     // opens the browser instead of a git view that cannot resolve.
     const target = repos.find((entry) => entry.path === next)
-    setSelection({ sessionId, tab: target !== undefined ? 'overview' : 'files' })
+    // Switching stays put: the overview (its left column holds the list) where
+    // there is one, the Repositories tab in the compact layout. An entry with no
+    // checkout behind it — the workspace root of a non-checkout cwd — opens the
+    // browser instead.
+    const stay: SubTab = compact ? 'repos' : 'overview'
+    setSelection({ sessionId, tab: target !== undefined ? stay : 'files' })
   }
 
   useEffect(() => {
@@ -293,10 +304,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     files: h(FilesIcon, { size: 14 }),
   }
   const repoList = repoChoices(repos)
-  // Repositories leads the bar: it is where the checkout the other three act
-  // on is chosen. A workspace with a single checkout still gets the tab, so its
-  // path and branch stay readable without switching anywhere.
-  const tabOrder: SubTab[] = repoList.length > 0
+  // A wide or stacked panel hosts the repository list in the overview's left
+  // column, so it needs no tab for it: picking a checkout keeps the branches,
+  // the commit list and the list itself on screen at once. The compact layout
+  // has no left column, and a cwd that is not a checkout has no overview to put
+  // one in — both keep the tab.
+  const reposTab = repoList.length > 0 && (compact || filesOnly)
+  const tabOrder: SubTab[] = reposTab
     ? ['repos', 'overview', 'changes', 'files']
     : ['overview', 'changes', 'files']
   const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = tabOrder.map((key) => ({
@@ -336,26 +350,66 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     return null
   })()
 
-  const paneContent = (key: SubTab): JSX.Element | null => {
-    // The picker renders ahead of the state placeholder: it reads the scan
-    // result and the one snapshot, needs neither a resolvable checkout nor a
-    // finished sample, and is the way out of a cwd that has no git view — in
-    // particular while the sample of a just-picked repository is still pending.
-    if (key === 'repos' && hasSession(sessionId)) {
-      return h(ReposTab, {
-        key: sessionId,
+  // The picker renders ahead of the state placeholder: it reads the scan
+  // result and the one snapshot, needs neither a resolvable checkout nor a
+  // finished sample, and is the way out of a cwd that has no git view — in
+  // particular while the sample of a just-picked repository is still pending.
+  const reposPane = (): JSX.Element | null => hasSession(sessionId)
+    ? h(ReposTab, {
+      key: 'repos',
+      choices: repoList,
+      current: repo,
+      snapshot: view.state === 'ready' ? view.snapshot : null,
+      compact,
+      onChoose: chooseRepo,
+      t,
+    })
+    : null
+
+  // The overview owns the repository list: it renders it in its left column,
+  // above the branch tree, so the two never alternate on screen.
+  const overviewPane = (): JSX.Element | null => {
+    const live = hasSession(sessionId) ? sessionId : undefined
+    const snapshot = live !== undefined && view.state === 'ready' ? view.snapshot : null
+    const mounted = snapshot !== null && visited.current.tabs.has('overview')
+    const overview = mounted && snapshot !== null && live !== undefined
+      ? h(OverviewTab, {
+      key: live,
+      remote: repoRemote,
+      sessionId: live,
+      // The overview is on screen in both of its tabs, so both keep it live; the
+      // docked list only reads the scan and the one snapshot.
+      visible: queryVisible && (activeTab === 'overview' || activeTab === 'repos'),
+      defaultDiffView: snapshot.defaultDiffView,
+      snapshot,
+      onAction,
+      onResync: () => controllerFor(live).resync(),
+      compact,
+      stacked,
+      tight: stackedTight,
+      phone: layout.phone ?? false,
+      repositories: hasSession(sessionId) ? {
         choices: repoList,
         current: repo,
-        snapshot: view.state === 'ready' ? view.snapshot : null,
-        compact,
         onChoose: chooseRepo,
-        t,
+      } : undefined,
+      t,
       })
-    }
+      : undefined
+    return overview ?? placeholder
+  }
+
+  const paneOwner = (key: SubTab): boolean => key === selectedTab
+
+  const paneContent = (key: SubTab): JSX.Element | null => {
+    // The picker reads the scan and the one snapshot, so it renders ahead of the
+    // state placeholder; the wide layout reaches it through the overview instead.
+    if (key === 'repos' && hasSession(sessionId)) return reposPane()
+    if (key === 'overview') return overviewPane()
     // The state placeholder (loading / no-cwd / error, including no-session)
     // lives in the selected pane; the guard below only narrows sessionId for the
     // tab components.
-    if (placeholder !== null) return key === selectedTab ? placeholder : null
+    if (placeholder !== null) return paneOwner(key) ? placeholder : null
     if (!hasSession(sessionId)) return null
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
@@ -363,11 +417,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     }
     if (view.state !== 'ready') return null
     const snapshot = view.snapshot
-    if (key === 'overview') {
-      return visited.current.tabs.has('overview')
-        ? h(OverviewTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, tight: stackedTight, phone: layout.phone ?? false, t })
-        : null
-    }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
         ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, t })
@@ -378,10 +427,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     return filesVisited ? h(FilesTab, { key: sessionId, remote: repoRemote, sessionId, compact, stacked, worktreeGen, snapshot, t }) : null
   }
 
-  const panes = tabs.map((tb) => h('div', {
-    key: tb.key, id: `${tabsId}-${tb.key}-panel`, role: 'tabpanel', 'aria-labelledby': `${tabsId}-${tb.key}`,
-    style: selectedTab === tb.key ? { display: 'contents' } : { display: 'none' },
-  }, paneContent(tb.key)))
+  // One panel per tab, so every tab's aria-controls resolves.
+  const paneKeys: SubTab[] = tabs.map((tb) => tb.key)
+  const panes = paneKeys.map((key) => h('div', {
+    key, id: `${tabsId}-${key}-panel`, role: 'tabpanel',
+    'aria-labelledby': `${tabsId}-${key}`,
+    style: paneOwner(key) ? { display: 'contents' } : { display: 'none' },
+  }, paneContent(key)))
 
   // git-not-installed inside a repo: stack a notice above the browser.
   const body = gitMissingInRepo
