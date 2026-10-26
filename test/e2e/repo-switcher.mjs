@@ -66,7 +66,11 @@ async function mount(repos, action, options = {}) {
   }
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
+  // `true` fails the untagged sample (a cwd that is not a checkout); a code
+  // string fails the tagged ones (a pick the host can no longer resolve).
   const snapshotFails = options.snapshotFails === true
+    ? true
+    : typeof options.snapshotFails === 'string' ? options.snapshotFails : false
   const snap = options.dirty === true
     ? { ...SNAP, dirty: true, modified: 2, changes: [{ path: 'a.txt', status: 'M', side: 'worktree' }] }
     : SNAP
@@ -95,8 +99,9 @@ async function mount(repos, action, options = {}) {
       // the strip carry the browser into a git view.
       if (snapshotFails && endpoint === 'gitPanel/snapshot') {
         const tag = request && typeof request.repo === 'string' ? request.repo : ''
-        if (tag === '') return { ok: true, value: { ok: false, error: { code: 'not-a-git-repo', cwd: '/mock/workspace' } } }
-        return { ok: true, value: { ok: true, value: { ...snap, root: 'fixture-repo/' + tag } } }
+        const fails = snapshotFails === true ? tag === '' : tag !== ''
+        if (fails) return { ok: true, value: { ok: false, error: { code: snapshotFails === true ? 'not-a-git-repo' : snapshotFails, cwd: '/mock/workspace' } } }
+        return { ok: true, value: { ok: true, value: { ...snap, root: tag === '' ? snap.root : 'fixture-repo/' + tag } } }
       }
       return mockCall(channel, endpoint, payload)
     }
@@ -227,6 +232,30 @@ async function mount(repos, action, options = {}) {
       pickRow('.gp-repos__item', 'site')
       await wait(700)
       observed.afterPick = { activeTab: activeTabLabel(), cards: cardRows(), calls: calls.slice() }
+      return { observed, calls }
+    }
+    if (action === 'reject') {
+      // The pick names a checkout the host can no longer resolve: the sample
+      // comes back as invalid-repo, and the panel has to return to the cwd
+      // checkout instead of leaving every pane on an error page. The empty
+      // slot is sampled while the repair runs, so the copy it used is known.
+      const empties = []
+      const sampleEmpty = () => {
+        const node = document.querySelector('.gp-panel .gp-empty')
+        const text = node === null ? '' : node.textContent.trim()
+        if (text !== '' && !empties.includes(text)) empties.push(text)
+      }
+      const mark = calls.length
+      pickRow('.gp-repolist__item', 'site')
+      for (let i = 0; i < 50; i += 1) { sampleEmpty(); await wait(24) }
+      sampleEmpty()
+      observed.rejected = {
+        activeTab: activeTabLabel(),
+        rows: listRows(),
+        cards: cardRows(),
+        empties: empties.slice(),
+        calls: calls.slice(mark),
+      }
       return { observed, calls }
     }
     if (action !== 'switch') {
@@ -426,6 +455,32 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('compact observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 6. A pick the host can no longer resolve (the checkout was deleted, or it
+// stopped being a work-tree top) must not strand the panel on an error page:
+// the selection falls back to the cwd checkout, the page stays put, and the
+// copy never blames a missing git.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'reject', { snapshotFails: 'invalid-repo', scene: 'S6' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.deepEqual(seen.rows.map((row) => row.name), ['fixture-repo', 'site'], 'both checkouts are listed')
+    const rejected = seen.rejected
+    assert.deepEqual(rejected.rows.map((row) => row.active), [true, false], 'the rejected pick falls back to the workspace checkout')
+    assert.equal(rejected.activeTab, 'tab.overview', 'a repair is not a navigation: the page stays')
+    assert.equal(rejected.empties.includes('pill.unavailable'), false, 'a stale pick is never reported as a missing git: ' + JSON.stringify(rejected.empties))
+    assert.equal(seen.tabCount, '3', 'a rejected pick does not collapse the bar into the browser')
+    const tags = rejected.calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo)
+    assert.ok(tags.includes('site'), 'the rejected pick was sampled: ' + JSON.stringify(tags))
+    assert.ok(tags.slice(tags.indexOf('site')).includes(''), 'the workspace checkout was sampled again: ' + JSON.stringify(tags))
+    assert.equal(tags[tags.length - 1], '', 'and the panel settles on it: ' + JSON.stringify(tags))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('rejected pick observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }
