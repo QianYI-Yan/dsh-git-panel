@@ -51,7 +51,19 @@ async function mount(repos, action, options = {}) {
   const errors = []
   page.on('console', (msg) => { if (msg.type() === 'error' || msg.text().includes('GPSEL')) errors.push(msg.text()) })
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
+  if (options.viewportWidth !== undefined) {
+    await page.setViewportSize({ width: options.viewportWidth, height: 780 })
+  }
   await page.goto(harness)
+  // The layout mode is measured on the panel's own box, not on the viewport: a
+  // squeezed desktop panel is as compact as a phone's.
+  if (options.panelWidth !== undefined) {
+    await page.evaluate((width) => {
+      const el = document.getElementById('panel')
+      el.style.width = width + 'px'
+      el.style.height = '700px'
+    }, options.panelWidth)
+  }
   await page.addScriptTag({ path: resolve(DIR, 'client.js') })
   await page.addScriptTag({ path: resolve(DIR, 'mock-rpc.mjs') })
   const snapshotFails = options.snapshotFails === true
@@ -194,6 +206,29 @@ async function mount(repos, action, options = {}) {
     observed.activeTab = activeTabLabel()
     observed.inLeftColumn = listInLeftColumn()
     observed.rows = listRows()
+    if (action === 'compact') {
+      // Compact has no left column to host the list, so it keeps a page of its
+      // own: the bar gains a fourth cell, and its indicator has to follow the
+      // count the panel put there rather than a hard-coded divisor.
+      const track = document.querySelector('.gp-panel .gp-tabbar__tabs')
+      const indicator = track === null ? null : track.querySelector('span[aria-hidden="true"]')
+      observed.layout = document.querySelector('.gp-panel').getAttribute('data-layout')
+      observed.indicator = indicator === null || track === null
+        ? null
+        : { width: indicator.getBoundingClientRect().width, track: track.getBoundingClientRect().width }
+      clickTab('tab.reposShort')
+      await wait(300)
+      observed.picker = { activeTab: activeTabLabel(), cards: cardRows() }
+      // The panes behind the picker are not on screen; none of them may start a
+      // query of its own while the picker is the page in front.
+      calls.length = 0
+      await wait(900)
+      observed.idleKinds = calls.filter((call) => call.endpoint === 'gitPanel/query').map((call) => call.kind)
+      pickRow('.gp-repos__item', 'site')
+      await wait(700)
+      observed.afterPick = { activeTab: activeTabLabel(), cards: cardRows(), calls: calls.slice() }
+      return { observed, calls }
+    }
     if (action !== 'switch') {
       // The standalone page (compact layout) only exists when the bar carries a
       // Repositories tab; read its cards from there.
@@ -312,7 +347,10 @@ const failures = []
     assert.equal(seen.afterNested.switching, false, 'the badge clears once the new sample lands')
     assert.deepEqual(seen.afterNested.rows.map((row) => row.active), [false, true, false], 'the list marks the checkout the panes act on')
     assert.ok(nestedCalls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the switch refetched a snapshot')
-    assert.ok(nestedCalls.length > scoped(nestedCalls).length, 'the workspace listing was re-read after the switch')
+    // The scan answers "which repositories does this cwd offer", not "which one
+    // is picked": a switch must not walk the tree again for an answer that has
+    // already arrived.
+    assert.equal(nestedCalls.filter((call) => call.kind === 'repo-list').length, 0, 'a switch does not re-scan the workspace')
     assert.ok(scoped(nestedCalls).every((call) => call.repo === 'site'), 'every repository-scoped request carries the picked checkout: ' + JSON.stringify(nestedCalls))
     assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back stays on the overview')
     assert.deepEqual(seen.afterBack.rows.map((row) => row.active), [true, false, false], 'and marks the workspace checkout again')
@@ -352,6 +390,42 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('non-checkout observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 5. The compact layout has no left column, so the list becomes a page of its
+// own — and the tab bar's indicator has to follow the fourth cell that page
+// adds, while the panes behind it stay quiet.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'compact', { panelWidth: 360, viewportWidth: 360 })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.layout, 'compact', 'a 360px panel is the compact layout')
+    assert.deepEqual(seen.tabs, ['tab.reposShort', 'tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the picker leads the compact bar')
+    assert.equal(seen.tabCount, '4', 'and the bar reports four cells')
+    assert.ok(seen.indicator !== null, 'the bar draws an indicator')
+    // (100% - 4px) / 4, the compact override's divisor: a hard-coded three would
+    // slide the pill off the cell of the page it names.
+    assert.ok(Math.abs(seen.indicator.width - (seen.indicator.track - 4) / 4) < 2, 'the indicator takes a quarter of the track: ' + JSON.stringify(seen.indicator))
+    assert.equal(seen.activeTab, 'tab.overviewShort', 'the overview still opens first')
+    assert.equal(seen.picker.activeTab, 'tab.reposShort', 'a tap on the first tab opens the picker')
+    assert.deepEqual(seen.picker.cards.map((row) => row.name), ['fixture-repo', 'site'], 'every checkout is carded')
+    assert.deepEqual(seen.picker.cards.map((row) => row.active), [true, false], 'the workspace checkout starts checked')
+    // The overview is behind the picker rather than on screen, so it must not
+    // keep querying for a page nobody is looking at.
+    assert.deepEqual(seen.idleKinds, [], 'no pane behind the picker starts a query')
+    assert.equal(seen.afterPick.activeTab, 'tab.reposShort', 'a pick in the compact layout stays on the picker')
+    assert.deepEqual(seen.afterPick.cards.map((row) => row.active), [false, true], 'and marks the picked checkout')
+    // `repo-list` is the one query that spans the whole workspace, so it stays
+    // untagged; everything else has to follow the pick.
+    const scoped = seen.afterPick.calls.filter((call) => call.kind !== 'repo-list')
+    assert.ok(scoped.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the pick refetched a snapshot')
+    assert.ok(scoped.every((call) => call.repo === 'site'), 'every repository-scoped request carries the pick: ' + JSON.stringify(seen.afterPick.calls))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('compact observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

@@ -282,9 +282,10 @@ export type WorkspaceResolution =
  * back to the session's cwd (realpath'd) so directory listing / file preview
  * still function. Only a missing cwd is a hard failure.
  *
- * A repository selector must resolve: the file browser follows the panel, so a
- * selector that no longer names a repository reports the failure instead of
- * silently browsing the workspace.
+ * A selector that no longer names a repository reports the failure instead of
+ * browsing something else, so the file tree can never disagree with the picker.
+ * Failures that answer nothing about the selector — git missing — keep the cwd
+ * fallback: every listing would fail otherwise, with no way back to the default.
  */
 export async function resolveBrowseRoot(
   deps: SnapshotDeps,
@@ -293,11 +294,15 @@ export async function resolveBrowseRoot(
 ): Promise<{ ok: true; root: string; isGitRepo: boolean } | { ok: false; error: { code: GitErrorCode; message?: string } }> {
   const ws = await resolveWorkspace(deps, sessionId, repo)
   if (ws.ok) return { ok: true, root: ws.root, isGitRepo: true }
-  if ((repo ?? '') !== '') return { ok: false, error: mapWorkspaceFailure(ws.failure) }
   const err = ws.failure.error
+  // A selector the host cannot resolve is the picker's own stale state: browsing
+  // the cwd instead would show a tree the list does not mark as selected.
+  if (err.code === 'invalid-repo') return { ok: false, error: mapWorkspaceFailure(ws.failure) }
   // Both "not a git repo" and "git not installed" still browse the cwd: in the
   // former git told us it's not a repo, in the latter git never ran at all, but
-  // either way the directory listing / file preview run off the plain cwd.
+  // either way the directory listing / file preview run off the plain cwd. A
+  // selector backed by a missing git lands here too — no entry could be
+  // confirmed, and the browser would otherwise be dead on every path.
   if ((err.code === 'not-a-git-repo' || err.code === 'git-unavailable') && 'cwd' in err && err.cwd !== undefined && err.cwd !== '') {
     try {
       return { ok: true, root: await deps.fs.realpath(err.cwd), isGitRepo: false }

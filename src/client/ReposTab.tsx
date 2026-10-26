@@ -19,12 +19,11 @@ interface ReposTabProps {
   readonly current: string
   /** Snapshot of `current` only: other rows have no cheap state of their own. */
   readonly snapshot: GitSnapshot | null
-  readonly compact: boolean
   readonly onChoose: (path: string) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
-export function ReposTab({ choices, current, snapshot, compact, onChoose, t }: ReposTabProps): JSX.Element {
+export function ReposTab({ choices, current, snapshot, onChoose, t }: ReposTabProps): JSX.Element {
   const branch = snapshot === null ? null : snapshot.branch
   const changed = snapshot === null ? 0 : snapshot.staged + snapshot.modified + snapshot.untracked
   const rows = choices.map((choice) => {
@@ -52,21 +51,22 @@ export function ReposTab({ choices, current, snapshot, compact, onChoose, t }: R
         // a checkout, or its sample failed) there is no HEAD to report at all —
         // the detached marker would invent one.
         active && snapshot !== null && branch !== null
-          ? h('span', { key: 'branch', className: 'gp-repos__branch', title: branch }, [h(BranchIcon, { size: 12 }), branch])
+          ? h('span', { key: 'branch', className: 'gp-repos__branch', title: branch }, [h(BranchIcon, { key: 'i', size: 12 }), branch])
           : null,
         active && snapshot !== null && branch === null
           ? h('span', { key: 'detached', className: 'gp-repos__branch gp-repos__branch--detached' }, t('pill.detached'))
           : null,
+        // A bare count carries no meaning read on its own: the badge is one
+        // image-like unit whose label states what is being counted.
         active && changed > 0
-          ? h('span', { key: 'count', className: 'gp-repos__count', 'aria-label': t('repos.changed') }, String(changed))
+          ? h('span', { key: 'count', className: 'gp-repos__count', role: 'img', 'aria-label': t('repos.changedCount', { n: changed }) }, String(changed))
           : null,
       ]))
   })
-  const rootClass = 'gp-repos' + (compact ? ' gp-repos--compact' : '')
-  return h('div', { className: rootClass }, [
+  // The page only exists when the scan found repositories (Panel drops it
+  // otherwise), so the list is rendered unconditionally.
+  return h('div', { className: 'gp-repos' }, [
     h('p', { key: 'hint', className: 'gp-repos__hint' }, t('repos.hint')),
-    choices.length === 0
-      ? h('p', { key: 'empty', className: 'gp-repos__empty' }, t('repos.empty'))
-      : h('ul', { key: 'list', className: 'gp-repos__list', role: 'list', 'aria-label': t('tab.repos') }, rows),
+    h('ul', { key: 'list', className: 'gp-repos__list', role: 'list', 'aria-label': t('tab.repos') }, rows),
   ])
 }

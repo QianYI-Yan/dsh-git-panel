@@ -34,10 +34,10 @@ export const CSS = `
  * aria-hidden and that inline width — if the primitive wraps it or changes the
  * width formula, compact indicator geometry breaks silently (watch the e2e).
  * The compact override has to restate the divisor, so it is keyed off the tab
- * count the panel puts on the bar: the Repositories tab is conditional, and a
- * hard-coded three would slide the pill off its cell. */
+ * count the panel puts on the bar. Compact shows three panes, four once the
+ * Repositories tab joins them, and one alone when a cwd without a checkout
+ * collapses the bar to the browser — those are the only counts it can carry. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs>span[aria-hidden="true"]{inset:2px auto 2px 2px;width:calc((100% - 4px) / 3) !important}
-.gp-panel[data-layout="compact"] .gp-tabbar[data-tab-count="2"] .gp-tabbar__tabs>span[aria-hidden="true"]{width:calc((100% - 4px) / 2) !important}
 .gp-panel[data-layout="compact"] .gp-tabbar[data-tab-count="4"] .gp-tabbar__tabs>span[aria-hidden="true"]{width:calc((100% - 4px) / 4) !important}
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs--single>span[aria-hidden="true"]{width:calc(100% - 4px) !important}
 /* Slightly shorter cells + less side padding so "Overview" fits on a phone. */

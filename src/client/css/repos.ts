@@ -52,7 +52,6 @@ export const CSS = `
  * laid out in as many columns as the width allows. */
 .gp-repos{display:flex;flex-direction:column;gap:10px;width:100%;flex:1 1 auto;height:100%;min-height:0;overflow:auto;padding:10px 12px;box-sizing:border-box}
 .gp-repos__hint{margin:0;font-size:11px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
-.gp-repos__empty{margin:0;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .gp-repos__list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
 .gp-repos__row{margin:0;min-width:0}
 .gp-repos__item{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:56px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}

@@ -39,10 +39,10 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
     holdRun: null, releaseRun: null,
     secondaryQueryFailure: null, secondaryFailures: [], repeatedDiffRevision: null,
     deferBinaryDiff: false, releaseBinaryDiff: null,
-    // Nested-repository switcher fixtures (issue #83): the repositories the
-    // `repo-list` reply offers, and the repository tag of every snapshot
-    // request in call order ('' for the cwd's own checkout).
-    repos: [], snapshotRepos: [],
+    // Nested-repository switcher fixture (issue #83): the repositories the
+    // `repo-list` reply offers. The repository tag of a snapshot request is
+    // recorded by the runner that needs it, not here.
+    repos: [],
   }
   fixture.stashes = fixture.defaultStashes
   // Valid 64×64 PNG, served as both image-diff sides and the file preview.
@@ -92,7 +92,6 @@ window.createGitPanelMock = function createGitPanelMock(snap) {
         const request = payload && payload.args && payload.args.request
         if (endpoint === 'gitPanel/snapshot') {
           fixture.snapshotCalls++
-          fixture.snapshotRepos.push(request != null && typeof request.repo === 'string' ? request.repo : '')
           fixture.lastSnapshotFullChanges = request != null && request.fullChanges === true
           if (fixture.holdSnapshot) await park('releaseSnapshot')
           fixture.snapshotReplies++

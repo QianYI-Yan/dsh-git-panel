@@ -69,8 +69,10 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, variant 
             detail === '' ? null : h('span', { key: 'path', className: 'gp-repolist__path' }, detail),
           ]),
         ]),
+        // A bare count carries no meaning read on its own: the badge is one
+        // image-like unit whose label states what is being counted.
         active && changed > 0
-          ? h('span', { key: 'count', className: 'gp-repolist__count', 'aria-label': t('repos.changed') }, String(changed))
+          ? h('span', { key: 'count', className: 'gp-repolist__count', role: 'img', 'aria-label': t('repos.changedCount', { n: changed }) }, String(changed))
           : null,
       ]))
   })

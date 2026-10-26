@@ -7,11 +7,11 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn as nodeSpawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
-import { listSessionRepos, resolveWorkspace } from '../../lib/host/core.js'
+import { listSessionRepos, resolveBrowseRoot, resolveWorkspace } from '../../lib/host/core.js'
 import { repoDirFor, scanRepos } from '../../lib/host/repos.js'
 import { DEFAULT_CONFIG, createGitRunner, runQuery, snapshotForSession } from '../../lib/host/index.js'
 
@@ -163,4 +163,61 @@ test('a directory that is not a repository fails as invalid-repo', async () => {
   const snap = await snapshotForSession(depsAt(outer), DEFAULT_CONFIG, SID, { repo: 'plain' })
   assert.equal(snap.ok, false)
   assert.equal(snap.error.code, 'invalid-repo')
+})
+
+test('a stale selector fails instead of browsing the workspace', async () => {
+  // The file tree follows the panel: a selector the host rejects must not decay
+  // into "browse the cwd" — that tree is a different one, and the list would
+  // still mark another entry as current.
+  mkdirSync(join(outer, 'plain'), { recursive: true })
+  const browsed = await resolveBrowseRoot(depsAt(outer), SID, 'plain')
+  assert.equal(browsed.ok, false)
+  assert.equal(browsed.error.code, 'invalid-repo')
+})
+
+test('without git, file listings fall back to the cwd even with a selector', async () => {
+  // Nothing can confirm a selector when git never runs; rejecting every listing
+  // would leave the browser dead with no way back to the default repository.
+  // The selector cannot make this worse than the unselected case, so both fall
+  // back to the plain cwd.
+  const deps = depsAt(outer)
+  deps.run = { run: async () => { throw new Error('spawn git ENOENT') } }
+  for (const repo of [undefined, 'sub']) {
+    const browsed = await resolveBrowseRoot(deps, SID, repo)
+    assert.equal(browsed.ok, true, 'must browse with repo ' + JSON.stringify(repo))
+    assert.equal(browsed.root, realpathSync(outer))
+    assert.equal(browsed.isGitRepo, false)
+  }
+})
+
+test('a symlink escaping the workspace cannot become a repository', async (t) => {
+  // repoDirFor is the one door from a wire path to a directory git runs in: a
+  // link must be resolved and rejected when its real target is outside the cwd,
+  // or the panel would read (and write) a work tree the session never owned.
+  const outside = join(tmp, 'outside')
+  mkdirSync(join(outside, '.git'), { recursive: true })
+  const link = join(ws, 'escape')
+  try {
+    symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch (error) {
+    t.skip('symlinks are unavailable here: ' + error.message)
+    return
+  }
+  try {
+    const fs = createFsDeps()
+    // The scan cannot offer it: the entry is not a directory to descend into,
+    // and its real target is not inside the cwd.
+    const scanned = await scanRepos(fs, ws)
+    assert.equal(scanned.some((r) => r.path === 'escape'), false)
+    // A hand-written selector cannot reach it either.
+    assert.deepEqual(await repoDirFor(fs, ws, 'escape'), { ok: false })
+    const resolved = await resolveWorkspace(depsAt(ws), SID, 'escape')
+    assert.equal(resolved.ok, false)
+    assert.equal(resolved.failure.error.code, 'invalid-repo')
+    const snap = await snapshotForSession(depsAt(ws), DEFAULT_CONFIG, SID, { repo: 'escape' })
+    assert.equal(snap.ok, false)
+    assert.equal(snap.error.code, 'invalid-repo')
+  } finally {
+    rmSync(link, { recursive: true, force: true })
+  }
 })

@@ -170,6 +170,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // a session switch derive the new session's pick instead of showing the
   // previous session's repository for one render.
   const [repos, setRepos] = useState<readonly GitRepoEntry[]>([])
+  const [repoListReady, setRepoListReady] = useState(false)
   const [repoState, setRepoState] = useState<{ readonly session?: string; readonly path: string }>({
     session: sessionId,
     path: sessionId === undefined ? '' : selectedRepo(sessionId),
@@ -178,8 +179,13 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     ? repoState.path
     : sessionId === undefined ? '' : selectedRepo(sessionId)
   // The list belongs to one session's cwd: drop it when the session changes so
-  // the switcher cannot offer the previous workspace's repositories.
-  useEffect(() => { setRepos([]) }, [sessionId])
+  // the switcher cannot offer the previous workspace's repositories. The ready
+  // flag separates "no answer yet" from "an answer with no repositories" — only
+  // the latter may retire a remembered pick.
+  useEffect(() => {
+    setRepos([])
+    setRepoListReady(false)
+  }, [sessionId])
   // The switch is over once the controller publishes the next sample — a ready
   // view of another root, or the failure that explains why it is not coming.
   // The published view is the reference point: it does not change while the old
@@ -190,7 +196,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!repoSwitching || view === switchBase.current) return
     setRepoSwitching(false)
   }, [view, repoSwitching])
-  const snapshotRoot = view.state === 'ready' ? view.snapshot.root : ''
   // Every repository-scoped call of the panes and of the write path goes
   // through this face: the tabs stay unaware of the selection.
   const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
@@ -203,6 +208,19 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (controller.getRepo() === repo) return
     void controller.setRepo(repo)
   }, [sessionId, repo])
+
+  // A pick the host can no longer resolve is dropped back to the default
+  // repository. Unlike chooseRepo this keeps the current page: the reset is a
+  // repair of the selection, not a navigation, and the page was never the
+  // problem. It also skips the dim-in-place switch — there is no next tree to
+  // wait for, the default one is already resolved.
+  const dropRepo = (): void => {
+    if (!hasSession(sessionId)) return
+    selectRepo(sessionId, '')
+    setRepoState({ session: sessionId, path: '' })
+    // Another repository means another directory tree: drop the Files cache.
+    setWorktreeGen((n) => n + 1)
+  }
 
   const chooseRepo = (next: string): void => {
     if (!hasSession(sessionId) || next === repo) return
@@ -239,16 +257,39 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       if (!alive || listed === null) return
       // A reply without the list (an older host) degrades to "one repository"
       // rather than blanking the tab bar on a missing field.
-      const found = Array.isArray(listed.repos) ? listed.repos : []
-      setRepos(found)
-      // A remembered pick that disappeared (deleted, or no longer a repository)
-      // falls back to the cwd's own repository instead of erroring forever.
-      if (repo !== '' && !found.some((entry) => entry.path === repo)) chooseRepo('')
+      setRepos(Array.isArray(listed.repos) ? listed.repos : [])
+      setRepoListReady(true)
     })()
     return () => { alive = false }
-    // chooseRepo is rebuilt every render; the query only depends on its inputs.
+    // The scan answers "which repositories does this cwd offer". Neither the pick
+    // nor the sample's root can change that answer, and re-running on either
+    // walks the tree again for a result that has already arrived.
+  }, [remote, sessionId, queryVisible])
+
+  // A remembered pick that disappeared from the scan (the directory is gone, or
+  // it stopped being a repository) falls back to the default one. Waiting for a
+  // finished scan is what keeps a fresh mount from retiring the pick the user
+  // made in an earlier session before the answer is even in.
+  useEffect(() => {
+    if (!repoListReady || repo === '' || repos.some((entry) => entry.path === repo)) return
+    dropRepo()
+    // dropRepo only calls setters and the module-level selection store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remote, sessionId, queryVisible, snapshotRoot, repo])
+  }, [repoListReady, repos, repo])
+
+  // A sample that rejects the pick is the other half of the same repair: the
+  // selector stopped resolving (directory gone, no longer a work-tree top) or
+  // nothing can verify it at all (git missing). Without this the panel would
+  // keep the failure on screen with no way back.
+  const repoRejected = view.state === 'error' && (view.error.code === 'invalid-repo' || view.error.code === 'git-unavailable')
+  useEffect(() => {
+    if (!hasSession(sessionId) || repo === '' || !repoRejected) return
+    // The published view can still belong to the previous pick while a switch is
+    // in flight; only the sample of the selected repository may reject it.
+    if (controllerFor(sessionId).getRepo() !== repo) return
+    dropRepo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoRejected, repo, sessionId])
 
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
@@ -348,9 +389,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     label: t(shortLabels ? tabLabelKeys[key].short : tabLabelKeys[key].full),
     icon: tabIcons[key],
   }))
-  // A non-git directory exposes the browser — and the picker, which is the only
-  // way to reach a repository that lives below that directory.
-  const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files' || tb.key === 'repos') : allTabs
+  // A non-git directory exposes the browser alone. The picker is not a tab in
+  // that state — it rides above the file tree — so the last way out of a cwd
+  // without a checkout is never filtered away.
+  const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
   // The switcher is the platform SegmentedTabs primitive: it owns the tablist
   // role, the sliding indicator and the keyboard walk; we own the panes and
   // wire them up with instance-scoped ids (a panel can be mounted per session).
@@ -395,7 +437,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const placeholder: JSX.Element | null = ((): JSX.Element | null => {
     if (!hasSession(sessionId) || view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     if (filesOnly) return null
-    if (view.state === 'error') return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
+    // The copy names which repair applies: an unresolvable pick is the picker's
+    // own stale state, not a missing git.
+    if (view.state === 'error') {
+      const label = view.error.code === 'invalid-repo' ? t('error.invalidRepo') : t('pill.unavailable')
+      return h('div', { className: 'gp-empty' }, label)
+    }
     if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
     return null
   })()
@@ -410,7 +457,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       choices: repoList,
       current: repo,
       snapshot: view.state === 'ready' ? view.snapshot : null,
-      compact,
       onChoose: chooseRepo,
       t,
     })
@@ -433,9 +479,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       key: live,
       remote: repoRemote,
       sessionId: live,
-      // The overview is on screen in both of its tabs, so both keep it live; the
-      // docked list only reads the scan and the one snapshot.
-      visible: queryVisible && (activeTab === 'overview' || activeTab === 'repos'),
+      // Only the pane's own page keeps it live: the Repositories tab shows the
+      // same docked list, but in the compact layout the overview it belongs to is
+      // not on screen at all, and a hidden pane must start no queries.
+      visible: queryVisible && selectedTab === 'overview',
       defaultDiffView: snapshot.defaultDiffView,
       snapshot,
       onAction,
