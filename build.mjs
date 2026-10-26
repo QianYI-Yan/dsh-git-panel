@@ -30,6 +30,12 @@ const PLATFORM_MODULES = [
 
 function run(cmd, args) {
   const result = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', encoding: 'utf8' })
+  // A spawn failure (ENOENT / EPERM) leaves status null; report it instead of
+  // exiting silently, so a broken toolchain does not look like a clean build.
+  if (result.error !== undefined) {
+    console.error(`build: cannot run ${cmd}: ${result.error.message}`)
+    process.exit(1)
+  }
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
@@ -39,7 +45,9 @@ function run(cmd, args) {
 // traces name the module that raised, and review stays per file. Platform
 // packages (@deepseek-ai/*) stay bare imports for the DSH install to resolve,
 // and nothing is bundled, so no externals list is needed. Never minified.
-run('npx', ['tsc', '-p', 'tsconfig.build.json'])
+// tsc through its JS entry rather than `npx`: npx is a shell script (a .cmd
+// shim on Windows) and cannot be spawned as a child process there.
+run(process.execPath, [resolve(ROOT, 'node_modules/typescript/bin/tsc'), '-p', 'tsconfig.build.json'])
 const hostEntries = readdirSync(resolve(ROOT, 'src/host'))
   .filter((file) => file.endsWith('.ts'))
   .map((file) => resolve(ROOT, 'src/host', file))

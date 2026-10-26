@@ -197,6 +197,11 @@ export function FilesIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M5 2.5h4l2.5 2.5v7.5h-6.5z' }), h('path', { key: 'b', d: 'M9 2.5V5h2.5' }), h('path', { key: 'c', d: 'M11 12.5v1.5h-6.5V6' })], size)
 }
 
+/** Source-control repository: a crate outline, matching the Repositories tab. */
+export function RepoIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M3 3h10v10.5H3z' }), h('path', { key: 'b', d: 'M3 6.2h10' }), h('path', { key: 'c', d: 'M6.2 6.2v7.3M9.8 6.2v7.3' })], size)
+}
+
 /** GitHub mark (filled, currentColor). */
 export function GitHubIcon({ size = 15 }: IconProps): JSX.Element {
   return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'currentColor' },

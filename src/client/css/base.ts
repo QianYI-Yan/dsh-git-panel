@@ -53,6 +53,9 @@ export const CSS = `
  * tabs, version bar floats right via its own margin-left:auto — identical to a
  * flat layout. The compact layout re-materializes it as a single trailing item. */
 .gp-tabbar__trailing{display:contents}
+/* A repository switch dims the body; this badge names the reason so the stale
+ * panes are not read as the new checkout's state. */
+.gp-tabbar__switching{display:inline-flex;align-items:center;gap:6px;flex:none;font-size:12px;line-height:1;color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .gp-font{margin-left:4px;display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:6px;overflow:hidden}
 .gp-font button{border:0;border-left:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:22px;width:24px;height:24px;padding:0;cursor:pointer}
 .gp-font button:first-child{border-left:0}

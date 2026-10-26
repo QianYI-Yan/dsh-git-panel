@@ -4,7 +4,7 @@
  */
 import { join, sep } from 'node:path'
 import type { SnapshotDeps, GitPanelConfig } from './core.js'
-import { mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
+import { listSessionRepos, mapWorkspaceFailure, resolveBrowseRoot, resolveWorkspace, runCommand, snapshotForSession } from './core.js'
 import { isSafePath, isSafeRev } from './validate.js'
 import { walkHistoryTopology } from './history-topology.js'
 import { commitFromFields, parseBranches, parseGraphLog, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
@@ -50,12 +50,21 @@ export async function runQuery(
       return { ok: false, error: { code: 'git-error', message: error instanceof Error ? error.message : String(error) } }
     }
   }
+  // Repository discovery needs no work tree: it reports the cwd's own
+  // repository (when it has one) plus the nested ones below it, which is what
+  // lets the panel offer a repository picker before anything is selected.
+  if (q.kind === 'repo-list') {
+    const listed = await listSessionRepos(deps, request.sessionId)
+    if (!listed.ok) return { ok: false, error: listed.error }
+    return { ok: true, value: { kind: 'repo-list', cwd: listed.value.cwd, repos: listed.value.repos } }
+  }
+
   // The file browser works outside a git repository too: resolve a plain
   // directory root (work-tree top when in a repo, else the session cwd) so
   // dir-list / file-content still function; every git-backed query keeps
   // requiring a real work tree.
   if (q.kind === 'dir-list' || q.kind === 'file-content') {
-    const browse = await resolveBrowseRoot(deps, request.sessionId)
+    const browse = await resolveBrowseRoot(deps, request.sessionId, request.repo)
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return q.kind === 'dir-list'
@@ -66,7 +75,7 @@ export async function runQuery(
     }
   }
 
-  const workspace = await resolveWorkspace(deps, request.sessionId)
+  const workspace = await resolveWorkspace(deps, request.sessionId, request.repo)
   if (!workspace.ok) return { ok: false, error: mapWorkspaceFailure(workspace.failure) }
   const root = workspace.root
 
@@ -82,7 +91,7 @@ export async function runQuery(
       case 'stash-list': return await queryStashList(deps, root)
       case 'authors': return await queryAuthors(deps, root)
       case 'last-commit-message': return await queryLastCommitMessage(deps, root)
-      case 'worktree-stats': return await queryWorktreeStats(deps, config, request.sessionId)
+      case 'worktree-stats': return await queryWorktreeStats(deps, config, request.sessionId, request.repo)
       case 'pull-preview': return await queryPullPreview(deps, root)
       case 'push-preview': return await queryPushPreview(deps, root)
     }
@@ -852,10 +861,11 @@ async function queryWorktreeStats(
   deps: SnapshotDeps,
   config: GitPanelConfig,
   sessionId: string,
+  repo: string | undefined,
 ): Promise<GitQueryResponse> {
   // The worktree stats now live on the snapshot (single source of git spawns);
   // this endpoint just reads them so a bare stats request stays cheap.
-  const snapshot = await snapshotForSession(deps, config, sessionId)
+  const snapshot = await snapshotForSession(deps, config, sessionId, { repo })
   if (!snapshot.ok) return { ok: false, error: { code: 'git-error', message: 'snapshot failed' } }
   return { ok: true, value: { kind: 'worktree-stats', stats: snapshot.value.stats } }
 }

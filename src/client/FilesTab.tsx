@@ -32,6 +32,8 @@ import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
+import { ReposSection } from './ReposSection.js'
+import type { RepoChoice } from './repo-list.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -47,6 +49,14 @@ interface FilesTabProps {
   readonly worktreeGen: number
   /** Panel snapshot; null in the non-git degrade (properties then skip Git). */
   readonly snapshot: GitSnapshot | null
+  /** Repositories to pick from, shown as a strip above the tree. Present only
+   * when the cwd is not a checkout: the browser is then the only page, and the
+   * nested repositories below it are the only way into a git view at all. */
+  readonly repositories?: {
+    readonly choices: readonly RepoChoice[]
+    readonly current: string
+    readonly onChoose: (path: string) => void
+  }
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -104,7 +114,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, repositories, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -660,6 +670,21 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
   ])
 
+  // The repository strip: only a cwd with no checkout of its own passes it in,
+  // and there the list is the only way to reach a git view. It sits above the
+  // browser in every layout, so the tree keeps its full height.
+  const reposStrip = repositories === undefined
+    ? null
+    : h('div', { key: 'repos', className: 'gp-files__repos' }, h(ReposSection, {
+    choices: repositories.choices,
+    current: repositories.current,
+    snapshot,
+    onChoose: repositories.onChoose,
+    t,
+    variant: 'strip',
+    always: true,
+  }))
+
   // Dims the app behind the reader card. A real node, not a huge spread shadow:
   // a 100vmax shadow paints a viewport-sized layer for as long as it is open.
   const fsBackdrop = fsActive
@@ -669,8 +694,14 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // Stacked: a tall narrow sidebar shows the tree above and the preview below;
   // picking a file updates the preview in place (the wide semantics — there is
   // no drill state to enter, so no back bar).
+  // The strip rides above whichever layout the panel picked, so the browser
+  // keeps one entry point to the repositories below the cwd.
+  const shell = (body: JSX.Element): JSX.Element => reposStrip === null
+    ? body
+    : h('div', { className: 'gp-files-shell' }, [reposStrip, body])
+
   if (stacked) {
-    return h('div', { className: 'gp-files gp-files--stacked' }, [
+    return shell(h('div', { className: 'gp-files gp-files--stacked' }, [
       treeBlock,
       h('div', {
         key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
@@ -679,20 +710,20 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       }),
       previewBlock,
       fsBackdrop,
-    ])
+    ]))
   }
 
   // Compact: a single column drilling from the tree into the file preview.
   if (compact) {
-    return h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop])
+    return shell(h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop]))
   }
 
-  return h('div', { className: 'gp-files' }, [
+  return shell(h('div', { className: 'gp-files' }, [
     treeBlock,
     leftCol.divider,
     previewBlock,
     fsBackdrop,
-  ])
+  ]))
 }
 
 /** Preview body: rendered Markdown/HTML/SVG when the mode is on, else raw preview. */

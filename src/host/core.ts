@@ -1,15 +1,16 @@
 /**
  * Workspace resolution + snapshot orchestration (framework-neutral).
  */
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { GitRunner } from './git.js'
 import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
 import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
+import { repoDirFor, scanRepos, samePath } from './repos.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
-import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
+import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
 export interface GitPanelConfig {
   readonly timeoutMs: number
@@ -199,17 +200,18 @@ export interface SnapshotDeps {
   }
   readonly signal?: AbortSignal
   /**
-   * Optional cwd→root cache, keyed by the resolved cwd. Resolving the work-tree
-   * root runs a `git rev-parse` + `realpath` on every call; sharing this map
-   * across a session's snapshot/query/run calls collapses that to one spawn per
-   * distinct cwd (a session's cwd is effectively stable).
+   * Optional cwd+selector→root cache. Resolving the work-tree root runs a
+   * `git rev-parse` + `realpath` on every call; sharing this map across a
+   * session's snapshot/query/run calls collapses that to one spawn per distinct
+   * (cwd, repository) pair. The key is built by `rootCacheKey`, so the default
+   * repository and a nested one under the same cwd never alias.
    */
   readonly rootCache?: Map<string, string>
   /**
-   * Optional negative cache (cwd → expiry epoch ms) for non-repo cwds, so a
-   * session whose directory is not a git repo does not spawn `rev-parse` on
-   * every 30s poll. Short-lived (see NEG_CACHE_MS) so a repo created under the
-   * cwd is picked up soon after.
+   * Optional negative cache (cwd+selector → expiry epoch ms), so a session whose
+   * directory is not a git repo does not spawn `rev-parse` on every 30s poll.
+   * Short-lived (see NEG_CACHE_MS) so a repo created under the cwd is picked up
+   * soon after.
    */
   readonly rootNegCache?: Map<string, number>
   /**
@@ -279,17 +281,28 @@ export type WorkspaceResolution =
  * repository too. Inside a repo it is the work-tree top; otherwise it falls
  * back to the session's cwd (realpath'd) so directory listing / file preview
  * still function. Only a missing cwd is a hard failure.
+ *
+ * A selector that no longer names a repository reports the failure instead of
+ * browsing something else, so the file tree can never disagree with the picker.
+ * Failures that answer nothing about the selector — git missing — keep the cwd
+ * fallback: every listing would fail otherwise, with no way back to the default.
  */
 export async function resolveBrowseRoot(
   deps: SnapshotDeps,
   sessionId: string,
+  repo?: string,
 ): Promise<{ ok: true; root: string; isGitRepo: boolean } | { ok: false; error: { code: GitErrorCode; message?: string } }> {
-  const ws = await resolveWorkspace(deps, sessionId)
+  const ws = await resolveWorkspace(deps, sessionId, repo)
   if (ws.ok) return { ok: true, root: ws.root, isGitRepo: true }
   const err = ws.failure.error
+  // A selector the host cannot resolve is the picker's own stale state: browsing
+  // the cwd instead would show a tree the list does not mark as selected.
+  if (err.code === 'invalid-repo') return { ok: false, error: mapWorkspaceFailure(ws.failure) }
   // Both "not a git repo" and "git not installed" still browse the cwd: in the
   // former git told us it's not a repo, in the latter git never ran at all, but
-  // either way the directory listing / file preview run off the plain cwd.
+  // either way the directory listing / file preview run off the plain cwd. A
+  // selector backed by a missing git lands here too — no entry could be
+  // confirmed, and the browser would otherwise be dead on every path.
   if ((err.code === 'not-a-git-repo' || err.code === 'git-unavailable') && 'cwd' in err && err.cwd !== undefined && err.cwd !== '') {
     try {
       return { ok: true, root: await deps.fs.realpath(err.cwd), isGitRepo: false }
@@ -300,8 +313,11 @@ export async function resolveBrowseRoot(
   return { ok: false, error: mapWorkspaceFailure(ws.failure) }
 }
 
-/** Resolve the git work-tree root for a session's cwd. */
-export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): Promise<WorkspaceResolution> {
+/** The session's cwd: the live session header first, then the persisted one. */
+export async function resolveSessionCwd(
+  deps: SnapshotDeps,
+  sessionId: string,
+): Promise<{ readonly ok: true; readonly cwd: string } | { readonly ok: false; readonly failure: GitSnapshotResult & { ok: false } }> {
   let cwd = deps.sessions.liveCwd(sessionId)
   if (cwd === undefined || cwd === '') {
     const meta = await deps.sessions.persistedMeta(sessionId)
@@ -310,14 +326,55 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   if (cwd === undefined || cwd === '') {
     return { ok: false, failure: { ok: false, error: { code: 'cwd-unavailable', sessionId } } }
   }
-  const cached = deps.rootCache?.get(cwd)
+  return { ok: true, cwd }
+}
+
+/**
+ * Cache key for one (cwd, repository) pair. NUL cannot occur in either half, so
+ * the default repository ('') and a nested one never collide with each other or
+ * with a longer path.
+ */
+function rootCacheKey(cwd: string, repo: string): string {
+  return repo === '' ? cwd : cwd + '\u0000' + repo
+}
+
+/**
+ * Resolve the git work-tree root for a session's cwd.
+ *
+ * 'repo' selects which repository (see GitRepoEntry): absent or '' keeps the
+ * original behavior — git walks up from the cwd to the enclosing top, which may
+ * be a parent of the cwd. A non-empty selector must name a work-tree *top*
+ * inside the cwd: an ordinary subdirectory of a repository is rejected rather
+ * than silently resolving to its parent, because the repository list only ever
+ * offers tops.
+ */
+export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, repo?: string): Promise<WorkspaceResolution> {
+  const resolved = await resolveSessionCwd(deps, sessionId)
+  if (!resolved.ok) return resolved
+  const cwd = resolved.cwd
+  const rel = repo ?? ''
+  const key = rootCacheKey(cwd, rel)
+  const cached = deps.rootCache?.get(key)
   if (cached !== undefined) return { ok: true, root: cached }
-  const negAt = deps.rootNegCache?.get(cwd)
+  const negAt = deps.rootNegCache?.get(key)
   if (negAt !== undefined) {
-    if (Date.now() < negAt) return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
-    deps.rootNegCache?.delete(cwd)
+    if (Date.now() < negAt) {
+      return { ok: false, failure: { ok: false, error: rel === '' ? { code: 'not-a-git-repo', cwd } : { code: 'invalid-repo', cwd } } }
+    }
+    deps.rootNegCache?.delete(key)
   }
-  const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], cwd, 'toplevel', deps.signal)
+  // Where git runs: the cwd itself for the default repository, or the selected
+  // nested repository's real directory.
+  let start = cwd
+  if (rel !== '') {
+    const target = await repoDirFor(deps.fs, cwd, rel)
+    if (!target.ok) {
+      deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+      return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+    }
+    start = target.dir
+  }
+  const top = await runCommand(deps.run, ['git', 'rev-parse', '--show-toplevel'], start, 'toplevel', deps.signal)
   if ('failure' in top) {
     // Spawn-level failure (git missing / not on PATH): keep the cwd on the
     // failure so the browse-root fallback and the "git not installed" probe
@@ -326,23 +383,53 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string): P
   }
   if (top.run.cancelled) return { ok: false, failure: { ok: false, error: { code: 'cancelled' } } }
   if (top.run.timedOut) return { ok: false, failure: { ok: false, error: { code: 'timeout' } } }
-  if (top.run.exitCode !== 0) {
-    deps.rootNegCache?.set(cwd, Date.now() + NEG_CACHE_MS)
-    return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
+  const out = top.run.exitCode === 0 ? top.run.stdout.trim() : ''
+  if (out === '') {
+    deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+    return { ok: false, failure: { ok: false, error: rel === '' ? { code: 'not-a-git-repo', cwd } : { code: 'invalid-repo', cwd } } }
   }
-  const raw = top.run.stdout.trim()
-  if (raw === '') {
-    deps.rootNegCache?.set(cwd, Date.now() + NEG_CACHE_MS)
-    return { ok: false, failure: { ok: false, error: { code: 'not-a-git-repo', cwd } } }
-  }
-  let root = raw
+  let root = out
   try {
-    root = await deps.fs.realpath(raw)
+    root = await deps.fs.realpath(out)
   } catch {
-    // realpath failed (e.g. permissions) — keep the raw path already in `root`.
+    // realpath failed (e.g. permissions) — keep the raw path already in root.
   }
-  deps.rootCache?.set(cwd, root)
+  // A selector addresses a repository root, so git must resolve to that very
+  // directory: an ancestor here means the selector named a plain subdirectory.
+  if (rel !== '' && !samePath(root, start)) {
+    deps.rootNegCache?.set(key, Date.now() + NEG_CACHE_MS)
+    return { ok: false, failure: { ok: false, error: { code: 'invalid-repo', cwd } } }
+  }
+  deps.rootCache?.set(key, root)
   return { ok: true, root }
+}
+
+/**
+ * Repositories a session's cwd offers: the repository the cwd belongs to (when
+ * it does) plus the nested ones found below it. The nested half is
+ * filesystem-only — a '.git' entry is the marker — so it still works when git
+ * cannot run at all.
+ */
+export async function listSessionRepos(
+  deps: SnapshotDeps,
+  sessionId: string,
+): Promise<{ readonly ok: true; readonly value: GitRepoList } | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }> {
+  const resolved = await resolveSessionCwd(deps, sessionId)
+  if (!resolved.ok) return { ok: false, error: mapWorkspaceFailure(resolved.failure) }
+  const cwd = await deps.fs.realpath(resolved.cwd).catch(() => resolved.cwd)
+  const repos: GitRepoEntry[] = []
+  const workspace = await resolveWorkspace(deps, sessionId)
+  if (workspace.ok) {
+    repos.push({ path: '', root: workspace.root, name: basename(workspace.root), kind: 'workspace' })
+  }
+  for (const found of await scanRepos(deps.fs, cwd)) {
+    // The scanner only descends into children, but a symlinked or
+    // case-insensitive path can still alias the workspace root; identity is
+    // the realpath.
+    if (workspace.ok && samePath(found.root, workspace.root)) continue
+    repos.push({ path: found.path, root: found.root, name: found.name, kind: 'nested' })
+  }
+  return { ok: true, value: { cwd, repos } }
 }
 
 /** Run one git command; a spawn-level failure returns { failure }. */
@@ -414,13 +501,13 @@ export async function snapshotForSession(
   deps: SnapshotDeps,
   config: GitPanelConfig,
   sessionId: string,
-  opts?: { readonly fullChanges?: boolean },
+  opts?: { readonly fullChanges?: boolean; readonly repo?: string },
 ): Promise<GitSnapshotResult> {
   // A `fullChanges` request (the client's "expand all") lifts the list cap to
   // FULL_CHANGES_MAX so a big-but-sane change set arrives complete; everything
   // else (counts, stats fan-out, status fallback) keeps its normal bounds.
   const changeLimit = opts?.fullChanges === true ? Math.max(config.maxChanges, FULL_CHANGES_MAX) : config.maxChanges
-  const workspace = await resolveWorkspace(deps, sessionId)
+  const workspace = await resolveWorkspace(deps, sessionId, opts?.repo)
   if (!workspace.ok) {
     // Surface the pill preference even on the not-a-git-repo path, where the
     // client still renders the directory-name marker.

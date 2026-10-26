@@ -1,27 +1,38 @@
 /**
- * Main Git panel shell: Overview / Changes / Files over the conversation.view
- * slot. Snapshot state chooses the initial tab unless the input-bar pill
- * supplied a one-shot focus request.
+ * Main Git panel shell: Repositories / Overview / Changes / Files over the
+ * conversation.view slot. Snapshot state chooses the initial tab unless the
+ * input-bar pill supplied a one-shot focus request; the Repositories tab leads
+ * the bar whenever the workspace scan returns a checkout to pick from.
+ *
+ * Repositories is a dock of the overview rather than a fourth page: picking a
+ * checkout splits the overview (the panes above, the list below, like an
+ * editor's source-control view), and the Overview tab closes the dock again.
+ * Only a cwd with no checkout of its own gives the list a page of its own,
+ * because there is nothing to split there.
  */
-import { createElement as h, useEffect, useId, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { SegmentedTabs, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
-import { gitPanelRemoteOf, hasSession, type ClientCtx, type GitPanelRemote } from './rpc.js'
+import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
+import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx, type GitPanelRemote } from './rpc.js'
 import { useGitView, controllerFor } from './registry.js'
+import type { GitView } from './controller.js'
 import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } from './jump.js'
 import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
-import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
+import { ReposTab } from './ReposTab.js'
+import { repoChoices } from './repo-list.js'
+import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, RepoIcon, StarIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { useHoverTip } from './tip.js'
 import { hasConfigForms, writePanelConfigField } from './config-write.js'
-import type { FontDelta, GitAction, GitVersionInfo } from './types.js'
+import type { FontDelta, GitAction, GitRepoEntry, GitVersionInfo } from './types.js'
 import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
+import { selectedRepo, selectRepo, withRepo } from './repo-select.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -83,15 +94,34 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const gitMissingInRepo = gitUnavailable && view.state === 'error' && view.error.isGitRepo === true
   // Wait for the snapshot before mounting any git-backed pane. An explicit pill
   // jump takes priority; switching sessions resets the one-shot default.
-  const activeTab = filesOnly ? 'files' : selection !== null && selection.sessionId === sessionId ? selection.tab : null
+  const pickedTab = selection !== null && selection.sessionId === sessionId ? selection.tab : null
+  // A cwd that is not a checkout has a single page, the browser, with the
+  // repository strip above the tree; every selection lands there.
+  const activeTab: SubTab | null = filesOnly ? 'files' : pickedTab
+  // A repository switch keeps the previous sample on screen while the new one
+  // is in flight; this flag drives the dimmer and the tab-bar badge.
+  const [repoSwitching, setRepoSwitching] = useState(false)
   const visited = useRef<{ sessionId?: string; tabs: Set<SubTab> }>({ tabs: new Set() })
   if (visited.current.sessionId !== sessionId) visited.current = { sessionId, tabs: new Set() }
   if (activeTab !== null) visited.current.tabs.add(activeTab)
+  // The stored pick counts as a visit even while the browser overrides it: a
+  // pick that lands on a checkout must find its page mounted once the new
+  // sample arrives, not a placeholder counting as "never opened".
+  if (pickedTab !== null) visited.current.tabs.add(pickedTab)
   const filesVisited = visited.current.tabs.has('files')
 
   useEffect(() => {
     if (!hasSession(sessionId)) return
-    if (filesOnly) { setSelection(null); return }
+    if (filesOnly) {
+      // The browser is the only page here; the repository strip rides on top of
+      // it, so a pick of any other tab still lands on the browser. A switch in
+      // flight is the exception: the pick may land on a checkout, and its target
+      // tab must survive until the new sample says whether it exists.
+      if (selection?.sessionId === sessionId && selection.tab === 'files') return
+      if (repoSwitching) return
+      setSelection({ sessionId, tab: 'files' })
+      return
+    }
     if (selection?.sessionId === sessionId) return
     const pending = takeSubTab(sessionId)
     if (pending !== null) { setSelection({ sessionId, tab: pending }); return }
@@ -101,7 +131,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const recent = recentSubTab(sessionId)
     if (recent !== null) { setSelection({ sessionId, tab: recent }); return }
     if (view.state === 'ready') setSelection({ sessionId, tab: view.snapshot.dirty ? 'changes' : 'overview' })
-  }, [sessionId, view, filesOnly, selection?.sessionId])
+  }, [sessionId, view, filesOnly, repoSwitching, selection?.sessionId, selection?.tab])
 
   // While mounted, receive pill jumps live (a click when the panel is already
   // visible must still switch sub-tabs, not sit in the pending map).
@@ -134,13 +164,152 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // The git-not-installed banner can be dismissed for this mount.
   const [gitNoticeClosed, setGitNoticeClosed] = useState(false)
 
+  // Repository selection: '' follows the repository the session cwd belongs to
+  // (walk-up), anything else follows a nested repository below that cwd. The
+  // pick is remembered per session (repo-select.ts); carrying a state pair lets
+  // a session switch derive the new session's pick instead of showing the
+  // previous session's repository for one render.
+  const [repos, setRepos] = useState<readonly GitRepoEntry[]>([])
+  const [repoListReady, setRepoListReady] = useState(false)
+  const [repoState, setRepoState] = useState<{ readonly session?: string; readonly path: string }>({
+    session: sessionId,
+    path: sessionId === undefined ? '' : selectedRepo(sessionId),
+  })
+  const repo = repoState.session === sessionId
+    ? repoState.path
+    : sessionId === undefined ? '' : selectedRepo(sessionId)
+  // The list belongs to one session's cwd: drop it when the session changes so
+  // the switcher cannot offer the previous workspace's repositories. The ready
+  // flag separates "no answer yet" from "an answer with no repositories" — only
+  // the latter may retire a remembered pick.
+  useEffect(() => {
+    setRepos([])
+    setRepoListReady(false)
+  }, [sessionId])
+  // The switch is over once the controller publishes the next sample — a ready
+  // view of another root, or the failure that explains why it is not coming.
+  // The published view is the reference point: it does not change while the old
+  // sample stays on screen, so a bare state check would end the switch before it
+  // started.
+  const switchBase = useRef<GitView | null>(null)
+  useEffect(() => {
+    if (!repoSwitching || view === switchBase.current) return
+    setRepoSwitching(false)
+  }, [view, repoSwitching])
+  // Every repository-scoped call of the panes and of the write path goes
+  // through this face: the tabs stay unaware of the selection.
+  const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
+  // The controller samples exactly one repository; keep it aligned with the
+  // switcher. setRepo() publishes the loading state itself, so no pane keeps
+  // reading the previous work tree's snapshot under the new selection.
+  useEffect(() => {
+    if (!hasSession(sessionId)) return
+    const controller = controllerFor(sessionId)
+    if (controller.getRepo() === repo) return
+    void controller.setRepo(repo)
+  }, [sessionId, repo])
+
+  // A pick the host can no longer resolve is dropped back to the default
+  // repository. Unlike chooseRepo this keeps the current page: the reset is a
+  // repair of the selection, not a navigation, and the page was never the
+  // problem. It also skips the dim-in-place switch — there is no next tree to
+  // wait for, the default one is already resolved.
+  const dropRepo = (): void => {
+    if (!hasSession(sessionId)) return
+    selectRepo(sessionId, '')
+    setRepoState({ session: sessionId, path: '' })
+    // Another repository means another directory tree: drop the Files cache.
+    setWorktreeGen((n) => n + 1)
+  }
+
+  const chooseRepo = (next: string): void => {
+    if (!hasSession(sessionId) || next === repo) return
+    selectRepo(sessionId, next)
+    setRepoState({ session: sessionId, path: next })
+    // Another repository means another directory tree: drop the Files cache.
+    setWorktreeGen((n) => n + 1)
+    // The panes keep the previous sample until the new one lands; the body dims
+    // and the tab bar says why, so the switch reads as one step rather than a
+    // collapse and a rebuild. The current view is the reference point the
+    // completion effect compares against.
+    switchBase.current = view
+    setRepoSwitching(true)
+    // Land where the new checkout has something to say. The workspace-root
+    // entry of a non-checkout cwd is not in the scan (it has no checkout), so it
+    // opens the browser instead of a git view that cannot resolve.
+    const target = repos.find((entry) => entry.path === next)
+    // Switching stays put: the overview (its left column holds the list) where
+    // there is one, the browser where a non-checkout cwd hosts the list above
+    // the tree, and the Repositories tab in the compact layout. An entry with no
+    // checkout behind it opens the browser.
+    const stay: SubTab = compact ? 'repos' : 'overview'
+    setSelection({ sessionId, tab: target !== undefined ? stay : 'files' })
+  }
+
+  useEffect(() => {
+    if (!queryVisible) return
+    let alive = true
+    void (async () => {
+      const listed = queryAs(
+        await remote.query({ sessionId: sessionId as string, query: { kind: 'repo-list' } }),
+        'repo-list',
+      )
+      if (!alive || listed === null) return
+      // A reply without the list (an older host) degrades to "one repository"
+      // rather than blanking the tab bar on a missing field.
+      setRepos(Array.isArray(listed.repos) ? listed.repos : [])
+      setRepoListReady(true)
+    })()
+    return () => { alive = false }
+    // The scan answers "which repositories does this cwd offer". Neither the pick
+    // nor the sample's root can change that answer, and re-running on either
+    // walks the tree again for a result that has already arrived. Visibility
+    // stays in the list: coming back to the page is when a repository created
+    // while the panel was hidden can be found.
+  }, [remote, sessionId, queryVisible])
+
+  // A remembered pick that disappeared from the scan (the directory is gone, or
+  // it stopped being a repository) falls back to the default one. Waiting for a
+  // finished scan is what keeps a fresh mount from retiring the pick the user
+  // made in an earlier session before the answer is even in.
+  useEffect(() => {
+    if (!repoListReady || repo === '' || repos.some((entry) => entry.path === repo)) return
+    dropRepo()
+    // dropRepo only calls setters and the module-level selection store.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoListReady, repos, repo])
+
+  // A sample that rejects the pick is the other half of the same repair: the
+  // selector stopped resolving (directory gone, no longer a work-tree top) or
+  // nothing can verify it at all (git missing). Without this the panel would
+  // keep the failure on screen with no way back.
+  const repoRejected = view.state === 'error' && (view.error.code === 'invalid-repo' || view.error.code === 'git-unavailable')
+  useEffect(() => {
+    if (!hasSession(sessionId) || repo === '' || !repoRejected) return
+    // The published view can still belong to the previous pick while a switch is
+    // in flight; only the sample of the selected repository may reject it.
+    if (controllerFor(sessionId).getRepo() !== repo) return
+    dropRepo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoRejected, repo, sessionId])
+
   const onAction = async (action: GitAction): Promise<{ ok: boolean; error?: string }> => {
     if (!hasSession(sessionId)) return { ok: false, error: t('error.noCwd') }
-    const result = await remote.run({ sessionId, action })
+    // The selection can move while the write is in flight; the reply carries a
+    // snapshot of the work tree it started in. Handing that to a controller
+    // that already switched repositories would both paint the old tree and
+    // bump the generation, discarding the refresh the switch had started.
+    const startedRepo = repo
+    const result = await repoRemote.run({ sessionId, action })
     if (result.ok) {
+      const controller = controllerFor(sessionId)
+      if (controller.getRepo() !== startedRepo) {
+        void controller.refresh()
+        return { ok: true }
+      }
       // The run already returned a fresh snapshot; feed it to the controller
       // instead of triggering another git round-trip.
-      controllerFor(sessionId).accept(result.snapshot)
+      controller.accept(result.snapshot)
       if (action.kind === 'branch-checkout') setWorktreeGen((n) => n + 1)
       return { ok: true }
     }
@@ -193,16 +362,36 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // stacked sidebar show the short pair so the three cells still read as words
   // next to the trailing controls.
   const tabLabelKeys: Record<SubTab, { full: GitKey; short: GitKey }> = {
+    repos: { full: 'tab.repos', short: 'tab.reposShort' },
     overview: { full: 'tab.overview', short: 'tab.overviewShort' },
     changes: { full: 'tab.changes', short: 'tab.changesShort' },
     files: { full: 'tab.files', short: 'tab.filesShort' },
   }
-  const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = [
-    { key: 'overview', label: t(shortLabels ? tabLabelKeys.overview.short : tabLabelKeys.overview.full), icon: h(CommitIcon, { size: 14 }) },
-    { key: 'changes', label: t(shortLabels ? tabLabelKeys.changes.short : tabLabelKeys.changes.full), icon: h(DiffIcon, { size: 14 }) },
-    { key: 'files', label: t(shortLabels ? tabLabelKeys.files.short : tabLabelKeys.files.full), icon: h(FilesIcon, { size: 14 }) },
-  ]
-  // A non-git directory exposes only the Files tab.
+  const tabIcons: Record<SubTab, JSX.Element> = {
+    repos: h(RepoIcon, { size: 14 }),
+    overview: h(CommitIcon, { size: 14 }),
+    changes: h(DiffIcon, { size: 14 }),
+    files: h(FilesIcon, { size: 14 }),
+  }
+  const repoList = repoChoices(repos)
+  // A wide or stacked panel hosts the repository list in the overview's left
+  // column, so it needs no tab for it: picking a checkout keeps the branches,
+  // the commit list and the list itself on screen at once. The compact layout
+  // has no left column to put one in, so it keeps a page for it instead; a cwd
+  // without a checkout has no overview at all and puts the same list above the
+  // file tree.
+  const reposTab = repoList.length > 0 && compact && !filesOnly
+  const tabOrder: SubTab[] = reposTab
+    ? ['repos', 'overview', 'changes', 'files']
+    : ['overview', 'changes', 'files']
+  const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = tabOrder.map((key) => ({
+    key,
+    label: t(shortLabels ? tabLabelKeys[key].short : tabLabelKeys[key].full),
+    icon: tabIcons[key],
+  }))
+  // A non-git directory exposes the browser alone. The picker is not a tab in
+  // that state — it rides above the file tree — so the last way out of a cwd
+  // without a checkout is never filtered away.
   const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
   // The switcher is the platform SegmentedTabs primitive: it owns the tablist
   // role, the sliding indicator and the keyboard walk; we own the panes and
@@ -218,8 +407,28 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     panelId: `${tabsId}-${tb.key}-panel`,
   }))
   // SegmentedTabs requires the value to belong to items; before a snapshot lands
-  // (cold/loading/no-cwd) there is no active pane, so show the first tab.
-  const selectedTab: SubTab = activeTab ?? tabs[0]?.key ?? 'overview'
+  // (cold/loading/no-cwd) there is no active pane, so show the first tab. A
+  // layout change can also retire the tab the selection points at — compact
+  // shows the picker, wide hosts the list in the overview — and a value that
+  // belongs to no item would leave every pane hidden.
+  const tabKeys = tabs.map((tb) => tb.key)
+  const selectedTab: SubTab = activeTab !== null && tabKeys.includes(activeTab)
+    ? activeTab
+    : tabs[0]?.key ?? 'overview'
+  // Keep the stored selection on a tab that exists, so leaving the compact
+  // layout does not strand the session on the retired picker tab.
+  const tabKeyList = tabKeys.join(' ')
+  useEffect(() => {
+    if (!hasSession(sessionId) || selection?.sessionId !== sessionId) return
+    // A pick may target a page the current sample cannot offer yet (a cwd
+    // without a checkout picking one of its nested repositories). Clamping now
+    // would undo the pick before the new sample says the page exists.
+    if (repoSwitching) return
+    const keys = tabKeyList === '' ? [] : tabKeyList.split(' ')
+    if (keys.includes(selection.tab)) return
+    const fallback = keys[0]
+    if (fallback !== undefined) setSelection({ sessionId, tab: fallback as SubTab })
+  }, [sessionId, tabKeyList, selection?.sessionId, selection?.tab, repoSwitching])
 
   // Every tab in `tabs` always gets its own role=tabpanel node — in the ready
   // view and in the loading / no-cwd / error / files-only states alike — so a
@@ -228,42 +437,108 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const placeholder: JSX.Element | null = ((): JSX.Element | null => {
     if (!hasSession(sessionId) || view.state === 'no-cwd') return h('div', { className: 'gp-empty' }, t('error.noCwd'))
     if (filesOnly) return null
-    if (view.state === 'error') return h('div', { className: 'gp-empty' }, t('pill.unavailable'))
+    // The copy names which repair applies: an unresolvable pick is the picker's
+    // own stale state, not a missing git.
+    if (view.state === 'error') {
+      const label = view.error.code === 'invalid-repo' ? t('error.invalidRepo') : t('pill.unavailable')
+      return h('div', { className: 'gp-empty' }, label)
+    }
     if (view.state === 'cold' || view.state === 'loading' || activeTab === null) return h('div', { className: 'gp-empty' }, t('common.loading'))
     return null
   })()
 
+  // The picker renders ahead of the state placeholder: it reads the scan
+  // result and the one snapshot, needs neither a resolvable checkout nor a
+  // finished sample, and is the way out of a cwd that has no git view — in
+  // particular while the sample of a just-picked repository is still pending.
+  const reposPane = (): JSX.Element | null => hasSession(sessionId)
+    ? h(ReposTab, {
+      key: 'repos',
+      choices: repoList,
+      current: repo,
+      snapshot: view.state === 'ready' ? view.snapshot : null,
+      onChoose: chooseRepo,
+      t,
+    })
+    : null
+
+  // A cwd without a checkout has no overview to host the list, so the browser
+  // carries it above the tree — the one page it has.
+  const repositoriesForFiles = repoList.length > 0
+    ? { choices: repoList, current: repo, onChoose: chooseRepo }
+    : undefined
+
+  // The overview owns the repository list: it renders it in its left column,
+  // above the branch tree, so the two never alternate on screen.
+  const overviewPane = (): JSX.Element | null => {
+    const live = hasSession(sessionId) ? sessionId : undefined
+    const snapshot = live !== undefined && view.state === 'ready' ? view.snapshot : null
+    const mounted = snapshot !== null && visited.current.tabs.has('overview')
+    const overview = mounted && snapshot !== null && live !== undefined
+      ? h(OverviewTab, {
+      key: live,
+      remote: repoRemote,
+      sessionId: live,
+      // Only the pane's own page keeps it live: the Repositories tab shows the
+      // same docked list, but in the compact layout the overview it belongs to is
+      // not on screen at all, and a hidden pane must start no queries.
+      visible: queryVisible && selectedTab === 'overview',
+      defaultDiffView: snapshot.defaultDiffView,
+      snapshot,
+      onAction,
+      onResync: () => controllerFor(live).resync(),
+      compact,
+      stacked,
+      tight: stackedTight,
+      phone: layout.phone ?? false,
+      repositories: hasSession(sessionId) ? {
+        choices: repoList,
+        current: repo,
+        onChoose: chooseRepo,
+      } : undefined,
+      t,
+      })
+      : undefined
+    return overview ?? placeholder
+  }
+
+  const paneOwner = (key: SubTab): boolean => key === selectedTab
+
   const paneContent = (key: SubTab): JSX.Element | null => {
+    // The picker reads the scan and the one snapshot, so it renders ahead of the
+    // state placeholder; the wide layout reaches it through the overview instead.
+    if (key === 'repos' && hasSession(sessionId)) return reposPane()
+    if (key === 'overview') return overviewPane()
     // The state placeholder (loading / no-cwd / error, including no-session)
     // lives in the selected pane; the guard below only narrows sessionId for the
     // tab components.
-    if (placeholder !== null) return key === selectedTab ? placeholder : null
+    if (placeholder !== null) return paneOwner(key) ? placeholder : null
     if (!hasSession(sessionId)) return null
     // A non-git directory still browses files (host resolves the cwd as root).
     if (filesOnly) {
-      return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, stacked, worktreeGen, snapshot: null, t }) : null
+      return filesVisited
+        ? h(FilesTab, { key: sessionId, remote: repoRemote, sessionId, compact, stacked, worktreeGen, snapshot: null, ...(repositoriesForFiles !== undefined ? { repositories: repositoriesForFiles } : {}), t })
+        : null
     }
     if (view.state !== 'ready') return null
     const snapshot = view.snapshot
-    if (key === 'overview') {
-      return visited.current.tabs.has('overview')
-        ? h(OverviewTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'overview', defaultDiffView: snapshot.defaultDiffView, snapshot, onAction, onResync: () => controllerFor(sessionId).resync(), compact, stacked, tight: stackedTight, phone: layout.phone ?? false, t })
-        : null
-    }
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
     // until the user opens it), then stays mounted to retain its tree state.
-    return filesVisited ? h(FilesTab, { key: sessionId, remote, sessionId, compact, stacked, worktreeGen, snapshot, t }) : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: repoRemote, sessionId, compact, stacked, worktreeGen, snapshot, t }) : null
   }
 
-  const panes = tabs.map((tb) => h('div', {
-    key: tb.key, id: `${tabsId}-${tb.key}-panel`, role: 'tabpanel', 'aria-labelledby': `${tabsId}-${tb.key}`,
-    style: selectedTab === tb.key ? { display: 'contents' } : { display: 'none' },
-  }, paneContent(tb.key)))
+  // One panel per tab, so every tab's aria-controls resolves.
+  const paneKeys: SubTab[] = tabKeys
+  const panes = paneKeys.map((key) => h('div', {
+    key, id: `${tabsId}-${key}-panel`, role: 'tabpanel',
+    'aria-labelledby': `${tabsId}-${key}`,
+    style: paneOwner(key) ? { display: 'contents' } : { display: 'none' },
+  }, paneContent(key)))
 
   // git-not-installed inside a repo: stack a notice above the browser.
   const body = gitMissingInRepo
@@ -281,8 +556,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // it the view grows with content and the whole conversation scrolls. The
   // sidebar has no composer under it, so it opts out.
   const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
-  return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode }, [
-    h('div', { key: 'tabs', className: 'gp-tabbar' }, [
+  return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode, ...(repoSwitching ? { 'data-repo-switching': 'true' } : {}) }, [
+    // data-tab-count feeds the compact indicator width (layout.ts): the
+    // Repositories tab is conditional, and the platform's sliding pill needs the
+    // same divisor the compact override restates.
+    h('div', { key: 'tabs', className: 'gp-tabbar', 'data-tab-count': tabs.length }, [
       h(SegmentedTabs, {
         key: 'switcher',
         // A lone tab (non-git directory → Files only) has nothing to switch
@@ -304,6 +582,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       // The stepper also requires the settings form (configForms) to write
       // back; without it the control would silently no-op.
       h('div', { key: 'trailing', className: 'gp-tabbar__trailing' }, [
+        // The body keeps the previous sample while a switch is in flight; this
+        // badge is what tells the dimmed panes apart from a stuck panel.
+        repoSwitching
+          ? h('span', { key: 'switching', className: 'gp-tabbar__switching', role: 'status' }, [
+            h(StateDot, { key: 'dot', state: 'ongoing', size: 12 }),
+            h('span', { key: 'label', className: 'gp-tabbar__switching-label' }, t('repo.switching')),
+          ])
+          : null,
         compact || stackedTight || !fontWritable
           ? null
           : h('div', { key: 'font', className: 'gp-font', role: 'group', 'aria-label': t('panel.fontSize') }, [

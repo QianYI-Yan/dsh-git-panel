@@ -17,6 +17,7 @@ import { CSS as MODAL } from './css/modal.js'
 import { CSS as ACTIONS } from './css/actions.js'
 import { CSS as CONFIG } from './css/config.js'
 import { CSS as LAYOUT } from './css/layout.js'
+import { CSS as REPOS } from './css/repos.js'
 import { CSS as STACKED } from './css/stacked.js'
 
 /**
@@ -28,7 +29,7 @@ import { CSS as STACKED } from './css/stacked.js'
 export const CSS_PARTS: ReadonlyArray<readonly [string, string]> = [
   ['base', BASE], ['overview', OVERVIEW], ['changes', CHANGES], ['diff', DIFF],
   ['modal', MODAL], ['actions', ACTIONS], ['config', CONFIG], ['layout', LAYOUT],
-  ['stacked', STACKED],
+  ['repos', REPOS], ['stacked', STACKED],
 ]
 
 /**

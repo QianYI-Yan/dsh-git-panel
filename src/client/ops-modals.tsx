@@ -24,6 +24,9 @@ export function opErrorText(code: string, message: string | undefined, t: OpT): 
     case 'empty-message': return t('error.emptyMessage')
     case 'nothing-to-commit': return t('error.nothingToCommit')
     case 'not-a-git-repo': return t('error.notARepo')
+    // The picker's own state went stale (the directory is gone, or it stopped
+    // being a work-tree top): not a git failure, and the fix is to pick again.
+    case 'invalid-repo': return t('error.invalidRepo')
     case 'cwd-unavailable': return t('error.noCwd')
     case 'local-changes-block': return t('error.localChangesBlock')
     case 'not-ff': return t('error.notFastForward')

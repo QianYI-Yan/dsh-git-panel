@@ -26,10 +26,10 @@ export type {
   GitQuery, GitQueryRequest, GitQueryResponse, GitQueryResult, GitBranch, GitFileStat, WorktreeStats, StashEntry,
   GitVersionRequest, GitVersionInfo, DiffViewMode, GraphStyle, DirEntry, ResetMode, GitPanelPlacement,
   GitSuggestRequest, GitSuggestResult, GitRemote, RemoteHostKind, SuggestLanguage, ResolvedLanguage,
-  GitOpenFileRequest, GitOpenFileResult,
+  GitOpenFileRequest, GitOpenFileResult, GitRepoEntry, GitRepoList,
   ModelCatalogGroup, ModelCatalogModel, ModelCatalogEffort, ModelCatalogFailure,
 } from './types.js'
-export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
+export { normalizeConfig, DEFAULT_CONFIG, snapshotForSession, resolveWorkspace, listSessionRepos, parsePrimaryRemote, readSuggestLanguage, readPlacement } from './core.js'
 export { createGitRunner } from './git.js'
 export { parseStatus, parseGraphLog, parseBranches, parseNameStatus, parseStashList, parseTags, sumNumstat } from './parser.js'
 export { parseRemote, classifyHost } from './remote.js'
@@ -216,7 +216,7 @@ export class GitPanelService extends TypertRemoteService {
 
   @Remote('snapshot')
   async snapshot(request: GitSnapshotRequest, signal?: AbortSignal): Promise<GitSnapshotResult> {
-    return snapshotForSession(this.withSignal(signal), this.liveConfig(), request.sessionId, { fullChanges: request.fullChanges === true })
+    return snapshotForSession(this.withSignal(signal), this.liveConfig(), request.sessionId, { fullChanges: request.fullChanges === true, repo: request.repo })
   }
 
   @Remote('run')
@@ -257,7 +257,7 @@ export class GitPanelService extends TypertRemoteService {
     if (this.spawnOpener === null) {
       return { ok: false, error: { code: 'git-error', message: 'subprocess service unavailable' } }
     }
-    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId)
+    const browse = await resolveBrowseRoot(this.withSignal(undefined), request.sessionId, request.repo)
     if (!browse.ok) return { ok: false, error: browse.error }
     try {
       return await openWithSystem(this.deps, browse.root, request.path, this.spawnOpener)

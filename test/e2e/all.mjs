@@ -27,6 +27,9 @@ const RUNNERS = [
   'overview-detail-scroll',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   'sidebar-tab',
+  // The tab bar's repository switcher: a workspace with nested checkouts must
+  // route every request through the picked one (issue #83).
+  'repo-switcher',
   'stacked-detail-sticky',
   // Tight stacked (≤ STACKED_TIGHT_BP): the top-band branch column as a drawer
   // over the history — collapsed by default; toggle / blank band / Escape close.
