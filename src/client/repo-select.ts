@@ -22,11 +22,6 @@ export function selectRepo(sessionId: string, repo: string): void {
   else selections.set(sessionId, repo)
 }
 
-/** Forget a session's selection (nested repository no longer exists). */
-export function clearRepoSelection(sessionId: string): void {
-  selections.delete(sessionId)
-}
-
 /**
  * A remote face that tags every repository-scoped request with `repo`. The tabs
  * and their hooks stay unaware of the selection: they keep calling

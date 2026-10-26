@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectedRepo, selectRepo, clearRepoSelection, withRepo } from '../../lib/testkit.mjs'
+import { selectedRepo, selectRepo, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -38,8 +38,8 @@ test('a session starts on the cwd repository and can be pointed elsewhere', () =
   selectRepo('s1', '')
   assert.equal(selectedRepo('s1'), '', "'' resets to the cwd repository")
   selectRepo('s1', 'nested/deep')
-  clearRepoSelection('s1')
-  assert.equal(selectedRepo('s1'), '', 'clearing forgets the pick')
+  selectRepo('s1', '')
+  assert.equal(selectedRepo('s1'), '', "'' forgets the pick")
 })
 
 test('one session\'s pick never leaks into another', () => {
@@ -48,8 +48,8 @@ test('one session\'s pick never leaks into another', () => {
   assert.equal(selectedRepo('a'), 'one')
   assert.equal(selectedRepo('b'), 'two')
   assert.equal(selectedRepo('untouched'), '')
-  clearRepoSelection('a')
-  clearRepoSelection('b')
+  selectRepo('a', '')
+  selectRepo('b', '')
 })
 
 test('an empty selection returns the original remote instead of a wrapper', () => {

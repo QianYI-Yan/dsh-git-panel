@@ -263,7 +263,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     return () => { alive = false }
     // The scan answers "which repositories does this cwd offer". Neither the pick
     // nor the sample's root can change that answer, and re-running on either
-    // walks the tree again for a result that has already arrived.
+    // walks the tree again for a result that has already arrived. Visibility
+    // stays in the list: coming back to the page is when a repository created
+    // while the panel was hidden can be found.
   }, [remote, sessionId, queryVisible])
 
   // A remembered pick that disappeared from the scan (the directory is gone, or
@@ -375,11 +377,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // A wide or stacked panel hosts the repository list in the overview's left
   // column, so it needs no tab for it: picking a checkout keeps the branches,
   // the commit list and the list itself on screen at once. The compact layout
-  // has no left column, and a cwd that is not a checkout has no overview to put
-  // one in — both keep the tab.
-  // Compact has no left column to host the list, so it keeps a page for it; a
-  // cwd without a checkout puts the list above the file tree instead. Neither
-  // is a fourth tab of the wide layout.
+  // has no left column to put one in, so it keeps a page for it instead; a cwd
+  // without a checkout has no overview at all and puts the same list above the
+  // file tree.
   const reposTab = repoList.length > 0 && compact && !filesOnly
   const tabOrder: SubTab[] = reposTab
     ? ['repos', 'overview', 'changes', 'files']
