@@ -112,6 +112,11 @@ async function squeezedDesktopScenario() {
       bar: document.querySelector('.gp-commitbar') !== null,
       foldControl: document.querySelector('.gp-commitbox__fold') !== null,
       aiLabel: document.querySelector('.gp-commitbox__actions .gp-btn:not(.gp-btn--primary)')?.textContent ?? null,
+      // Compact is the layout that compresses the field (stacked keeps the
+      // wide editor height); the phone fold above is a separate mechanism.
+      msgMinHeight: document.querySelector('.gp-commitbox__msg') === null
+        ? null
+        : parseFloat(getComputedStyle(document.querySelector('.gp-commitbox__msg')).minHeight),
     }
     document.querySelector('.gp-stats')?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
     await wait(120)
@@ -343,6 +348,7 @@ try {
   assert.equal(squeezed.out.bar, false, 'no folded commit bar while the panel is tall')
   assert.equal(squeezed.out.foldControl, false, 'no fold control when the editor cannot fold')
   assert.equal(squeezed.out.aiLabel, 'AI 生成', 'the AI entry stays visible in a squeezed desktop panel')
+  assert.equal(squeezed.out.msgMinHeight, 48, `compact compresses the commit field (${squeezed.out.msgMinHeight}px)`)
   assert.equal(squeezed.out.pressKeepsEditor, true, 'a press outside the editor leaves it open when it cannot fold')
 
   assert.equal(phone.errors.length, 0, 'no console errors: ' + JSON.stringify(phone.errors))
