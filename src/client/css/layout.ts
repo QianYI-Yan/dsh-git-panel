@@ -72,6 +72,11 @@ export const CSS = `
 .gp-changes--compact .gp-changes__right{flex:1 1 100%;min-width:0;width:100%}
 .gp-files--compact .gp-files__tree-wrap,
 .gp-files--compact .gp-files__preview{flex:1 1 100%;min-width:0;width:100%}
+/* The commit message is the one layout that compresses the field: a phone
+ * panel spends its height on the change list, and the editor already folds
+ * into a one-line bar when the box is cramped (ChangesTab). Stacked keeps
+ * the wide layout's height instead (see css/stacked.ts). */
+.gp-panel[data-layout="compact"] .gp-commitbox__msg{min-height:48px}
 
 /* Fullscreen reader: the tab's live preview restyled in place — nothing is
  * re-rendered, so a rendered HTML document keeps its frame and a code view

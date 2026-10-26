@@ -499,6 +499,21 @@ try {
     assert.ok(otherTab !== null, 'the changes tab renders its own stacked divider')
     assert.ok(Math.abs(otherTab.ratio - 0.75) < 0.02, `the shared ratio carries to the other tab (got ${otherTab.ratio.toFixed(3)})`)
 
+    // The commit message keeps the wide layout's editor height in stacked: the
+    // sidebar is a PC surface, so the field is not compressed to the phone's
+    // one-line-tall box (its compression lives on data-layout="compact").
+    const stackedMsg = await page.evaluate(() => {
+      const el = document.querySelector('.gp-commitbox__msg')
+      if (el === null) return null
+      return {
+        minHeight: parseFloat(getComputedStyle(el).minHeight),
+        height: Math.round(el.getBoundingClientRect().height),
+      }
+    })
+    assert.ok(stackedMsg !== null, 'the stacked changes tab renders the commit editor')
+    assert.equal(stackedMsg.minHeight, 72, `stacked keeps the wide editor height (${stackedMsg.minHeight}px)`)
+    assert.ok(stackedMsg.height >= 72, `the field is at least that tall (${stackedMsg.height}px)`)
+
     // Back to the tab bar assertions below (they read labels and the version
     // cluster, not band geometry, so the 75% split is harmless here).
     await page.evaluate(() => {

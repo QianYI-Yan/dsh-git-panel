@@ -90,13 +90,14 @@ export const CSS = `
   .gp-drawer-backdrop{animation:none}
 }
 
-/* Changes: commit editor + change-list band over the diff pane. Two rows
- * for the commit message — stacked already spends less of the band on the
- * editor, and the list wants the room. */
+/* Changes: commit editor + change-list band over the diff pane. The commit
+ * message keeps the wide layout's editor height (the base rule in changes.ts):
+ * stacked is a PC surface that spends the sidebar's full height, and a
+ * one-line-tall field is unreadable. Only the phone's compact layout
+ * compresses it (layout.ts). */
 .gp-changes--stacked{flex-direction:column}
 .gp-changes--stacked .gp-changes__left{flex:0 0 55%;min-height:0;min-width:0;width:100%}
 .gp-changes--stacked .gp-changes__right{flex:1 1 0;min-height:0;min-width:0;width:100%}
-.gp-panel[data-layout="stacked"] .gp-commitbox__msg{min-height:48px}
 
 /* Files: tree band over the preview pane. The :not() is load-bearing: the
  * fullscreen reader is the SAME element with an extra --full class, and this
