@@ -44,6 +44,12 @@ export const CSS = `
 .gp-cfg__section-hd:hover{color:var(--dsw-alias-state-business-primary)}
 .gp-cfg__section-hd:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-cfg__section-hd svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+/* Section mark chip: identity at a glance while the body is collapsed. The
+ * glyph carries its own colour — the header's svg rule above would pin it. */
+.gp-cfg__section-left{display:flex;align-items:center;gap:8px;min-width:0}
+.gp-cfg__section-ic{display:flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:7px;background:var(--dsw-alias-bg-layer-2)}
+.gp-cfg__section-ic svg{color:var(--dsw-alias-label-secondary)}
+.gp-cfg__section-hd:hover .gp-cfg__section-ic svg{color:var(--dsw-alias-state-business-primary)}
 .gp-cfg__section-body{display:flex;flex-direction:column;gap:12px}
 /* An author display rule beats the UA's [hidden]{display:none} — restate it. */
 .gp-cfg__section-body[hidden]{display:none}

@@ -158,6 +158,21 @@ export function SparkleIcon({ size }: IconProps): JSX.Element {
   ], size)
 }
 
+/** Three horizontal sliders — the general-settings mark. */
+export function SlidersIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('line', { key: 'l1a', x1: 2, y1: 4.5, x2: 3.4, y2: 4.5 }),
+    h('circle', { key: 'k1', cx: 6, cy: 4.5, r: 1.7 }),
+    h('line', { key: 'l1b', x1: 8.6, y1: 4.5, x2: 14, y2: 4.5 }),
+    h('line', { key: 'l2a', x1: 2, y1: 8, x2: 7.4, y2: 8 }),
+    h('circle', { key: 'k2', cx: 10, cy: 8, r: 1.7 }),
+    h('line', { key: 'l2b', x1: 12.6, y1: 8, x2: 14, y2: 8 }),
+    h('line', { key: 'l3a', x1: 2, y1: 11.5, x2: 4.4, y2: 11.5 }),
+    h('circle', { key: 'k3', cx: 7, cy: 11.5, r: 1.7 }),
+    h('line', { key: 'l3b', x1: 9.6, y1: 11.5, x2: 14, y2: 11.5 }),
+  ], size)
+}
+
 export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }

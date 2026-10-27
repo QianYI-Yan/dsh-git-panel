@@ -11,7 +11,7 @@ import { createElement as h, useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, JSX } from 'react'
 import { Menu, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import { findNamespace, resyncAfterWrite } from './config-write.js'
-import { ChevronIcon } from './icons.js'
+import { ChevronIcon, RepoIcon, ScreenIcon, SlidersIcon, SparkleIcon } from './icons.js'
 import { normalizePlacement } from './placement.js'
 import { segButtons } from './seg.js'
 import { effortForModel, modelForProvider } from './model-route.js'
@@ -31,6 +31,14 @@ type DiffView = 'unified' | 'split'
 
 /** Config sections; only `basic` boots expanded. */
 type SectionId = 'basic' | 'view' | 'suggest' | 'repos'
+
+/** Section marks: identity at a glance while a section's body is collapsed. */
+const SECTION_GLYPH: Record<SectionId, (props: { readonly size?: number }) => JSX.Element> = {
+  basic: SlidersIcon,
+  view: ScreenIcon,
+  suggest: SparkleIcon,
+  repos: RepoIcon,
+}
 
 /** Catalog load lifecycle for the model cascading selects. */
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -412,7 +420,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   }
 
   // One collapsible section: a header button (aria-expanded / aria-controls)
-  // over a body that hides while collapsed; only `basic` boots expanded.
+  // over a body that hides while collapsed; only `basic` boots expanded. The
+  // header's mark chip is decorative — the title names the button.
   const section = (id: SectionId, title: string, body: readonly (JSX.Element | null)[]): JSX.Element =>
     h('section', { key: id, className: 'gp-cfg__section' }, [
       h('button', {
@@ -423,7 +432,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         'aria-controls': `gp-cfg-sec-${id}`,
         onClick: () => { setOpenSections((s) => ({ ...s, [id]: !s[id] })) },
       }, [
-        h('span', { key: 't', className: 'gp-cfg__section-title' }, title),
+        h('span', { key: 'l', className: 'gp-cfg__section-left' }, [
+          h('span', { key: 'i', className: 'gp-cfg__section-ic', 'aria-hidden': 'true' },
+            h(SECTION_GLYPH[id], { size: 14 })),
+          h('span', { key: 't', className: 'gp-cfg__section-title' }, title),
+        ]),
         h(ChevronIcon, { key: 'c', size: 16, open: openSections[id] }),
       ]),
       h('div', {
