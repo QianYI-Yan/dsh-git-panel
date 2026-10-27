@@ -293,6 +293,8 @@ async function mount(repos, action, options = {}) {
     observed.rows = listRows()
     // Boot state, read before any pick expands the block.
     observed.head = headInfo()
+    // The stacked-only checkout bar must stay out of every other layout.
+    observed.repoBarPresent = document.querySelector('.gp-repobar') !== null
     if (action === 'compact') {
       // Compact has no left column to host the list, so it keeps a page of its
       // own: the bar gains a fourth cell, and its indicator has to follow the
@@ -565,7 +567,8 @@ const failures = []
     assert.equal(seen.afterExpand.expanded, true, 'the toggle expands the block')
     assert.deepEqual(seen.rows.map((row) => row.name), ['fixture-repo', 'site', 'web (apps/web)'], 'every checkout is listed')
     assert.deepEqual(seen.rows.map((row) => row.active), [true, false, false], 'the workspace checkout starts checked')
-    assert.equal(seen.rows[1].meta, '', 'a folder that names the checkout needs no second line')
+    assert.equal(seen.repoBarPresent, false, 'the wide overview carries no stacked checkout bar')
+    assert.equal(seen.rows[1].meta, 'site', 'a first-level row states its path like every other row')
     assert.equal(seen.rows[2].meta, 'apps/web', 'a nested row carries its relative path')
     assert.equal(seen.rows[0].current, 'true')
     assert.ok(seen.rows[0].branch.includes('main'), 'the checked row reports its branch on the name line: ' + seen.rows[0].branch)

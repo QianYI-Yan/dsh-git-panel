@@ -59,9 +59,9 @@ test('labels drop the path when it is the basename and keep it otherwise', () =>
   assert.equal(repoLabel(entry('', 'workspace', 'workspace')), 'workspace')
 })
 
-test('the detail line is the relative path and is empty where it adds nothing', () => {
+test('the detail line is the relative path, on every row but the workspace itself', () => {
   assert.equal(repoDetail(entry('apps/web', 'web', 'nested')), 'apps/web')
-  assert.equal(repoDetail(entry('alpha', 'alpha', 'nested')), '', 'the name already is the whole path')
+  assert.equal(repoDetail(entry('alpha', 'alpha', 'nested')), 'alpha', 'a first-level directory states its path beside its name')
   assert.equal(repoDetail(entry('', 'workspace', 'workspace')), '')
 })
 

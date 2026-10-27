@@ -98,11 +98,11 @@ export function repoLabel(choice: RepoChoice): string {
 }
 
 /**
- * Secondary line under the name: the checkout path. Empty when the basename
- * already is the whole path — the label shows it once, so a second line
- * repeating it would only add noise. A worktree whose directory name equals its
- * basename shows the *parent* path: the directory itself is already the name on
- * the first line.
+ * Secondary line under the name: the checkout path. The workspace's own
+ * checkout has no path to state; every other row states it — a first-level
+ * directory repeats its name, which keeps every row the same two-line shape.
+ * A worktree whose directory name equals its basename shows the *parent* path:
+ * the directory itself is already the name on the first line.
  */
 export function repoDetail(choice: RepoChoice): string {
   if (choice.kind === 'worktree') {
@@ -111,7 +111,7 @@ export function repoDetail(choice: RepoChoice): string {
     }
     return choice.path
   }
-  return choice.name === choice.path ? '' : choice.path
+  return choice.path === '' ? '' : choice.path
 }
 
 /** i18n key explaining why a row cannot be chosen; null when it can. */
