@@ -153,6 +153,9 @@ export interface GitSnapshot {
   /** Whether the repository list probes worktrees and nested repositories
    * (user preference). Absent on older hosts. */
   readonly detectCheckouts?: boolean
+  /** Whether the file browser follows repository switches (user preference);
+   * absent on older hosts → off, the browser stays at the project root. */
+  readonly filesFollowRepo?: boolean
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
   readonly stateFingerprint?: string

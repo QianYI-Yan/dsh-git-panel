@@ -24,6 +24,9 @@ export interface GitPanelConfig {
   /** Probe worktrees and nested repositories for the repository list. Off →
    * the list is the cwd's own repository alone (none when the cwd is not one). */
   readonly detectCheckouts: boolean
+  /** The file browser follows repository switches; off → it stays at the
+   * project root (the workspace the cwd belongs to). */
+  readonly filesFollowRepo: boolean
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
   /** Where the panel is mounted: the view tab, the right sidebar, or both. */
@@ -58,6 +61,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxChanges: 1000,
   refreshIntervalMs: 30000,
   detectCheckouts: true,
+  filesFollowRepo: false,
   showInputPill: true,
   placement: 'all',
   defaultDiffView: 'unified',
@@ -108,6 +112,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
     detectCheckouts: readBool(c.detectCheckouts, DEFAULT_CONFIG.detectCheckouts),
+    filesFollowRepo: readBool(c.filesFollowRepo, DEFAULT_CONFIG.filesFollowRepo),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
@@ -747,6 +752,7 @@ export async function snapshotForSession(
     fontDelta: config.fontDelta,
     suggestEnabled: config.suggestEnabled,
     detectCheckouts: config.detectCheckouts,
+    filesFollowRepo: config.filesFollowRepo,
     checkedAt: Date.now(),
   }
   return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }
