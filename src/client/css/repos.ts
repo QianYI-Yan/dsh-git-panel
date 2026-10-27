@@ -13,6 +13,9 @@ export const CSS = `
 .gp-repolist{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;max-height:38%;padding:6px 0 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-repolist__head{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:none;padding:0 10px 4px;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary)}
 .gp-repolist__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Collapsed head: the label is a repository mark, not text — the selected
+ * chip takes the width the words used to hold. */
+.gp-repolist__label--ic{display:flex;align-items:center}
 .gp-repolist__badge{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box}
 .gp-repolist__list{list-style:none;margin:0;padding:0;min-height:0;overflow:auto}
 .gp-repolist__row{margin:0;min-width:0}

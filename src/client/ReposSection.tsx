@@ -137,14 +137,19 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       ])))
     : h('ul', { key: 'list', id: listId, className: 'gp-repolist__list', role: 'list', 'aria-label': t('tab.repos'), hidden: collapsed || undefined }, choices.map(row))
 
-  // While collapsed the head names the checkout the panes act on: its label,
-  // with the absolute root as the hover hint.
+  // While collapsed the head names the checkout the panes act on: its label
+  // shrinks to a repository icon so the selected chip keeps the width, with
+  // the absolute root as the hover hint. Expanding restores the text label.
   const selectedLabel = currentChoice === undefined ? null : repoLabel(currentChoice)
   const selectedTitle = currentChoice === undefined || currentChoice.root === '' ? selectedLabel : currentChoice.root
 
   return h('div', { className: 'gp-repolist' }, [
     h('div', { key: 'head', className: 'gp-repolist__head' }, [
-      h('span', { key: 'label', className: 'gp-repolist__label' }, t('tab.repos')),
+      h('span', {
+        key: 'label',
+        className: collapsed ? 'gp-repolist__label gp-repolist__label--ic' : 'gp-repolist__label',
+        ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
+      }, collapsed ? h(RepoIcon, { size: 14 }) : t('tab.repos')),
       h('span', {
         key: 'n',
         className: 'gp-repolist__badge',
