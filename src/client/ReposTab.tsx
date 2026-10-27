@@ -114,8 +114,9 @@ export function ReposTab({ choices, current, snapshot, onChoose, t }: ReposTabPr
   }
 
   // The page only exists when the scan found repositories (Panel drops it
-  // otherwise), so the list is rendered unconditionally.
-  const body: JSX.Element[] = grouped ? groups.map((group) => section(group)) : [section(groups[0])]
+  // otherwise); an empty choice list still renders nothing rather than reaching
+  // for a group that is not there.
+  const body: JSX.Element[] = groups.length === 0 ? [] : grouped ? groups.map((group) => section(group)) : [section(groups[0])]
   return h('div', { className: 'gp-repos' }, [
     h('p', { key: 'hint', className: 'gp-repos__hint' }, t('repos.hint')),
     ...body,

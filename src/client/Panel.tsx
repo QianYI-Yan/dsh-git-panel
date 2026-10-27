@@ -242,21 +242,22 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // completion effect compares against.
     switchBase.current = view
     setRepoSwitching(true)
-    // Land where the new checkout has something to say. The workspace-root
-    // entry of a non-checkout cwd is not in the scan (it has no checkout), so it
-    // opens the browser instead of a git view that cannot resolve.
+    // Land where the new checkout has something to say: every pick comes from a
+    // scanned entry, so the landing stays put — the overview, whose left column
+    // holds the list, or the Repositories tab in the compact layout. An entry
+    // that no longer resolves is the defensive fall-through to the browser.
     const target = repos.find((entry) => entry.path === next)
-    // Switching stays put: the overview (its left column holds the list) where
-    // there is one, the browser where a non-checkout cwd hosts the list above
-    // the tree, and the Repositories tab in the compact layout. An entry with no
-    // checkout behind it opens the browser.
     const stay: SubTab = compact ? 'repos' : 'overview'
     setSelection({ sessionId, tab: target !== undefined ? stay : 'files' })
   }
 
   // The probe switch rides the snapshot, so a config write re-answers the list
   // in place; an older host omits the field → treated as on (list as before).
-  const detectCheckouts = view.state === 'ready' ? view.snapshot.detectCheckouts ?? true : true
+  // Sticky at the last ready answer: the view dropping to error (boot, a failed
+  // sample) must not flip the dependency and re-answer the list for nothing.
+  const detectRef = useRef(true)
+  if (view.state === 'ready') detectRef.current = view.snapshot.detectCheckouts ?? true
+  const detectCheckouts = detectRef.current
 
   useEffect(() => {
     if (!queryVisible) return

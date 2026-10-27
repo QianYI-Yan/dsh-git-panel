@@ -84,6 +84,8 @@ export const CSS = `
  * monospace, ellipsized, click-to-copy (the hover tip carries the whole
  * path). Sits between the head line and the rows. */
 .gp-repolist__root{display:flex;align-items:center;gap:6px;width:100%;min-width:0;padding:2px 10px 5px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;text-align:left;cursor:pointer;border-radius:6px}
+/* An author display rule beats the UA's [hidden]{display:none} — restate it. */
+.gp-repolist__root[hidden]{display:none}
 .gp-repolist__root:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-repolist__root:hover .gp-repolist__root-code{text-decoration:underline}
 .gp-repolist__root:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}

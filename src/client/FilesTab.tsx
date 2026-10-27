@@ -156,7 +156,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
-  // Manual refresh from the tree's floating button: re-lists the open
+  // Manual refresh from the status bar's refresh button: re-lists the open
   // directories and re-reads the selected file. `refreshFlight` keeps one
   // refresh at a time (the button is disabled while it runs). `dirGen` drops
   // every listing a branch switch made stale; `dirSeq` keeps the newest request
@@ -430,9 +430,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // beside the card is made inert while it is open, so `aria-modal` is true.
   const fsActive = fullscreen && selected !== null && file.kind === 'text'
 
-  // The refresh control lives in the status bar above the tree (it used to
-  // float over the tree's first rows): same re-list/re-read behaviour, one
-  // refresh at a time via `refreshFlight`, busy state on the button itself.
+  // The refresh control sits in the tree column's status bar, above the
+  // scrolling entries: same re-list/re-read behaviour, one refresh at a time
+  // via `refreshFlight`, busy state on the button itself.
   const refreshButton = h('button', {
     key: 'refresh', type: 'button', className: `gp-files__refresh${refreshing ? ' gp-files__refresh--busy' : ''}`,
     title: t('files.refresh'), 'aria-label': t('files.refresh'),
