@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, withRepo } from '../../lib/testkit.mjs'
+import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -106,4 +106,48 @@ test('a version lookup is host-scoped and is never tagged', async () => {
   assert.deepEqual(calls.map((c) => c.kind), ['version'])
   assert.equal(calls[0].request.repo, undefined, 'version must not carry a repository field')
   assert.equal(calls[0].signal, signal)
+})
+
+test('follow off pins the browser to the project root whatever the panel follows', () => {
+  selectRepo('fr-1', 'site')
+  pickFilesRoot('fr-1', 'nested')
+  assert.equal(filesRootSelector('fr-1', false), '', 'follow off ignores both the repository and a stale pick')
+  assert.equal(filesRootPick('fr-1'), 'nested', 'the pick itself is kept for when follow returns')
+  assert.equal(filesRootSelector('fr-1', true), 'nested', 'follow on returns to the manual pick')
+  resumeFilesRootFollow('fr-1')
+  clearRepoPick('fr-1')
+  assert.equal(filesRootPick('fr-1'), null, 'resuming drops the pick')
+  assert.equal(filesRootSelector('fr-1', true), '', 'and the browser follows the panel again')
+})
+
+test('a manual root pick sticks across repository switches', () => {
+  selectRepo('fr-2', 'alpha')
+  assert.equal(filesRootSelector('fr-2', true), 'alpha', 'no pick: follow the repository')
+  assert.equal(filesRootPick('fr-2'), null, 'nothing manual to mark in the dropdown')
+  pickFilesRoot('fr-2', 'site')
+  selectRepo('fr-2', 'beta')
+  assert.equal(filesRootSelector('fr-2', true), 'site', 'the pick survives a repository switch')
+  assert.equal(filesRootPick('fr-2'), 'site')
+  resumeFilesRootFollow('fr-2')
+})
+
+test("'' is a deliberate project-root pick, not the absence of one", () => {
+  selectRepo('fr-3', 'alpha')
+  pickFilesRoot('fr-3', '')
+  assert.equal(filesRootPick('fr-3'), '', "'' marks the pick itself")
+  selectRepo('fr-3', 'gamma')
+  assert.equal(filesRootSelector('fr-3', true), '', 'the project-root pick also sticks')
+  resumeFilesRootFollow('fr-3')
+  assert.equal(filesRootSelector('fr-3', true), 'gamma', 'back to following')
+})
+
+test('a config flip drops every manual pick at once', () => {
+  pickFilesRoot('fr-4a', 'site')
+  pickFilesRoot('fr-4b', '')
+  resetFilesRootPicks()
+  assert.equal(filesRootPick('fr-4a'), null, 'the flip is global — the setting is')
+  assert.equal(filesRootPick('fr-4b'), null)
+  pickFilesRoot('fr-4a', 'site')
+  assert.equal(filesRootSelector('fr-4a', true), 'site', 'picking works again after the reset')
+  resumeFilesRootFollow('fr-4a')
 })

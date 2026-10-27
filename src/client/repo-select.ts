@@ -45,6 +45,54 @@ export function clearRepoPick(sessionId: string): void {
   rootPicks.delete(sessionId)
 }
 
+/** Manual file-browser root picks, independent of the followed repository: a
+ * pick sticks across repository switches until resumed or reset. */
+const filesPicks = new Map<string, string>()
+/** Sessions whose file-root pick was `''` (the project root): '' deletes from
+ * the map, so the deliberate pick needs the same side-set as `rootPicks`. */
+const filesRootPicks = new Set<string>()
+
+/** The selector file-browser requests run under: follow off → the project root
+ * ('') whatever the panel follows; on → the manual pick, else the repository
+ * the panel follows. */
+export function filesRootSelector(sessionId: string, follow: boolean): string {
+  if (!follow) return ''
+  const pick = filesPicks.get(sessionId)
+  if (pick !== undefined) return pick
+  if (filesRootPicks.has(sessionId)) return ''
+  return selectedRepo(sessionId)
+}
+
+/** The manual pick itself: '' = the project root, null = none (the browser
+ * follows the switched repository). Drives the dropdown's row highlights. */
+export function filesRootPick(sessionId: string): string | null {
+  if (filesRootPicks.has(sessionId)) return ''
+  return filesPicks.get(sessionId) ?? null
+}
+
+/** Root the browser at a candidate ('' = the project root). */
+export function pickFilesRoot(sessionId: string, path: string): void {
+  if (path === '') {
+    filesPicks.delete(sessionId)
+    filesRootPicks.add(sessionId)
+  } else {
+    filesRootPicks.delete(sessionId)
+    filesPicks.set(sessionId, path)
+  }
+}
+
+/** Drop the manual pick: the browser follows the switched repository again. */
+export function resumeFilesRootFollow(sessionId: string): void {
+  filesPicks.delete(sessionId)
+  filesRootPicks.delete(sessionId)
+}
+
+/** Drop every session's manual pick: flipping the follow config re-arms it. */
+export function resetFilesRootPicks(): void {
+  filesPicks.clear()
+  filesRootPicks.clear()
+}
+
 /**
  * A remote face that tags every repository-scoped request with `repo`. The tabs
  * and their hooks stay unaware of the selection: they keep calling

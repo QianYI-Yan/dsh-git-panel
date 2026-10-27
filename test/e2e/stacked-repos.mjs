@@ -143,17 +143,27 @@ const textOf = async (selector) => page.evaluate((sel) => {
   return node === null ? null : node.textContent.trim()
 }, selector)
 
-/** Everything about the list that the stacked contract cares about. */
+/** Everything about the list that the stacked contract cares about. Scoped to
+ * the pane on screen: the changes band docks its own copy of the list, and the
+ * hidden pane's nodes must not double the read. */
 const probe = () => page.evaluate(() => {
   const panel = document.querySelector('.gp-panel')
-  const list = document.querySelector('.gp-repolist')
+  const inVisiblePane = (node) => {
+    let el = node
+    while (el !== null && el !== document.body) {
+      if (el.getAttribute('role') === 'tabpanel' && el.style.display === 'none') return false
+      el = el.parentElement
+    }
+    return true
+  }
+  const list = [...document.querySelectorAll('.gp-repolist')].find((n) => inVisiblePane(n)) ?? null
   const top = document.querySelector('.gp-overview__top')
   const inline = document.querySelector('.gp-col--left:not(.gp-drawer)')
   const drawer = document.querySelector('.gp-drawer')
   const branchTree = document.querySelector('.gp-col--left .gp-branch-tree, .gp-drawer .gp-branch-tree, .gp-branch-row')
-  const scroll = document.querySelector('.gp-repolist__list')
-  const collapse = document.querySelector('.gp-repolist__collapse')
-  const rows = [...document.querySelectorAll('.gp-repolist__item')].map((node) => ({
+  const scroll = list === null ? null : list.querySelector('.gp-repolist__list')
+  const collapse = list === null ? null : list.querySelector('.gp-repolist__collapse')
+  const rows = (list === null ? [] : [...list.querySelectorAll('.gp-repolist__item')]).map((node) => ({
     name: (node.querySelector('.gp-repolist__name') || node).textContent.trim(),
     branch: (node.querySelector('.gp-repolist__branch') || { textContent: '' }).textContent.trim(),
     disabled: node.disabled === true,
@@ -164,7 +174,7 @@ const probe = () => page.evaluate(() => {
     switching: panel === null ? null : panel.getAttribute('data-repo-switching'),
     collapse: collapse === null ? null : {
       expanded: collapse.getAttribute('aria-expanded') === 'true',
-      selected: document.querySelector('.gp-repolist__selected')?.textContent.trim() ?? '',
+      selected: list.querySelector('.gp-repolist__selected')?.textContent.trim() ?? '',
     },
     list: list === null ? null : {
       inTop: top !== null && top.contains(list),
@@ -181,8 +191,8 @@ const probe = () => page.evaluate(() => {
       hasRows: drawer.querySelectorAll('.gp-repolist__item').length,
     },
     groups: {
-      titles: [...document.querySelectorAll('.gp-repolist__grouptitle')].map((n) => n.textContent.trim()),
-      counts: [...document.querySelectorAll('.gp-repolist__groupcount')].map((n) => n.textContent.trim()),
+      titles: [...document.querySelectorAll('.gp-repolist__grouptitle')].filter((n) => inVisiblePane(n)).map((n) => n.textContent.trim()),
+      counts: [...document.querySelectorAll('.gp-repolist__groupcount')].filter((n) => inVisiblePane(n)).map((n) => n.textContent.trim()),
     },
     rows,
     activeName: rows.find((row) => row.active)?.name ?? null,
@@ -255,6 +265,35 @@ assert.equal(picked.list.inTop, true, 'and the list stayed in the band')
 const scoped = picked.calls.slice(mark).filter((call) => !(call.endpoint === 'gitPanel/query' && call.kind === 'repo-list'))
 assert.ok(scoped.length > 0, 'the pick produced requests: ' + JSON.stringify(picked.calls.slice(mark)))
 assert.ok(scoped.every((call) => call.repo === '.agents/worktrees/feat/sidebar'), 'every repository-scoped request carries the worktree: ' + JSON.stringify(picked.calls.slice(mark)))
+
+// ── the changes band docks the same list: one block, one collapse state,
+// the same rows with the pick still marked (read against the changes pane —
+// the overview's copy stays mounted behind display:none). ──
+await page.locator('.gp-panel [role="tab"]').filter({ hasText: '变更记录' }).click()
+await page.waitForTimeout(300)
+const inChanges = await page.evaluate(() => {
+  const host = document.querySelector('.gp-changes--stacked')
+  const list = host === null ? null : host.querySelector('.gp-repolist')
+  const collapse = list === null ? null : list.querySelector('.gp-repolist__collapse')
+  return {
+    present: list !== null,
+    firstChild: list !== null && list.previousElementSibling === null,
+    expanded: collapse === null ? null : collapse.getAttribute('aria-expanded') === 'true',
+    rows: list === null ? [] : [...list.querySelectorAll('.gp-repolist__item')].map((node) => ({
+      name: (node.querySelector('.gp-repolist__name') || node).textContent.trim(),
+      active: node.classList.contains('gp-repolist__item--active'),
+    })),
+    calls: window.__calls.slice(),
+  }
+})
+assert.equal(inChanges.present, true, 'the changes band docks the repository list')
+assert.equal(inChanges.firstChild, true, 'as the band\'s first block')
+assert.equal(inChanges.expanded, true, 'sharing the overview band\'s expanded state')
+assert.deepEqual(inChanges.rows.map((row) => row.name), ['fixture-repo', 'sidebar', 'spike', 'gone', 'site'], 'and the same rows')
+assert.equal(inChanges.rows.find((row) => row.active)?.name, 'sidebar', 'with the pick still marked')
+assert.ok(inChanges.calls.slice(mark).length > 0, 'switching pages sends no requests of its own: ' + JSON.stringify(inChanges.calls.slice(mark)))
+await page.locator('.gp-panel [role="tab"]').filter({ hasText: 'Git 总览' }).click()
+await page.waitForTimeout(300)
 
 // ── 320 (tight): the column — list included — moves into the drawer. ──
 await setWidth(320)

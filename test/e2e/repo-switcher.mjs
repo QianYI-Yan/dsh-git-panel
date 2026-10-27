@@ -17,6 +17,14 @@
  * A switch never blanks the panel: the old sample stays up, dimmed, under a
  * "switching" badge until the new one lands. A host that cannot answer the scan
  * keeps the three-pane panel unchanged.
+ * The changes column docks the same list (one collapse state with the
+ * overview; the compact layout keeps its cards page instead), and the file
+ * browser roots itself independently of the repository the panel follows:
+ * follow off (the default) it stays at the project root — no dropdown, tree
+ * state intact across a switch; follow on the address becomes a
+ * candidate-root dropdown whose manual pick sticks across switches until the
+ * follow row takes it back, and a config flip (delivered by the next polled
+ * sample) parks it on the project root again.
  *
  * Fully isolated — a local file:// harness, no dsh server, no touch of any
  * running instance. Requires the e2e fixtures (run test/e2e/setup.mjs first,
@@ -94,12 +102,18 @@ async function mount(repos, action, options = {}) {
   // config form's resync delivers a flipped switch to the panel.
   const snapUsed = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
   const scene = options.scene || 'scene'
-  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle }) => {
+  const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn }) => {
     const React = window.React
     const origWarn = console.warn.bind(console)
     console.warn = (...args) => origWarn('[' + scene + ']', ...args)
     const { fixture, connection } = window.createGitPanelMock(snap)
     fixture.repos = listed
+    // Follow-mode fixtures (files-follow-Git): `taggedRoot` answers every
+    // tagged snapshot with the repository's own root the way the host resolves
+    // it, and while follow is active the flag rides every reply — a flip is
+    // then delivered by the next polled sample, like a config write.
+    const follow = { active: followActive, on: followOn }
+    window.__gpFollow = (on) => { follow.on = on }
     // Every repository-scoped request, so the test can prove the pick reaches
     // the wire rather than only the row highlight. The client captures the
     // connection face before apply(), so patch it first.
@@ -123,6 +137,12 @@ async function mount(repos, action, options = {}) {
       if (probe.active && endpoint === 'gitPanel/query' && request && request.query && request.query.kind === 'repo-list') {
         const rows = probe.off ? listed.filter((entry) => entry.path === '') : listed
         return { ok: true, value: { ok: true, value: { kind: 'repo-list', cwd: '/mock/workspace', repos: rows } } }
+      }
+      if ((taggedRoot || follow.active) && endpoint === 'gitPanel/snapshot') {
+        const tag = request && typeof request.repo === 'string' ? request.repo : ''
+        const value = { ...snap, root: tag === '' ? snap.root : 'fixture-repo/' + tag }
+        if (follow.active) value.filesFollowRepo = follow.on
+        return { ok: true, value: { ok: true, value } }
       }
       // A workspace directory that is not a checkout: the session root has no
       // repository of its own, only nested ones, so only the untagged request
@@ -184,18 +204,33 @@ async function mount(repos, action, options = {}) {
       const left = document.querySelector('.gp-panel .gp-col--left')
       return left !== null && left.querySelector('.gp-repolist') !== null
     }
-    const listRows = () => [...document.querySelectorAll('.gp-panel .gp-repolist__item')].map((node) => ({
-      name: textOf(node, '.gp-repolist__name'),
-      meta: textOf(node, '.gp-repolist__meta'),
-      // The branch chip sits on the name line; it may hold the row's own
-      // reported branch (a worktree), the checked row's snapshot, or nothing.
-      branch: textOf(node, '.gp-repolist__branch'),
-      active: node.classList.contains('gp-repolist__item--active'),
-      current: node.getAttribute('aria-current'),
-      count: textOf(node, '.gp-repolist__count'),
-      disabled: node.disabled === true,
-      title: node.getAttribute('title') || '',
-    }))
+    // Rows and head of the list that is actually on screen: the changes pane
+    // docks the same block, and a hidden pane's copy must not double the read.
+    // The predicate is the pane, not the row — a collapsed block keeps its rows
+    // in the DOM (behind [hidden]) and those still count as the pane's list.
+    const inVisiblePane = (node) => {
+      let el = node
+      while (el !== null && el !== document.body) {
+        if (el.getAttribute('role') === 'tabpanel' && el.style.display === 'none') return false
+        el = el.parentElement
+      }
+      return true
+    }
+    const visibleList = () => [...document.querySelectorAll('.gp-panel .gp-repolist')].find((n) => inVisiblePane(n)) ?? null
+    const listRows = () => [...document.querySelectorAll('.gp-panel .gp-repolist__item')]
+      .filter((node) => inVisiblePane(node))
+      .map((node) => ({
+        name: textOf(node, '.gp-repolist__name'),
+        meta: textOf(node, '.gp-repolist__meta'),
+        // The branch chip sits on the name line; it may hold the row's own
+        // reported branch (a worktree), the checked row's snapshot, or nothing.
+        branch: textOf(node, '.gp-repolist__branch'),
+        active: node.classList.contains('gp-repolist__item--active'),
+        current: node.getAttribute('aria-current'),
+        count: textOf(node, '.gp-repolist__count'),
+        disabled: node.disabled === true,
+        title: node.getAttribute('title') || '',
+      }))
     const cardRows = () => [...document.querySelectorAll('.gp-panel .gp-repos__item')].map((node) => ({
       name: textOf(node, '.gp-repos__name'),
       path: textOf(node, '.gp-repos__path'),
@@ -234,8 +269,9 @@ async function mount(repos, action, options = {}) {
     }
     // The head line: toggle state and, while collapsed, the checkout it names.
     const headInfo = () => {
-      const btn = document.querySelector('.gp-panel .gp-repolist__collapse')
-      const chip = document.querySelector('.gp-panel .gp-repolist__selected')
+      const list = visibleList() ?? document.querySelector('.gp-panel .gp-repolist')
+      const btn = list === null ? null : list.querySelector('.gp-repolist__collapse')
+      const chip = list === null ? null : list.querySelector('.gp-repolist__selected')
       return {
         present: btn !== null,
         expanded: btn === null ? null : btn.getAttribute('aria-expanded') === 'true',
@@ -275,6 +311,51 @@ async function mount(repos, action, options = {}) {
         value: { writeText: async (text) => { window[field] = text } },
       })
     }
+    // Visible-only variants: the panes behind the active one stay mounted
+    // (display:none), so a document-wide query would read the hidden
+    // overview's list while the changes pane is the one on screen.
+    const rootButton = () => document.querySelector('.gp-panel .gp-files__status-path')
+    const rootMenuInfo = () => {
+      const menu = document.querySelector('.gp-panel .gp-files__rootmenu')
+      const trigger = rootButton()
+      return {
+        triggerPresent: trigger !== null,
+        hasPopup: trigger !== null && trigger.getAttribute('aria-haspopup') === 'listbox',
+        expanded: trigger !== null && trigger.getAttribute('aria-expanded') === 'true',
+        open: menu !== null,
+        items: menu === null ? [] : [...menu.querySelectorAll('.gp-files__rootmenu__item')].map((node) => ({
+          key: textOf(node, '.gp-files__rootmenu__name'),
+          path: textOf(node, '.gp-files__rootmenu__path'),
+          active: node.classList.contains('gp-files__rootmenu__item--active'),
+          selected: node.getAttribute('aria-selected'),
+        })),
+      }
+    }
+    const openRootMenu = async () => {
+      const trigger = rootButton()
+      if (trigger === null) throw new Error('no browse-root trigger')
+      // Idempotent: the trigger toggles, and a menu left open over a tab
+      // switch (synthetic clicks send no pointerdown) would close instead.
+      if (trigger.getAttribute('aria-expanded') !== 'true') {
+        trigger.click()
+        await wait(150)
+      }
+    }
+    const clickRootItem = async (key) => {
+      const menu = document.querySelector('.gp-panel .gp-files__rootmenu')
+      const item = menu === null ? null : [...menu.querySelectorAll('.gp-files__rootmenu__item')].find((node) => textOf(node, '.gp-files__rootmenu__name') === key)
+      if (item === null || item === undefined) throw new Error('no root menu item ' + key)
+      item.click()
+      await wait(250)
+    }
+    const expandTree = async (name) => {
+      const row = [...document.querySelectorAll('.gp-panel .gp-files__entry--dir')]
+        .find((n) => (n.getAttribute('aria-label') || '').trim() === name)
+      if (row === undefined) throw new Error('no tree dir ' + name)
+      row.click()
+      await wait(300)
+    }
+    const treeText = () => (document.querySelector('.gp-panel .gp-files__tree')?.textContent ?? '').trim()
 
     const observed = {
       tabs: tabLabels(),
@@ -372,6 +453,10 @@ async function mount(repos, action, options = {}) {
         active: cardRows().map((card) => card.active),
         snapshots: calls.slice(mark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
       }
+      // The compact changes pane docks no list: the cards page leads instead.
+      clickTab('tab.changesShort')
+      await wait(300)
+      observed.changesList = document.querySelector('.gp-panel .gp-changes .gp-repolist') !== null
       return { observed, calls }
     }
     if (action === 'reject') {
@@ -467,6 +552,116 @@ async function mount(repos, action, options = {}) {
       }
       return { observed, calls }
     }
+    if (action === 'changes-bar') {
+      // The changes column docks the same list as the overview: same rows, one
+      // collapse state read from either side.
+      if (activeTabLabel() !== 'tab.overview') { clickTab('tab.overview'); await wait(300) }
+      await expandRepos()
+      observed.overviewHead = headInfo()
+      clickTab('tab.changes')
+      await wait(300)
+      observed.changesBar = {
+        present: visibleList() !== null,
+        inChangesColumn: !!(document.querySelector('.gp-panel .gp-changes__left')?.contains(visibleList())),
+        head: headInfo(),
+        rows: listRows(),
+      }
+      const collapse = visibleList()?.querySelector('.gp-repolist__collapse')
+      if (collapse !== null && collapse !== undefined && collapse.getAttribute('aria-expanded') === 'true') {
+        collapse.click()
+        await wait(200)
+      }
+      observed.changesBar.afterCollapse = headInfo()
+      clickTab('tab.overview')
+      await wait(300)
+      observed.changesBar.overviewAfter = headInfo()
+      return { observed, calls }
+    }
+    if (action === 'files-root') {
+      // Follow off (the default): the browser stays at the project root across
+      // a repository switch, keeps the tree it was showing, and its address
+      // stays a click-to-copy path with no dropdown.
+      clickTab('tab.files')
+      await wait(400)
+      observed.boot = { status: statusbarInfo(), menu: rootMenuInfo(), tree: treeText() }
+      armClipboard('__copiedStatus')
+      rootButton().click()
+      await wait(80)
+      observed.boot.copy = window.__copiedStatus
+      await expandTree('src')
+      observed.boot.treeAfterExpand = treeText()
+      clickTab('tab.overview')
+      await wait(250)
+      await expandRepos()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      clickTab('tab.files')
+      await wait(400)
+      observed.afterSwitch = {
+        status: statusbarInfo(),
+        menu: rootMenuInfo(),
+        tree: treeText(),
+        snapshotTags: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo),
+      }
+      return { observed, calls }
+    }
+    if (action === 'files-root-follow') {
+      // Follow on: the address becomes the candidate-root dropdown; a manual
+      // pick sticks across repository switches until the follow row takes it
+      // back.
+      clickTab('tab.files')
+      await wait(400)
+      observed.boot = { status: statusbarInfo(), menu: rootMenuInfo() }
+      await openRootMenu()
+      observed.menuOpen = rootMenuInfo()
+      await clickRootItem('files.rootProject')
+      observed.afterPick = { status: statusbarInfo(), menu: rootMenuInfo() }
+      await openRootMenu()
+      observed.afterPick.menuOpen = rootMenuInfo()
+      clickTab('tab.overview')
+      await wait(250)
+      await expandRepos()
+      pickRow('.gp-repolist__item', 'web (apps/web)')
+      await wait(700)
+      clickTab('tab.files')
+      await wait(400)
+      observed.afterGitSwitch = {
+        status: statusbarInfo(),
+        lastSnapshotTag: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo).at(-1),
+      }
+      await openRootMenu()
+      observed.menuAfterSwitch = rootMenuInfo()
+      await clickRootItem('files.rootFollowGit')
+      observed.afterResume = { status: statusbarInfo(), menu: rootMenuInfo() }
+      return { observed, calls }
+    }
+    if (action === 'files-root-flip') {
+      // A config flip rides the polled sample: off parks the browser on the
+      // project root and takes the dropdown away; back on clears the manual
+      // pick and re-arms following.
+      clickTab('tab.files')
+      await wait(400)
+      await openRootMenu()
+      await clickRootItem('site')
+      observed.beforeFlip = { status: statusbarInfo(), menu: rootMenuInfo() }
+      window.__gpFollow(false)
+      for (let i = 0; i < 80 && rootMenuInfo().hasPopup; i += 1) await wait(50)
+      observed.afterOff = { status: statusbarInfo(), menu: rootMenuInfo() }
+      clickTab('tab.overview')
+      await wait(250)
+      await expandRepos()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      clickTab('tab.files')
+      await wait(400)
+      observed.afterGitSwitch = { status: statusbarInfo() }
+      window.__gpFollow(true)
+      for (let i = 0; i < 80 && !rootMenuInfo().hasPopup; i += 1) await wait(50)
+      await wait(300)
+      await openRootMenu()
+      observed.afterOn = { status: statusbarInfo(), menu: rootMenuInfo() }
+      return { observed, calls }
+    }
     if (action !== 'switch') {
       // The standalone page (compact layout) only exists when the bar carries a
       // Repositories tab; read its cards from there.
@@ -510,7 +705,7 @@ async function mount(repos, action, options = {}) {
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
     return { observed, calls }
-  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true })
+  }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip' })
   await page.close()
   return { out, errors }
 }
@@ -628,7 +823,7 @@ const failures = []
     const tags = seen.snapshotTags
     assert.ok(tags.includes(''), 'the root was sampled first (and failed): ' + JSON.stringify(tags))
     assert.ok(tags.includes('site'), 'the default then sampled the sub-repository: ' + JSON.stringify(tags))
-    assert.equal(seen.statusAfterPick, 'fixture-repo/site', 'the status bar follows the checkout that is now sampled')
+    assert.equal(seen.statusAfterPick, '/mock', 'the browser stays at the project root (the cwd), not the sampled checkout')
     assert.equal(seen.afterExpand.expanded, true, 'the block expands')
     assert.equal(seen.rootLine, 'fixture-repo/site', 'the expanded block states the checkout root')
     assert.equal(seen.rootShownAfterExpand, true, 'and shows that path line again once expanded')
@@ -640,7 +835,7 @@ const failures = []
     assert.equal(seen.steady.head.expanded, true, 'the block stays where it was left')
     assert.equal(seen.state.activeTab, 'tab.overview', 'the panel stays on the overview')
     assert.equal(seen.state.switching, false, 'and settled')
-    assert.equal(seen.statusPathCopy, 'fixture-repo/site', 'clicking the status path writes it to the clipboard')
+    assert.equal(seen.statusPathCopy, '/mock', 'clicking the status path writes the project root to the clipboard')
     assert.equal(seen.statusPathCopiedClass, true, 'and confirms on the button')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -668,12 +863,12 @@ const failures = []
     assert.equal(seen.state.switching, false, 'the panel settled')
     assert.equal(seen.state.statusbar.present, true, 'the files page carries a status bar')
     assert.equal(seen.state.statusbar.hasPath, true, 'with the browse root on it')
-    assert.equal(seen.state.statusbar.path, '/mock/workspace', 'the degrade shows the cwd it is rooted at')
+    assert.equal(seen.state.statusbar.path, '/mock', 'the degrade shows the project root it is rooted at (the scan\'s cwd)')
     assert.equal(seen.state.statusbar.refreshInBar, true, 'the refresh control lives in the bar')
     assert.equal(seen.state.statusbar.barInTree, true, 'the bar is the tree column header, not a full-width row on top of the page')
     assert.equal(seen.state.statusbar.precedesRows, true, 'and it stands above the file entries, outside the scrolling list')
     assert.equal(seen.state.statusbar.spansColumnOnly, true, 'the bar only spans the tree column, never the preview side')
-    assert.equal(seen.statusPathCopy, '/mock/workspace', 'clicking the status path writes it to the clipboard')
+    assert.equal(seen.statusPathCopy, '/mock', 'clicking the status path writes the project root to the clipboard')
     assert.equal(seen.statusPathCopiedClass, true, 'and confirms on the button')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -801,6 +996,7 @@ const failures = []
     assert.equal(seen.cards[3].path, 'repos.disabled.stale', 'and a lost one names its cleanup')
     assert.deepEqual(seen.disabledTap.active, [true, false, false, false, false, false], 'a tap on a disabled card changes nothing')
     assert.deepEqual(seen.disabledTap.snapshots, [], 'and asks for nothing')
+    assert.equal(seen.changesList, false, 'the compact changes pane docks no repository list — the cards page leads')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('compact-groups observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
@@ -824,6 +1020,98 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('probe-toggle observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 10. The changes column docks the same repository list as the overview: one
+// block, one collapse state, the same rows (the compact layout's cards page
+// was asserted with scene 8).
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'changes-bar', { scene: 'S10' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.changesBar.present, true, 'the list is docked in the changes pane')
+    assert.equal(seen.changesBar.inChangesColumn, true, 'inside the changes column, not the hidden overview')
+    assert.equal(seen.changesBar.head.expanded, true, 'it reads the overview\'s expanded state')
+    assert.deepEqual(seen.changesBar.rows.map((row) => row.name), ['fixture-repo', 'site'], 'and the same rows')
+    assert.equal(seen.changesBar.afterCollapse.expanded, false, 'collapsing from the changes side lands')
+    assert.equal(seen.changesBar.overviewAfter.expanded, false, 'the overview reads the same state back')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('changes-bar observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 11. Follow off (the default): the browser roots itself at the project root
+// and a repository switch must not move it or reset the tree it shows; the
+// address stays a click-to-copy path with no dropdown.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'files-root', { taggedRoot: true, scene: 'S11' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.boot.status.path, 'fixture-repo', 'the browser opens at the project root')
+    assert.equal(seen.boot.menu.hasPopup, false, 'follow off keeps the address a copy button')
+    assert.equal(seen.boot.copy, 'fixture-repo', 'clicking the address copies the root')
+    assert.ok(seen.boot.treeAfterExpand.includes('index.ts'), 'the tree was expanded')
+    assert.equal(seen.afterSwitch.status.path, 'fixture-repo', 'a repository switch leaves the browser where it was')
+    assert.ok(seen.afterSwitch.tree.includes('index.ts'), 'and does not reset the tree it was showing')
+    assert.ok(seen.afterSwitch.snapshotTags.includes('site'), 'the repository switch really happened: ' + JSON.stringify(seen.afterSwitch.snapshotTags))
+    assert.equal(seen.afterSwitch.menu.hasPopup, false, 'still no dropdown')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('files-root observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 12. Follow on: the address becomes the candidate-root dropdown; a manual
+// pick sticks across a repository switch, and the follow row takes it back.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO, DEEP_REPO], 'files-root-follow', { taggedRoot: true, follow: 'on', scene: 'S12' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.boot.status.path, 'fixture-repo', 'following, the browser starts on the project root')
+    assert.equal(seen.boot.menu.hasPopup, true, 'follow on turns the address into a dropdown')
+    assert.equal(seen.menuOpen.open, true, 'the click opens the candidate roots')
+    assert.deepEqual(seen.menuOpen.items.map((item) => item.key), ['files.rootFollowGit', 'files.rootProject', 'site', 'web', 'files.copyRootMenu'], 'follow row, project root, the checkouts, then the copy entry')
+    assert.equal(seen.menuOpen.items[0].active, true, 'following highlights the follow row')
+    assert.equal(seen.menuOpen.items[0].selected, 'true', 'as aria-selected')
+    assert.equal(seen.menuOpen.items[2].path, 'site', 'a checkout row carries its relative path')
+    assert.equal(seen.afterPick.status.path, 'fixture-repo', 'the project-root pick shows the same address…')
+    assert.equal(seen.afterPick.menuOpen.items[1].active, true, '…but the manual pick is what the menu marks now')
+    assert.equal(seen.afterGitSwitch.status.path, 'fixture-repo', 'a repository switch leaves the manual root alone')
+    assert.equal(seen.afterGitSwitch.lastSnapshotTag, 'apps/web', 'while the panel itself follows the new repository')
+    assert.equal(seen.menuAfterSwitch.items[0].active, false, 'the follow row is no longer the source')
+    assert.equal(seen.afterResume.status.path, 'fixture-repo/apps/web', 'picking Follow Git switches re-roots the browser on the repository')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('files-follow observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 13. A config flip rides the polled sample: off parks the browser on the
+// project root and takes the dropdown away; back on clears the manual pick
+// and re-arms following.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'files-root-flip', { taggedRoot: true, follow: 'flip', pollMs: 500, scene: 'S13' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.beforeFlip.status.path, 'fixture-repo/site', 'the manual pick roots the browser on the checkout')
+    assert.equal(seen.afterOff.status.path, 'fixture-repo', 'flipping follow off parks the browser on the project root')
+    assert.equal(seen.afterOff.menu.hasPopup, false, 'and takes the dropdown away')
+    assert.equal(seen.afterGitSwitch.status.path, 'fixture-repo', 'with follow off a repository switch still does not move it')
+    assert.equal(seen.afterOn.status.path, 'fixture-repo/site', 'back on, the browser follows the switched repository again')
+    assert.equal(seen.afterOn.menu.items[0].active, true, 'the cleared pick leaves the follow row as the source')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('files-flip observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

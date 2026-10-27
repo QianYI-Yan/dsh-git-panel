@@ -78,6 +78,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const [pendingFont, setPendingFont] = useState<FontDelta | null>(null)
   const [pendingSuggest, setPendingSuggest] = useState<boolean | null>(null)
   const [pendingDetect, setPendingDetect] = useState<boolean | null>(null)
+  const [pendingFollow, setPendingFollow] = useState<boolean | null>(null)
   const [openSections, setOpenSections] = useState<Record<SectionId, boolean>>({ basic: true, view: false, suggest: false, repos: false })
   const [pendingLang, setPendingLang] = useState<SuggestLanguage | null>(null)
   // Numeric drafts are local edit state: onChange only updates the draft so
@@ -133,6 +134,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
     ?? (snap?.value?.fontDelta === -1 || snap?.value?.fontDelta === 1 ? (snap.value.fontDelta as FontDelta) : 0)
   const suggestEnabled = pendingSuggest ?? (typeof snap?.value?.suggestEnabled === 'boolean' ? (snap.value.suggestEnabled as boolean) : true)
   const detectCheckouts = pendingDetect ?? (typeof snap?.value?.detectCheckouts === 'boolean' ? (snap.value.detectCheckouts as boolean) : true)
+  const filesFollowRepo = pendingFollow ?? (typeof snap?.value?.filesFollowRepo === 'boolean' ? (snap.value.filesFollowRepo as boolean) : false)
   const rawLang = snap?.value?.suggestLanguage
   const suggestLanguage: SuggestLanguage = pendingLang
     ?? (typeof rawLang === 'string' && (SUGGEST_LANGUAGES as readonly string[]).includes(rawLang) ? rawLang as SuggestLanguage : SUGGEST_LANGUAGE_DEFAULT)
@@ -249,6 +251,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
   const toggleDetect = (next: boolean): Promise<void> => {
     setPendingDetect(next)
     return commitField('detectCheckouts', next, () => setPendingDetect(null))
+  }
+
+  const toggleFilesFollow = (next: boolean): Promise<void> => {
+    setPendingFollow(next)
+    return commitField('filesFollowRepo', next, () => setPendingFollow(null))
   }
 
   const setLanguage = (next: SuggestLanguage): Promise<void> => {
@@ -588,6 +595,15 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
       h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
     ]),
     h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
+    h('label', { key: 'followrow', className: 'gp-cfg__row' }, [
+      h('input', {
+        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+        checked: filesFollowRepo, disabled: busy || snap?.writable === false,
+        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleFilesFollow(e.currentTarget.checked) },
+      }),
+      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.filesFollowToggle')),
+    ]),
+    h('p', { key: 'followhint', className: 'gp-cfg__hint' }, t('cfg.filesFollowHint')),
   ]
 
   return h('div', { className: 'gp-cfg' }, [

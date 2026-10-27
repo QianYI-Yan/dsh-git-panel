@@ -120,3 +120,56 @@ export function repoDisabledKey(choice: RepoChoice): 'repos.disabled.outside' | 
   if (choice.disabled === 'stale') return 'repos.disabled.stale'
   return null
 }
+
+/** One candidate root of the browse-root dropdown (files-follow mode). */
+export interface FilesRootRow {
+  /** '' = the project root, otherwise the repository selector tag. */
+  readonly selector: string
+  readonly kind: 'project' | 'repo'
+  /** Absolute root, display only. */
+  readonly root: string
+  /** Repository basename; the project row is labelled by i18n instead. */
+  readonly name: string
+  /** Grey second line, the same detail rule as the switcher rows. */
+  readonly path: string
+  readonly disabled?: 'outside' | 'stale'
+  /** Row the manual pick marks; `pick` null (following) marks none — the
+   * follow row is the caller's own and highlights then. */
+  readonly active: boolean
+}
+
+/** The browse-root dropdown as Panel hands it to the files pane. */
+export interface FilesRootMenu {
+  readonly rows: readonly FilesRootRow[]
+  /** The follow row highlights while no manual pick is active. */
+  readonly followActive: boolean
+}
+
+/**
+ * Candidate roots behind the browse-root dropdown: the project root first,
+ * then every checkout; disabled entries stay listed and marked, mirroring the
+ * switcher. `pick` is the manual pick ('' = project root, null = following).
+ */
+export function filesRootRows(projectRoot: string, choices: readonly RepoChoice[], pick: string | null): readonly FilesRootRow[] {
+  const rows: FilesRootRow[] = [{
+    selector: '',
+    kind: 'project',
+    root: projectRoot,
+    name: '',
+    path: '',
+    active: pick === '',
+  }]
+  for (const c of choices) {
+    if (c.path === '') continue
+    rows.push({
+      selector: c.path,
+      kind: 'repo',
+      root: c.root,
+      name: c.name,
+      path: repoDetail(c),
+      ...(c.disabled !== undefined ? { disabled: c.disabled } : {}),
+      active: pick === c.path,
+    })
+  }
+  return rows
+}

@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, FullscreenIcon, InfoIcon, RefreshIcon, ScreenIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FolderIcon, FullscreenIcon, InfoIcon, RefreshIcon, RepoIcon, ScreenIcon, SyncIcon, WrapIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
@@ -33,6 +33,7 @@ import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
+import type { FilesRootMenu } from './repo-list.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -48,10 +49,16 @@ interface FilesTabProps {
   readonly worktreeGen: number
   /** Panel snapshot; null in the non-git degrade (properties then skip Git). */
   readonly snapshot: GitSnapshot | null
-  /** Absolute browse root for the status bar in the non-git degrade, where
-   * there is no snapshot to take it from (the error's cwd; absent on a host
-   * that does not send it — the bar then shows only the refresh control). */
-  readonly browsePath?: string
+  /** Absolute browse root Panel resolved for the browser's selector; null
+   * until the list (or the error's cwd) names it — the bar then shows only
+   * the refresh control. */
+  readonly browseRoot: string | null
+  /** Candidate roots for the address dropdown; null = not following (or no
+   * second root) and the address keeps its click-to-copy behaviour. */
+  readonly rootMenu?: FilesRootMenu | null
+  /** Root a picked selector ('' = the project root), or null to resume
+   * following the switched repository. */
+  readonly onPickRoot?: (selector: string | null) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -109,7 +116,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browsePath, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -127,10 +134,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // write for a file the user has left cannot repaint the next one.
   const pathCopy = useCopyFeedback(selected)
   const contentCopy = useCopyFeedback(selected)
-  // The status bar's copy target: the checkout root the snapshot reports, or
-  // the degrade's cwd when there is no snapshot at all. Keyed on the path
-  // itself, so a switch repaints the bar without carrying the old root's ✓.
-  const browseRoot = snapshot !== null ? snapshot.root : (browsePath ?? null)
+  // The status bar's copy target: the root Panel resolved for the browser's
+  // selector. Keyed on the path itself, so a switch repaints the bar without
+  // carrying the old root's ✓.
   const rootCopy = useCopyFeedback(browseRoot)
   // The copy-content icon is label-free, so its hint rides the portaled tip
   // (fast + themed, like the toolbar controls) instead of a native title —
@@ -440,12 +446,75 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     onClick: () => refresh(),
   }, h(RefreshIcon, { size: 14 }))
 
-  // The tree column's own header row: the absolute browse root (click to copy;
-  // ✓ + live region for 1.6 s, the same feedback clock as the diff-header
-  // paths) on the left, the refresh control on the right. It belongs to the
-  // directory tree column only — it is not a full-width row on top of the
-  // page — and it is where the degrade (no snapshot at all) names where the
-  // browser is rooted. The tree wrap carries the reader's inert state.
+  // Follow mode gives the address a candidate-root list instead of copy: it
+  // opens under the bar, closes on an outside press or Escape, and offers the
+  // follow state, the project root, every checkout, and a copy entry.
+  const [rootMenuOpen, setRootMenuOpen] = useState(false)
+  const rootMenuRef = useRef<HTMLDivElement | null>(null)
+  const menuable = rootMenu !== undefined && rootMenu !== null && browseRoot !== null
+  useEffect(() => { if (!menuable) setRootMenuOpen(false) }, [menuable])
+  useEffect(() => {
+    if (!rootMenuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const el = rootMenuRef.current
+      if (el !== null && !el.contains(event.target as Node)) setRootMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => { if (event.key === 'Escape') setRootMenuOpen(false) }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [rootMenuOpen])
+
+  const rootMenuNode = !menuable || !rootMenuOpen || rootMenu === null || rootMenu === undefined
+    ? null
+    : h('div', { key: 'rootmenu', ref: rootMenuRef, className: 'gp-files__rootmenu', role: 'listbox', 'aria-label': t('files.rootMenuLabel') }, [
+      h('button', {
+        key: 'follow', type: 'button', role: 'option', 'aria-selected': rootMenu.followActive,
+        className: `gp-files__rootmenu__item${rootMenu.followActive ? ' gp-files__rootmenu__item--active' : ''}`,
+        onClick: () => { hideTip(); setRootMenuOpen(false); onPickRoot?.(null) },
+      }, [
+        h('span', { key: 'i', className: 'gp-files__rootmenu__icon' }, h(SyncIcon, { size: 13 })),
+        h('span', { key: 'n', className: 'gp-files__rootmenu__name' }, t('files.rootFollowGit')),
+      ]),
+      ...rootMenu.rows.map((row) => h('button', {
+        key: row.selector === '' ? 'project' : `repo:${row.selector}`,
+        type: 'button', role: 'option', 'aria-selected': row.active,
+        ...(row.disabled !== undefined ? { 'aria-disabled': true as const } : {}),
+        className: `gp-files__rootmenu__item${row.active ? ' gp-files__rootmenu__item--active' : ''}${row.disabled !== undefined ? ' gp-files__rootmenu__item--disabled' : ''}`,
+        onClick: () => {
+          if (row.disabled !== undefined) return
+          hideTip()
+          setRootMenuOpen(false)
+          onPickRoot?.(row.selector)
+        },
+      }, [
+        h('span', { key: 'i', className: 'gp-files__rootmenu__icon' }, row.kind === 'project' ? h(FolderIcon, { size: 13 }) : h(RepoIcon, { size: 13 })),
+        h('span', { key: 't', className: 'gp-files__rootmenu__text' }, [
+          h('span', { key: 'n', className: 'gp-files__rootmenu__name' }, row.kind === 'project' ? t('files.rootProject') : row.name),
+          h('span', {
+            key: 'p',
+            className: row.kind === 'project' ? 'gp-files__rootmenu__path gp-files__rootmenu__path--abs' : 'gp-files__rootmenu__path',
+          }, row.kind === 'project' ? rtlPathText(row.root) : row.path),
+        ]),
+      ])),
+      h('button', {
+        key: 'copy', type: 'button', className: 'gp-files__rootmenu__item gp-files__rootmenu__copy',
+        onClick: () => { hideTip(); setRootMenuOpen(false); if (browseRoot !== null) rootCopy.copy(browseRoot) },
+      }, [
+        rootCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 13 }) : h(CopyIcon, { key: 'i', size: 13 }),
+        h('span', { key: 'n', className: 'gp-files__rootmenu__name' },
+          rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRootMenu')),
+      ]),
+    ])
+
+  // The tree column's own header row: the absolute browse root on the left —
+  // click to copy, or (while following) to open the candidate-root list — the
+  // refresh control on the right. It belongs to the directory tree column only
+  // and it is where the degrade (no snapshot at all) names where the browser
+  // is rooted. The tree wrap carries the reader's inert state.
   const statusBar = h('div', {
     key: 'status', className: 'gp-files__statusbar',
   }, [
@@ -453,22 +522,31 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       ? null
       : h('button', {
         key: 'root', type: 'button',
-        className: `gp-files__status-path${rootCopy.feedback === 'copied' ? ' gp-files__status-path--copied' : ''}`,
-        'aria-label': rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRoot'),
+        className: `gp-files__status-path${rootCopy.feedback === 'copied' ? ' gp-files__status-path--copied' : ''}${menuable && rootMenuOpen ? ' gp-files__status-path--open' : ''}`,
+        ...(menuable
+          ? { 'aria-haspopup': 'listbox' as const, 'aria-expanded': rootMenuOpen, 'aria-label': t('files.chooseRoot') }
+          : { 'aria-label': rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRoot') }),
         // The tip carries the full path (and the copy outcome while the ✓
         // shows); the visible text elides from the left, slash included.
         ...tipProps(rootCopy.feedback === 'copied' ? t('files.rootCopied') : browseRoot),
-        onClick: () => { hideTip(); rootCopy.copy(browseRoot) },
+        onClick: () => {
+          hideTip()
+          if (menuable) setRootMenuOpen((open) => !open)
+          else rootCopy.copy(browseRoot)
+        },
       }, [
         h('code', { key: 'p', className: 'gp-files__status-code' }, [
           h('span', { key: 'body', className: 'gp-files__status-body' }, rtlPathText(browseRoot)),
         ]),
-        rootCopy.feedback === 'copied'
-          ? h(CheckIcon, { key: 'ok', size: 12 })
-          : h(CopyIcon, { key: 'i', size: 12 }),
+        menuable
+          ? h(ChevronIcon, { key: 'chev', size: 12, open: rootMenuOpen })
+          : rootCopy.feedback === 'copied'
+            ? h(CheckIcon, { key: 'ok', size: 12 })
+            : h(CopyIcon, { key: 'i', size: 12 }),
         h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
           rootCopy.feedback === 'copied' ? t('files.rootCopied') : ''),
       ]),
+    rootMenuNode,
     refreshButton,
   ])
 

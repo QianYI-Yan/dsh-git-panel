@@ -22,14 +22,36 @@ export const CSS = `
  * the left) and the refresh control (right), above the scrolling entries — it
  * belongs to the tree column (not a full-width row on top of the page) and
  * stays put while the entries scroll under it. */
-.gp-files__statusbar{flex:none;display:flex;align-items:center;gap:6px;min-width:0;padding:4px 5px 4px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__statusbar{position:relative;flex:none;display:flex;align-items:center;gap:6px;min-width:0;padding:4px 5px 4px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
 .gp-files__status-path{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;padding:2px 6px;margin-left:-6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;border-radius:6px}
 .gp-files__status-path:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-files__status-path:hover .gp-files__status-code{text-decoration:underline}
 .gp-files__status-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-files__status-path--copied{color:var(--dsw-alias-state-success-primary)}
 .gp-files__status-path--copied .gp-files__status-code{text-decoration:none}
+/* The dropdown trigger keeps its open state painted after the pointer leaves. */
+.gp-files__status-path--open{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-files__status-path svg{flex:none}
+/* Browse-root dropdown (follow mode): anchored under the status bar, own
+ * scroll when the column is short; z-index keeps it over the tree rows. */
+.gp-files__rootmenu{position:absolute;top:calc(100% + 2px);left:6px;right:5px;z-index:40;display:flex;flex-direction:column;gap:1px;max-height:min(260px,70vh);overflow-y:auto;overscroll-behavior:contain;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-2);box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.gp-files__rootmenu__item{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:5px 8px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.gp-files__rootmenu__item:hover:not(.gp-files__rootmenu__item--active){background:var(--dsw-alias-interactive-bg-hover)}
+.gp-files__rootmenu__item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* The active row keeps its fill while hovered; it is also the row a click
+ * leaves unchanged. */
+.gp-files__rootmenu__item--active{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);cursor:default}
+.gp-files__rootmenu__item--disabled{opacity:.55;cursor:default}
+.gp-files__rootmenu__item--disabled:hover{background:transparent}
+.gp-files__rootmenu__icon{display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-files__rootmenu__item--active .gp-files__rootmenu__icon{color:var(--dsw-alias-state-business-primary)}
+.gp-files__rootmenu__text{display:flex;flex-direction:column;gap:1px;flex:1 1 auto;min-width:0}
+.gp-files__rootmenu__name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-files__rootmenu__path{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Absolute roots elide from the left (same trick as the status body): the
+ * invisible LRM anchors the leading '/', which the ellipsis then swallows. */
+.gp-files__rootmenu__path--abs{direction:rtl;unicode-bidi:isolate}
+.gp-files__rootmenu__copy{margin-top:3px;padding-top:7px;border-top:1px solid var(--dsw-alias-border-l2);border-radius:0;color:var(--dsw-alias-label-secondary)}
 .gp-files__status-code{flex:1 1 auto;min-width:0;display:flex;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px}
 /* direction:rtl makes the ellipsis eat from the left, so the tail of the path
  * stays on screen; the invisible LRM the text is prefixed with anchors the

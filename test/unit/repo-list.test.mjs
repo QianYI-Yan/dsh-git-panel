@@ -8,11 +8,13 @@
  * repeat a basename that already is the path, and the two checkout families
  * (the workspace's own worktrees vs unrelated repositories) split into groups
  * only when both are present — a lone group must not render a header that
- * restates the block title.
+ * restates the block title. The browse-root dropdown (filesRootRows) is the
+ * one deliberate exception: it synthesises the project root as its first row,
+ * because the browser can be rooted there even when the cwd owns no checkout.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey } from '../../lib/testkit.mjs'
+import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, filesRootRows } from '../../lib/testkit.mjs'
 
 /** A scan entry; only the fields the list reads. */
 function entry(path, name, kind) {
@@ -103,4 +105,35 @@ test('disabled rows count in the group but not as selectable', () => {
   assert.equal(repoDisabledKey(rows[1]), 'repos.disabled.outside')
   assert.equal(repoDisabledKey(rows[2]), 'repos.disabled.stale')
   assert.equal(repoDisabledKey(rows[0]), null, 'an ordinary row carries no reason')
+})
+
+test('the browse-root menu leads with the project root, then every checkout', () => {
+  const rows = filesRootRows('/r', [
+    { path: '', name: 'repo', kind: 'workspace', root: '/r' },
+    { path: 'wts/a', name: 'a', kind: 'worktree', root: '/a' },
+    { path: 'site', name: 'site', kind: 'repo', root: '/s' },
+  ], null)
+  assert.deepEqual(rows.map((r) => r.selector), ['', 'wts/a', 'site'], 'the workspace row collapses into the project root')
+  assert.equal(rows[0].kind, 'project')
+  assert.equal(rows[0].root, '/r')
+  assert.equal(rows[0].active, false, 'following marks no root row — the follow row is the caller\'s')
+  assert.equal(rows[1].path, 'wts', 'the grey line repeats the switcher\'s detail rule')
+  assert.equal(rows[2].path, 'site', 'a first-level repository keeps its own path')
+})
+
+test('the browse-root menu marks the manual pick and keeps disabled rows listed', () => {
+  const rows = filesRootRows('/p', [
+    { path: '', name: 'p', kind: 'workspace', root: '/p' },
+    { path: 'site', name: 'site', kind: 'repo', root: '/s' },
+    { path: 'gone', name: 'gone', kind: 'repo', root: '/g', disabled: 'stale' },
+  ], 'site')
+  assert.equal(rows[0].active, false, 'the project root is not the pick')
+  assert.equal(rows[1].active, true, 'the picked checkout is marked')
+  assert.equal(rows[2].disabled, 'stale', 'disabled entries stay visible and marked')
+  assert.equal(rows[2].active, false)
+
+  const project = filesRootRows('/p', [], '')
+  assert.equal(project.length, 1, 'a workspace without checkouts still offers the project root')
+  assert.equal(project[0].active, true, "'' is the project-root pick itself")
+  assert.equal(project[0].root, '/p')
 })
