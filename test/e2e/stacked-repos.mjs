@@ -186,6 +186,18 @@ const probe = () => page.evaluate(() => {
     },
     rows,
     activeName: rows.find((row) => row.active)?.name ?? null,
+    // The checkout bar above the history search (stacked only); the path text
+    // carries the invisible LRM prefix, so strip it before comparing.
+    repoBar: (() => {
+      const bar = document.querySelector('.gp-repobar')
+      const search = document.querySelector('.gp-search')
+      if (bar === null) return null
+      return {
+        aboveSearch: search !== null && (bar.compareDocumentPosition(search) & 4) !== 0,
+        path: (bar.querySelector('.gp-repobar__text')?.textContent ?? '').replace(/\u200e/g, '').trim(),
+        branch: (bar.querySelector('.gp-repobar__branch')?.textContent ?? '').trim(),
+      }
+    })(),
     calls: window.__calls.slice(),
   }
 })
@@ -214,6 +226,10 @@ const booted = await probe()
 assert.equal(booted.layout, 'stacked', 'the desktop sidebar stacks below its wide bar')
 assert.equal(booted.collapse.expanded, false, 'the list block boots collapsed')
 assert.equal(booted.collapse.selected, 'fixture-repo', 'the collapsed head names the checkout in use')
+assert.ok(booted.repoBar !== null, 'the stacked overview carries the checkout bar')
+assert.equal(booted.repoBar.aboveSearch, true, 'it sits above the search')
+assert.equal(booted.repoBar.path, 'fixture-repo', 'the bar states the checkout root')
+assert.equal(booted.repoBar.branch, 'main', 'and the current branch')
 await page.click('.gp-repolist__collapse')
 await page.waitForTimeout(300)
 const inline = await probe()
@@ -249,6 +265,7 @@ assert.equal(collapsed.drawer.open, 'false', 'collapsed by default: the list is 
 assert.equal(collapsed.drawer.inert, true, 'and inert while collapsed')
 assert.equal(collapsed.list.inDrawer, true, 'the repository list collapsed with the column')
 assert.equal(collapsed.list.inInline, false, 'no inline copy remains')
+assert.ok(collapsed.repoBar !== null, 'the tight tier keeps the checkout bar above the search')
 
 await page.click('.gp-toolbar__branches')
 await settleDrawer(true)

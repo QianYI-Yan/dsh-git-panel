@@ -108,4 +108,21 @@ export const CSS = `
 .gp-files--stacked{flex-direction:column}
 .gp-files--stacked .gp-files__tree-wrap{flex:0 0 55%;min-height:120px;min-width:0;width:100%}
 .gp-files--stacked .gp-files__preview:not(.gp-files__preview--full){flex:1 1 0;min-height:0;min-width:0;width:100%}
+
+/* Checkout bar above the history search (stacked overview only): the root
+ * path is click-to-copy and elides from the left (direction:rtl text + LRM),
+ * the current branch rides beside it as a chip. */
+.gp-repobar{display:flex;align-items:center;gap:8px;flex:none;min-width:0;padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-repobar__path{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;margin:0 0 0 -6px;padding:2px 6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;border-radius:6px}
+.gp-repobar__path:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-repobar__path:hover .gp-repobar__code{text-decoration:underline}
+.gp-repobar__path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-repobar__path--copied{color:var(--dsw-alias-state-success-primary)}
+.gp-repobar__path--copied .gp-repobar__code{text-decoration:none}
+.gp-repobar__path svg{flex:none}
+.gp-repobar__code{flex:1 1 auto;min-width:0;display:flex;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px}
+.gp-repobar__text{flex:0 1 auto;min-width:0;direction:rtl;unicode-bidi:isolate;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-repobar__branch{display:inline-flex;align-items:center;gap:3px;flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.gp-repobar__branch svg{flex:none}
+.gp-repobar__branch--detached{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
 `

@@ -36,6 +36,7 @@ import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
 import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
+import { RepoBar } from './overview-repobar.js'
 import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
 import { ReposSection } from './ReposSection.js'
@@ -710,6 +711,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
+    // Stacked only: the checkout's path and branch sit above the search — the
+    // left column's status bar names neither, and in the tight tier it is
+    // behind the drawer.
+    stacked ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0
