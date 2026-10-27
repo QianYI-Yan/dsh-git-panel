@@ -1,9 +1,10 @@
 /**
- * Repository list of the Git overview.
+ * Repository list of the Git panel.
  *
- * The panes of the panel act on exactly one checkout; this list lives in the
- * overview's left column, above the branch tree, so picking one keeps the
- * branches, the commit list and the list itself on screen together. Rows are
+ * The panes of the panel act on exactly one checkout; the panel docks this
+ * list above the overview's branch tree and at the top of the changes column,
+ * so picking one keeps the branches, the commit list, the change list and the
+ * list itself on screen together. Rows are
  * compact — the column is narrow — one line for the name (with the checkout's
  * branch chip and the change count at the right) and one for the badges and
  * the path. The block also states the current checkout's absolute path
@@ -26,6 +27,20 @@ import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
 import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
+
+/** The docked list block as the panel hands it to a pane — the overview's left
+ * column and the changes column share one, so the collapse state and the
+ * choice wiring stay in sync across panes. */
+export interface RepositoriesHost {
+  readonly choices: readonly RepoChoice[]
+  /** Request tag of the checkout the panes act on ('' = cwd). */
+  readonly current: string
+  readonly onChoose: (path: string) => void
+  /** Collapsed head of the block; the panel owns the state so it survives
+   * switching panes. */
+  readonly collapsed?: boolean
+  readonly onToggleCollapse?: () => void
+}
 
 interface ReposSectionProps {
   readonly choices: readonly RepoChoice[]

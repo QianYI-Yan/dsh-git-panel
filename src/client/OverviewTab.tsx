@@ -14,7 +14,6 @@ import { selectTrigger } from './select-trigger.js'
 import { OVERLAY_ATTR, hasOverlay } from './dialog-focus.js'
 import { renderBranchDrawer } from './overview-drawer.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
-import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
@@ -39,7 +38,7 @@ import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
 import { RepoBar } from './overview-repobar.js'
 import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
-import { ReposSection } from './ReposSection.js'
+import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
@@ -92,16 +91,7 @@ interface OverviewProps {
   readonly phone?: boolean
   /** Repository list for the left column. The overview hosts it — rather than a
    * page of its own — so a pick never hides the branches or the commit list. */
-  readonly repositories?: {
-    readonly choices: readonly RepoChoice[]
-    /** Request tag of the checkout the panes act on ('' = cwd). */
-    readonly current: string
-    readonly onChoose: (path: string) => void
-    /** Collapsed head of the list block; the panel owns the state so it
-     * survives switching panes (session-level, per §10.5). */
-    readonly collapsed?: boolean
-    readonly onToggleCollapse?: () => void
-  }
+  readonly repositories?: RepositoriesHost
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
