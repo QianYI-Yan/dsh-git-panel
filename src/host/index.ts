@@ -119,7 +119,7 @@ export class GitPanelService extends TypertRemoteService {
       Schema.const(0).description('默认'),
       Schema.const(1).description('较大'),
     ]).default(0).volatile().description('面板字号'),
-    detectCheckouts: Schema.boolean().default(true).volatile().description('探测 worktree 和子仓库（关闭后存储库列表只保留工作区主仓库）'),
+    detectCheckouts: Schema.boolean().default(true).volatile().description('探测 worktree 和子仓库（关闭后存储库列表只保留工作区主仓库；当前目录不是仓库时列表为空）'),
     suggestEnabled: Schema.boolean().default(true).volatile().description('提交框显示 AI 生成按钮'),
     suggestLanguage: Schema.union([
       Schema.const('auto').description('自动跟随仓库历史提交的语言'),
