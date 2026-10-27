@@ -8,12 +8,12 @@
  * panes themselves never learn about it. The compact layout has no left column,
  * so it keeps a Repositories page. The list block boots collapsed with the
  * checkout in use named in its head line, and no row ever represents a non-git
- * workspace root. A cwd that is not a checkout shows **no repository strip**:
+ * workspace root. A cwd that is not a checkout shows **no repository entries**:
  * it opens straight into its first sub-repository (a session that never picked
  * anything); a scan that found nothing shows the browser alone with the tree
  * column's status bar (absolute path, click-to-copy, refresh). The probe switch
- * (detail-page config) re-answers the list in place: flipping it off shrinks
- * the list to the workspace row with no page switch.
+ * (detail-page config) re-answers the list in place: flipping it off empties
+ * the list (one checkout needs no list) with no page switch.
  * A switch never blanks the panel: the old sample stays up, dimmed, under a
  * "switching" badge until the new one lands. A host that cannot answer the scan
  * keeps the three-pane panel unchanged.
@@ -245,21 +245,6 @@ async function mount(repos, action, options = {}) {
     // The body dims and the tab bar shows a badge while the next sample is in
     // flight; the list itself must stay put, or the switch reads as a collapse.
     const switchingNow = () => document.querySelector('.gp-panel').getAttribute('data-repo-switching') === 'true'
-    // The strip above the file tree: the browser is the only page of a cwd with
-    // no checkout, so its rows are the way into any git view.
-    const stripInfo = () => {
-      const node = document.querySelector('.gp-panel .gp-files__repos')
-      const files = document.querySelector('.gp-panel .gp-files')
-      return {
-        present: node !== null,
-        rows: node === null ? [] : [...node.querySelectorAll('.gp-repolist__item')].map((row) => ({
-          name: textOf(row, '.gp-repolist__name'),
-          active: row.classList.contains('gp-repolist__item--active'),
-        })),
-        // DOCUMENT_POSITION_FOLLOWING (4): the browser starts after the strip.
-        aboveTree: node !== null && files !== null && (node.compareDocumentPosition(files) & 4) !== 0,
-      }
-    }
     // The tree column's header: the absolute browse root on the left, the
     // refresh control on the right — inside the directory tree column, never a
     // full-width row on top of the page, and never covering the entries.
@@ -295,7 +280,6 @@ async function mount(repos, action, options = {}) {
       tabs: tabLabels(),
       tabCount: document.querySelector('.gp-panel .gp-tabbar').getAttribute('data-tab-count'),
       switching: switchingNow(),
-      strip: stripInfo(),
       // The requests sent before any pick: the root sample must never be tagged.
       rootCalls: calls.slice(),
     }
@@ -419,10 +403,17 @@ async function mount(repos, action, options = {}) {
       observed.snapshotTags = calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo)
       observed.optionRows = listRows().map((row) => row.name)
       observed.statusAfterPick = textOf(document, '.gp-panel .gp-files__statusbar .gp-files__status-code')
+      // Boot, before any interaction: the collapsed block keeps its path line
+      // behind [hidden], and the files page itself carries no repository entry.
+      const bootRoot = document.querySelector('.gp-panel .gp-repolist__root')
+      observed.rootHiddenAtBoot = bootRoot !== null && getComputedStyle(bootRoot).display === 'none'
+      observed.filesEntries = document.querySelectorAll('.gp-panel .gp-files .gp-repolist, .gp-panel .gp-files .gp-repos').length
       // The expanded block's absolute path line: click-to-copy with ✓ (1.6 s).
       await expandRepos()
       observed.afterExpand = headInfo()
       observed.rootLine = textOf(document, '.gp-panel .gp-repolist__root')
+      const shownRoot = document.querySelector('.gp-panel .gp-repolist__root')
+      observed.rootShownAfterExpand = shownRoot !== null && getComputedStyle(shownRoot).display !== 'none'
       armClipboard('__copiedRoot')
       const rootBtn = document.querySelector('.gp-panel .gp-repolist__root')
       if (rootBtn !== null) rootBtn.click()
@@ -436,12 +427,11 @@ async function mount(repos, action, options = {}) {
         head: headInfo(),
         newSnapshotTags: calls.slice(steadyMark).filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo),
       }
-      // Tabs / strip / status bar / repository rows, read for either landing state.
+      // Tabs / status bar / repository rows, read for either landing state.
       observed.state = {
         tabs: tabLabels(),
         activeTab: activeTabLabel(),
         tabCount: document.querySelector('.gp-panel .gp-tabbar').getAttribute('data-tab-count'),
-        strip: stripInfo(),
         statusbar: statusbarInfo(),
         switching: switchingNow(),
         repoRows: document.querySelectorAll('.gp-panel .gp-repolist__item, .gp-panel .gp-repos__item').length,
@@ -501,14 +491,13 @@ async function mount(repos, action, options = {}) {
       inLeftColumn: listInLeftColumn(),
       rows: listRows(),
       tabCount: document.querySelector('.gp-panel .gp-tabbar').getAttribute('data-tab-count'),
-      strip: stripInfo(),
     }
     if (typeof fixture.releaseSnapshot === 'function') fixture.releaseSnapshot()
     fixture.holdSnapshot = false
     await wait(700)
     observed.afterNested = {
       activeTab: activeTabLabel(), tabs: tabLabels(), inLeftColumn: listInLeftColumn(),
-      rows: listRows(), switching: switchingNow(), strip: stripInfo(), calls: calls.slice(mark),
+      rows: listRows(), switching: switchingNow(), calls: calls.slice(mark),
     }
     // A cwd without a checkout of its own lists no workspace row to return to;
     // the pick is the last step there.
@@ -627,9 +616,10 @@ const failures = []
     assert.deepEqual(seen.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'the sub-repository brings the git panes up on its own')
     assert.equal(seen.tabCount, '3', 'the bar reports all three pages')
     assert.equal(seen.activeTab, 'tab.overview', 'and the overview is what opens')
-    assert.equal(seen.strip.present, false, 'no repository strip exists anywhere in this panel')
+    assert.equal(seen.filesEntries, 0, 'the files page carries no repository entry')
     assert.equal(seen.head.present, true, 'the overview carries the repository block')
     assert.equal(seen.head.expanded, false, 'the block boots collapsed')
+    assert.equal(seen.rootHiddenAtBoot, true, 'the collapsed block keeps its path line hidden')
     assert.equal(seen.head.selected, 'site', 'the collapsed head names the checkout in use')
     assert.deepEqual(seen.optionRows, ['site', 'web (apps/web)'], 'the list offers only real checkouts: no workspace-root row')
     const tags = seen.snapshotTags
@@ -638,6 +628,7 @@ const failures = []
     assert.equal(seen.statusAfterPick, 'fixture-repo/site', 'the status bar follows the checkout that is now sampled')
     assert.equal(seen.afterExpand.expanded, true, 'the block expands')
     assert.equal(seen.rootLine, 'fixture-repo/site', 'the expanded block states the checkout root')
+    assert.equal(seen.rootShownAfterExpand, true, 'and shows that path line again once expanded')
     assert.equal(seen.rootLineCopy, 'fixture-repo/site', 'clicking the path line writes it to the clipboard')
     assert.equal(seen.rootLineCopiedClass, true, 'and confirms on the button')
     assert.ok(seen.steady.newSnapshotTags.every((tag) => tag === 'site'), 'the default never re-samples the root: ' + JSON.stringify(seen.steady.newSnapshotTags))
@@ -656,8 +647,8 @@ const failures = []
 }
 
 // 4b. The same directory with nothing to scan: the browser alone is the page —
-// one tab, no repository rows, no strip — and the status bar roots itself at
-// the cwd (absolute path + refresh, as the tree column's header).
+// one tab, no repository rows — and the status bar roots itself at the cwd
+// (absolute path + refresh, as the tree column's header).
 {
   const { out, errors } = await mount([], 'files-only', { snapshotFails: true, scene: 'S4b' })
   try {
@@ -667,7 +658,6 @@ const failures = []
     assert.equal(seen.activeTab, 'tab.files', 'and that is the page that opens')
     assert.equal(seen.state.tabCount, '1', 'the bar reports the single page')
     assert.equal(seen.head.present, false, 'no list block renders')
-    assert.equal(seen.strip.present, false, 'the non-git root shows no repository strip')
     assert.equal(seen.state.repoRows, 0, 'and no repository rows in any form: the browser alone is the page')
     assert.equal(seen.optionRows.length, 0, 'the list offers no rows')
     assert.equal(seen.rootLine, '', 'and states no checkout path')
@@ -816,8 +806,8 @@ const failures = []
 }
 
 // 9. The probe switch re-answers the list in place: flipping it off (as the
-// config form does) shrinks the list to the workspace row and drops the stale
-// sub-repository pick — without any page switch or reload.
+// config form does) empties the list — one checkout needs no list — and drops
+// the stale sub-repository pick, without any page switch or reload.
 {
   const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'probe', { pollMs: 500, probeToggle: true, scene: 'S9' })
   try {
