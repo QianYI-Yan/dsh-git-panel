@@ -146,6 +146,19 @@ test('showInputPill config flows into the snapshot and normalizes volatile refs'
   assert.equal(hidden.value.showInputPill, false)
 })
 
+test('detectCheckouts config flows into the snapshot and normalizes volatile refs', async () => {
+  // Default on; explicit off honored; a schemastery volatile ref is unwrapped.
+  assert.equal(normalizeConfig({}).detectCheckouts, true)
+  assert.equal(normalizeConfig({ detectCheckouts: false }).detectCheckouts, false)
+  assert.equal(normalizeConfig({ detectCheckouts: { get: () => false } }).detectCheckouts, false)
+  const off = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, detectCheckouts: false }, SID)
+  assert.equal(off.ok, true)
+  assert.equal(off.value.detectCheckouts, false)
+  // The flag is business state: the client re-answers the repository list when
+  // it flips, which only a fingerprint change can trigger.
+  assert.notEqual(off.value.stateFingerprint, (await snapshotForSession(deps(), DEFAULT_CONFIG, SID)).value.stateFingerprint)
+})
+
 test('placement config normalizes and unwraps volatile refs', () => {
   // Default all; each known value honored; unknown falls back; volatile ref
   // unwrapped. It is deliberately NOT carried in the snapshot (it is a mount

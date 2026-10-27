@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectedRepo, selectRepo, withRepo } from '../../lib/testkit.mjs'
+import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -50,6 +50,25 @@ test('one session\'s pick never leaks into another', () => {
   assert.equal(selectedRepo('untouched'), '')
   selectRepo('a', '')
   selectRepo('b', '')
+})
+
+// Intent, not just the value: '' both clears the selection and means "the cwd
+// repository", so without a separate marker a deliberate return to the root
+// would look like "never picked" — and the panel's first-sub-repository
+// default would fight the user who chose it.
+test('a deliberate root pick counts as a choice, a repair does not', () => {
+  assert.equal(hasRepoPick('intent-1'), false, 'a fresh session never picked anything')
+  selectRepo('intent-1', 'site')
+  assert.equal(hasRepoPick('intent-1'), true, 'a checkout pick records intent')
+  selectRepo('intent-1', '')
+  assert.equal(selectedRepo('intent-1'), '', "'' resets the selection")
+  assert.equal(hasRepoPick('intent-1'), true, 'but the deliberate return to the root stays a choice')
+  selectRepo('intent-1', 'other')
+  assert.equal(hasRepoPick('intent-1'), true, 'picking again keeps the session in the picked state')
+  clearRepoPick('intent-1')
+  assert.equal(selectedRepo('intent-1'), '', 'a repair forgets the pick')
+  assert.equal(hasRepoPick('intent-1'), false, 'and never records it as a root choice')
+  assert.equal(hasRepoPick('intent-2'), false, 'intent never leaks across sessions')
 })
 
 test('an empty selection returns the original remote instead of a wrapper', () => {

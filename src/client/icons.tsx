@@ -34,6 +34,11 @@ export function BranchIcon({ size }: IconProps): JSX.Element {
   return svg([h('circle', { key: 'a', cx: 4, cy: 3, r: 1.6 }), h('circle', { key: 'b', cx: 4, cy: 13, r: 1.6 }), h('circle', { key: 'c', cx: 12, cy: 5, r: 1.6 }), h('path', { key: 'd', d: 'M4 4.6v6.8' }), h('path', { key: 'e', d: 'M12 6.6c0 3-4 2.4-8 4' })], size)
 }
 
+/** One repository splitting into several checkouts — a linked worktree row. */
+export function WorktreeIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'a', cx: 8, cy: 2.6, r: 1.6 }), h('path', { key: 'b', d: 'M8 4.2v2.2' }), h('path', { key: 'c', d: 'M8 6.4L4.4 9.2' }), h('path', { key: 'd', d: 'M8 6.4l3.6 2.8' }), h('circle', { key: 'e', cx: 3.4, cy: 11.8, r: 1.6 }), h('circle', { key: 'f', cx: 12.6, cy: 11.8, r: 1.6 })], size)
+}
+
 function tagGlyph(size: number | undefined, hidden = false): JSX.Element {
   return svg([h('path', { key: 'a', d: TAG_PATH }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size, hidden)
 }

@@ -8,7 +8,9 @@ import { commitFromFields, parseStatus, sumNumstat } from './parser.js'
 import { parseRemote } from './remote.js'
 import { snapshotFingerprint } from './snapshot-fingerprint.js'
 import { isSafePath } from './validate.js'
-import { repoDirFor, scanRepos, samePath } from './repos.js'
+import { repoDirFor, scanRepos, samePath, REPO_RESULT_LIMIT } from './repos.js'
+import { parseWorktreePorcelain, worktreeCheckouts } from './worktrees.js'
+import type { WorktreeCheckout } from './worktrees.js'
 import { MAX_BYTES_LIMITS, SUGGEST_LANGUAGE_DEFAULT, SUGGEST_LANGUAGES, SUGGEST_LIMITS, FULL_CHANGES_MAX } from './types.js'
 import type { DiffViewMode, FontDelta, GraphStyle, GitChange, GitCommit, GitErrorCode, GitPanelPlacement, GitRemote, GitRepoEntry, GitRepoList, GitSnapshot, GitSnapshotResult, SuggestLanguage, TruncationReason, WorktreeStats } from './types.js'
 
@@ -19,6 +21,9 @@ export interface GitPanelConfig {
   readonly maxBytes: number
   readonly maxChanges: number
   readonly refreshIntervalMs: number
+  /** Probe worktrees and nested repositories for the repository list. Off →
+   * the list is the cwd's own repository alone (none when the cwd is not one). */
+  readonly detectCheckouts: boolean
   /** Whether the input-bar git marker pill is shown. */
   readonly showInputPill: boolean
   /** Where the panel is mounted: the view tab, the right sidebar, or both. */
@@ -52,6 +57,7 @@ export const DEFAULT_CONFIG: GitPanelConfig = {
   maxBytes: MAX_BYTES_LIMITS.default,
   maxChanges: 1000,
   refreshIntervalMs: 30000,
+  detectCheckouts: true,
   showInputPill: true,
   placement: 'all',
   defaultDiffView: 'unified',
@@ -101,6 +107,7 @@ export function normalizeConfig(raw: unknown): GitPanelConfig {
     maxBytes: clampLimit(c.maxBytes, MAX_BYTES_LIMITS),
     maxChanges: num(c.maxChanges, DEFAULT_CONFIG.maxChanges),
     refreshIntervalMs: num(c.refreshIntervalMs, DEFAULT_CONFIG.refreshIntervalMs),
+    detectCheckouts: readBool(c.detectCheckouts, DEFAULT_CONFIG.detectCheckouts),
     showInputPill: readBool(c.showInputPill, DEFAULT_CONFIG.showInputPill),
     placement: readPlacement(c.placement, DEFAULT_CONFIG.placement),
     defaultDiffView: readDiffView(c.defaultDiffView, DEFAULT_CONFIG.defaultDiffView),
@@ -405,29 +412,95 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, re
 }
 
 /**
+ * Every checkout of the repository the session's cwd belongs to, from
+ * `git worktree list --porcelain`. Any failure — git missing, an old git,
+ * unexpected output — returns no rows at all: the caller then lists only what
+ * the filesystem scan finds, which is exactly a workspace without worktrees.
+ */
+async function workspaceWorktrees(
+  deps: SnapshotDeps,
+  cwd: string,
+  root: string,
+): Promise<readonly WorktreeCheckout[]> {
+  const run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain'], root, 'worktrees', deps.signal)
+  if ('failure' in run) return []
+  if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return []
+  const infos = parseWorktreePorcelain(run.run.stdout)
+  if (infos.length === 0) return []
+  return worktreeCheckouts(deps.fs, cwd, root, infos)
+}
+
+/** Selectable worktree rows first (the ones the user can act on), then the
+ * disabled ones, each group by path so the switcher order is stable. */
+function bySelectabilityThenPath(a: WorktreeCheckout, b: WorktreeCheckout): number {
+  const ad = a.disabled !== undefined ? 1 : 0
+  const bd = b.disabled !== undefined ? 1 : 0
+  if (ad !== bd) return ad - bd
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+}
+
+/**
  * Repositories a session's cwd offers: the repository the cwd belongs to (when
- * it does) plus the nested ones found below it. The nested half is
- * filesystem-only — a '.git' entry is the marker — so it still works when git
- * cannot run at all.
+ * it does) plus — when `detectCheckouts` is on — every checkout below it: the
+ * worktrees `git worktree list` certifies (unbounded in depth, and honest about
+ * branches / locks / lost directories) and the nested repositories the
+ * filesystem scan finds. The scan is filesystem-only — a '.git' entry is the
+ * marker — so it still works when git cannot run at all. Both probes are off
+ * with `detectCheckouts`: neither `git worktree list` nor the scan runs, and
+ * the list is the cwd's own repository alone.
  */
 export async function listSessionRepos(
   deps: SnapshotDeps,
   sessionId: string,
+  detectCheckouts: boolean,
 ): Promise<{ readonly ok: true; readonly value: GitRepoList } | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }> {
   const resolved = await resolveSessionCwd(deps, sessionId)
   if (!resolved.ok) return { ok: false, error: mapWorkspaceFailure(resolved.failure) }
   const cwd = await deps.fs.realpath(resolved.cwd).catch(() => resolved.cwd)
   const repos: GitRepoEntry[] = []
   const workspace = await resolveWorkspace(deps, sessionId)
+  const worktrees = workspace.ok && detectCheckouts ? await workspaceWorktrees(deps, cwd, workspace.root) : []
+  const linked = worktrees.filter((w) => w.path !== '').sort(bySelectabilityThenPath)
+  const own = worktrees.find((w) => w.path === '')
   if (workspace.ok) {
-    repos.push({ path: '', root: workspace.root, name: basename(workspace.root), kind: 'workspace' })
+    repos.push({
+      path: '',
+      root: workspace.root,
+      name: basename(workspace.root),
+      kind: 'workspace',
+      ...(own !== undefined
+        ? { role: own.role, branch: own.branch, ...(own.locked ? { locked: true } : {}) }
+        : {}),
+    })
   }
-  for (const found of await scanRepos(deps.fs, cwd)) {
+  for (const w of linked) {
+    repos.push({
+      path: w.path,
+      root: w.root,
+      name: w.name,
+      kind: 'nested',
+      role: w.role,
+      branch: w.branch,
+      ...(w.disabled !== undefined ? { disabled: w.disabled } : {}),
+      ...(w.locked ? { locked: true } : {}),
+    })
+  }
+  // The union stays inside the switcher's result ceiling: every worktree row is
+  // authoritative, so the filesystem scan gives up that many slots.
+  const scanLimit = Math.max(0, REPO_RESULT_LIMIT - linked.length)
+  // A directory git already claimed as a worktree is that worktree's row, not a
+  // foreign repository — the scanner reads its `.git` file like any other.
+  const claimed: readonly string[] = worktrees
+    .filter((w) => w.path !== '' && w.disabled === undefined)
+    .map((w) => w.root)
+  const scanned = detectCheckouts ? await scanRepos(deps.fs, cwd, { resultLimit: scanLimit }) : []
+  for (const found of scanned) {
     // The scanner only descends into children, but a symlinked or
     // case-insensitive path can still alias the workspace root; identity is
     // the realpath.
     if (workspace.ok && samePath(found.root, workspace.root)) continue
-    repos.push({ path: found.path, root: found.root, name: found.name, kind: 'nested' })
+    if (claimed.some((root) => samePath(found.root, root))) continue
+    repos.push({ path: found.path, root: found.root, name: found.name, kind: 'nested', role: 'repo' })
   }
   return { ok: true, value: { cwd, repos } }
 }
@@ -673,6 +746,7 @@ export async function snapshotForSession(
     graphStyle: config.graphStyle,
     fontDelta: config.fontDelta,
     suggestEnabled: config.suggestEnabled,
+    detectCheckouts: config.detectCheckouts,
     checkedAt: Date.now(),
   }
   return { ok: true, value: { ...snapshot, stateFingerprint: snapshotFingerprint(snapshot) } }

@@ -36,6 +36,17 @@ export const CSS = `
  * follow the shell settings page: 15px section titles, 14px labels, 13px hints. */
 .gp-cfg{display:flex;flex-direction:column;gap:12px;padding:16px 20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
 .gp-cfg__title{margin:0;font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary)}
+/* Form sections: a header button collapses its body (aria-controls stays
+ * resolvable, so the body is hidden, not unmounted); only the first boots open. */
+.gp-cfg__section{display:flex;flex-direction:column;gap:12px}
+.gp-cfg__section + .gp-cfg__section{padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}
+.gp-cfg__section-hd{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;margin:0;padding:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer}
+.gp-cfg__section-hd:hover{color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__section-hd:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-cfg__section-hd svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__section-body{display:flex;flex-direction:column;gap:12px}
+/* An author display rule beats the UA's [hidden]{display:none} — restate it. */
+.gp-cfg__section-body[hidden]{display:none}
 .gp-cfg__row{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
 /* 开关清零 border/padding：::after 按 padding box 定位，UA 默认 1px 边框会把定位框上下各缩 1px，滑块上缘就多出 1px 空隙。 */
 .gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:36px;height:20px;margin:0;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}

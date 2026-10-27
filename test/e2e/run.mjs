@@ -958,10 +958,11 @@ const out = await page.evaluate(async (snap) => {
   if (tsRow) { tsRow.click(); await new Promise((r) => setTimeout(r, 400)) }
   result.officialCodeHighlight = [...document.querySelectorAll('.gp-files__code .gp-diff-cell span')].some((node) => node.style.color.includes('--shiki-keyword'))
   result.codeIconPath = tsRow?.querySelector('[data-file-type]')?.getAttribute('data-file-type')
-  // Files refresh: the tree's floating button re-lists the expanded directories
-  // and re-reads the selected file. Stage a change made outside the panel (a
-  // new root entry + modified index.ts) and assert one click lands both.
-  const refreshBtn = document.querySelector('.gp-files__tree-wrap [aria-label="files.refresh"]')
+  // Files refresh: the status bar's button (above the tree) re-lists the
+  // expanded directories and re-reads the selected file. Stage a change made
+  // outside the panel (a new root entry + modified index.ts) and assert one
+  // click lands both.
+  const refreshBtn = document.querySelector('.gp-files__statusbar [aria-label="files.refresh"]')
   result.filesRefreshShown = refreshBtn !== null
   const rootListsBeforeRefresh = fixture.fileQueries.filter((p) => p === '').length
   const srcListsBeforeRefresh = fixture.fileQueries.filter((p) => p === 'src').length

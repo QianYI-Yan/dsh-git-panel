@@ -19,6 +19,7 @@ import { useDialogFocus } from './dialog-focus.js'
 import { canCopyContent } from './copy-content.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { useHoverTip } from './tip.js'
+import { rtlPathText } from './rtl-path.js'
 import { pathCopyButton } from './path-copy-button.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
@@ -32,8 +33,6 @@ import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
-import { ReposSection } from './ReposSection.js'
-import type { RepoChoice } from './repo-list.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -49,14 +48,10 @@ interface FilesTabProps {
   readonly worktreeGen: number
   /** Panel snapshot; null in the non-git degrade (properties then skip Git). */
   readonly snapshot: GitSnapshot | null
-  /** Repositories to pick from, shown as a strip above the tree. Present only
-   * when the cwd is not a checkout: the browser is then the only page, and the
-   * nested repositories below it are the only way into a git view at all. */
-  readonly repositories?: {
-    readonly choices: readonly RepoChoice[]
-    readonly current: string
-    readonly onChoose: (path: string) => void
-  }
+  /** Absolute browse root for the status bar in the non-git degrade, where
+   * there is no snapshot to take it from (the error's cwd; absent on a host
+   * that does not send it — the bar then shows only the refresh control). */
+  readonly browsePath?: string
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -114,7 +109,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, repositories, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browsePath, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -132,6 +127,11 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // write for a file the user has left cannot repaint the next one.
   const pathCopy = useCopyFeedback(selected)
   const contentCopy = useCopyFeedback(selected)
+  // The status bar's copy target: the checkout root the snapshot reports, or
+  // the degrade's cwd when there is no snapshot at all. Keyed on the path
+  // itself, so a switch repaints the bar without carrying the old root's ✓.
+  const browseRoot = snapshot !== null ? snapshot.root : (browsePath ?? null)
+  const rootCopy = useCopyFeedback(browseRoot)
   // The copy-content icon is label-free, so its hint rides the portaled tip
   // (fast + themed, like the toolbar controls) instead of a native title —
   // the two stacked when both were present.
@@ -430,16 +430,47 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // beside the card is made inert while it is open, so `aria-modal` is true.
   const fsActive = fullscreen && selected !== null && file.kind === 'text'
 
-  // The refresh control floats at the tree's top-right corner: it re-lists the
-  // expanded directories and re-reads the open file (see `refresh`) without a
-  // row of its own above the list, and it stays put while the entries scroll
-  // under it.
+  // The refresh control lives in the status bar above the tree (it used to
+  // float over the tree's first rows): same re-list/re-read behaviour, one
+  // refresh at a time via `refreshFlight`, busy state on the button itself.
   const refreshButton = h('button', {
     key: 'refresh', type: 'button', className: `gp-files__refresh${refreshing ? ' gp-files__refresh--busy' : ''}`,
     title: t('files.refresh'), 'aria-label': t('files.refresh'),
     'aria-busy': refreshing, disabled: refreshing,
     onClick: () => refresh(),
   }, h(RefreshIcon, { size: 14 }))
+
+  // The tree column's own header row: the absolute browse root (click to copy;
+  // ✓ + live region for 1.6 s, the same feedback clock as the diff-header
+  // paths) on the left, the refresh control on the right. It belongs to the
+  // directory tree column only — it is not a full-width row on top of the
+  // page — and it is where the degrade (no snapshot at all) names where the
+  // browser is rooted. The tree wrap carries the reader's inert state.
+  const statusBar = h('div', {
+    key: 'status', className: 'gp-files__statusbar',
+  }, [
+    browseRoot === null
+      ? null
+      : h('button', {
+        key: 'root', type: 'button',
+        className: `gp-files__status-path${rootCopy.feedback === 'copied' ? ' gp-files__status-path--copied' : ''}`,
+        'aria-label': rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRoot'),
+        // The tip carries the full path (and the copy outcome while the ✓
+        // shows); the visible text elides from the left, slash included.
+        ...tipProps(rootCopy.feedback === 'copied' ? t('files.rootCopied') : browseRoot),
+        onClick: () => { hideTip(); rootCopy.copy(browseRoot) },
+      }, [
+        h('code', { key: 'p', className: 'gp-files__status-code' }, [
+          h('span', { key: 'body', className: 'gp-files__status-body' }, rtlPathText(browseRoot)),
+        ]),
+        rootCopy.feedback === 'copied'
+          ? h(CheckIcon, { key: 'ok', size: 12 })
+          : h(CopyIcon, { key: 'i', size: 12 }),
+        h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+          rootCopy.feedback === 'copied' ? t('files.rootCopied') : ''),
+      ]),
+    refreshButton,
+  ])
 
   const treeBlock = h('div', {
     key: 'left', className: 'gp-files__tree-wrap',
@@ -448,9 +479,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     style: stacked ? { flex: `0 0 ${split.pct}%` } : compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
     ...inertAttr(fsActive),
   }, [
-    // The control leads in DOM order so keyboard users reach it before walking
-    // the entry rows; its absolute position puts it at the box's corner.
-    refreshButton,
+    // The header leads in DOM order (keyboard users reach it before the entry
+    // rows) and sits outside the scrolling child, so it stays put.
+    statusBar,
     h('div', { key: 'tree', className: 'gp-files__tree' }, treeRows),
   ])
 
@@ -670,21 +701,6 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
   ])
 
-  // The repository strip: only a cwd with no checkout of its own passes it in,
-  // and there the list is the only way to reach a git view. It sits above the
-  // browser in every layout, so the tree keeps its full height.
-  const reposStrip = repositories === undefined
-    ? null
-    : h('div', { key: 'repos', className: 'gp-files__repos' }, h(ReposSection, {
-    choices: repositories.choices,
-    current: repositories.current,
-    snapshot,
-    onChoose: repositories.onChoose,
-    t,
-    variant: 'strip',
-    always: true,
-  }))
-
   // Dims the app behind the reader card. A real node, not a huge spread shadow:
   // a 100vmax shadow paints a viewport-sized layer for as long as it is open.
   const fsBackdrop = fsActive
@@ -694,14 +710,8 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // Stacked: a tall narrow sidebar shows the tree above and the preview below;
   // picking a file updates the preview in place (the wide semantics — there is
   // no drill state to enter, so no back bar).
-  // The strip rides above whichever layout the panel picked, so the browser
-  // keeps one entry point to the repositories below the cwd.
-  const shell = (body: JSX.Element): JSX.Element => reposStrip === null
-    ? body
-    : h('div', { className: 'gp-files-shell' }, [reposStrip, body])
-
   if (stacked) {
-    return shell(h('div', { className: 'gp-files gp-files--stacked' }, [
+    return h('div', { className: 'gp-files gp-files--stacked' }, [
       treeBlock,
       h('div', {
         key: 'split', className: 'gp-resizer gp-resizer--row', role: 'separator',
@@ -710,20 +720,20 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       }),
       previewBlock,
       fsBackdrop,
-    ]))
+    ])
   }
 
   // Compact: a single column drilling from the tree into the file preview.
   if (compact) {
-    return shell(h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop]))
+    return h('div', { className: 'gp-files gp-files--compact' }, [pane === 'preview' ? previewBlock : treeBlock, fsBackdrop])
   }
 
-  return shell(h('div', { className: 'gp-files' }, [
+  return h('div', { className: 'gp-files' }, [
     treeBlock,
     leftCol.divider,
     previewBlock,
     fsBackdrop,
-  ]))
+  ])
 }
 
 /** Preview body: rendered Markdown/HTML/SVG when the mode is on, else raw preview. */

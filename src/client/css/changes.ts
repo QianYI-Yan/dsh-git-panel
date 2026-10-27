@@ -14,12 +14,28 @@ export const CSS = `
 .gp-changes__right{flex:1 1 0;min-width:180px;display:flex;flex-direction:column;min-height:0}
 /* files browser: resizable tree column + preview pane */
 .gp-files{display:flex;width:100%;height:100%;min-height:0}
-/* The tree column keeps the entries in a scrolling child so the refresh
- * control can float at the box's top-right corner: it neither takes a row of
- * its own above the list nor scrolls away with the entries. */
-.gp-files__tree-wrap{flex:0 0 300px;min-width:180px;position:relative;display:flex;flex-direction:column;min-height:0}
+/* The tree column keeps the entries in a scrolling child, so long listings
+ * stay inside the column instead of growing the pane. */
+.gp-files__tree-wrap{flex:0 0 300px;min-width:180px;display:flex;flex-direction:column;min-height:0}
 .gp-files__tree{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
-.gp-files__refresh{position:absolute;top:5px;right:10px;z-index:2;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
+/* The tree column's header row: the absolute browse root (left, elided from
+ * the left) and the refresh control (right), above the scrolling entries — it
+ * belongs to the tree column (not a full-width row on top of the page) and
+ * stays put while the entries scroll under it. */
+.gp-files__statusbar{flex:none;display:flex;align-items:center;gap:6px;min-width:0;padding:4px 5px 4px 10px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-files__status-path{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;padding:2px 6px;margin-left:-6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;border-radius:6px}
+.gp-files__status-path:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.gp-files__status-path:hover .gp-files__status-code{text-decoration:underline}
+.gp-files__status-path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-files__status-path--copied{color:var(--dsw-alias-state-success-primary)}
+.gp-files__status-path--copied .gp-files__status-code{text-decoration:none}
+.gp-files__status-path svg{flex:none}
+.gp-files__status-code{flex:1 1 auto;min-width:0;display:flex;font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px}
+/* direction:rtl makes the ellipsis eat from the left, so the tail of the path
+ * stays on screen; the invisible LRM the text is prefixed with anchors the
+ * leading '/', which the ellipsis then swallows with the rest of the head. */
+.gp-files__status-body{flex:0 1 auto;min-width:0;direction:rtl;unicode-bidi:isolate;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gp-files__refresh{flex:none;margin-left:auto;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer}
 .gp-files__refresh:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-files__refresh:disabled{opacity:.55;cursor:default}
 .gp-files__refresh:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}

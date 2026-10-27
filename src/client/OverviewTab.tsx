@@ -96,6 +96,10 @@ interface OverviewProps {
     /** Request tag of the checkout the panes act on ('' = cwd). */
     readonly current: string
     readonly onChoose: (path: string) => void
+    /** Collapsed head of the list block; the panel owns the state so it
+     * survives switching panes (session-level, per §10.5). */
+    readonly collapsed?: boolean
+    readonly onToggleCollapse?: () => void
   }
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
@@ -804,7 +808,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }, branchTrees))
     const status = renderStatusBar(snapshot, statusCbs)
     const leftChildren: JSX.Element[] = [
-      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, t }),
+      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, t }),
       branchList,
       status,
     ].filter((node): node is JSX.Element => node !== null)
@@ -893,7 +897,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ...opModals,
     // left: branches (scroll) + a fixed status bar footer (repo link + sync)
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, [
-      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, t }),
+      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, t }),
       h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => setRef(ref),
         switchOptions,

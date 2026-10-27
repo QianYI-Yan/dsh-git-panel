@@ -10,16 +10,39 @@
 import type { GitPanelRemote } from './rpc.js'
 
 const selections = new Map<string, string>()
+/** Sessions whose explicit pick was `''` (the cwd's own repository): `''`
+ * resets the selection map, so intent has to live outside it or "never
+ * picked" and "picked `''` on purpose" would be the same state. */
+const rootPicks = new Set<string>()
 
 /** The repository this session follows ('' = the cwd's own repository). */
 export function selectedRepo(sessionId: string): string {
   return selections.get(sessionId) ?? ''
 }
 
-/** Point a session at another repository; '' resets it to the default. */
+/** Whether this session ever chose a checkout — including a deliberate return
+ * to the workspace root. A repair (dropRepo) is not a choice. */
+export function hasRepoPick(sessionId: string): boolean {
+  return selections.has(sessionId) || rootPicks.has(sessionId)
+}
+
+/** Point a session at another repository; '' records a deliberate pick of the
+ * workspace root (the reset of the selection itself, but not of the intent). */
 export function selectRepo(sessionId: string, repo: string): void {
-  if (repo === '') selections.delete(sessionId)
-  else selections.set(sessionId, repo)
+  if (repo === '') {
+    selections.delete(sessionId)
+    rootPicks.add(sessionId)
+  } else {
+    rootPicks.delete(sessionId)
+    selections.set(sessionId, repo)
+  }
+}
+
+/** Forget any pick without recording intent: the repair path (a pick the host
+ * can no longer resolve) must not read as "the user chose the root". */
+export function clearRepoPick(sessionId: string): void {
+  selections.delete(sessionId)
+  rootPicks.delete(sessionId)
 }
 
 /**

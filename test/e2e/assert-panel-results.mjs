@@ -234,7 +234,7 @@ export function assertPanelResults(out, realInput, errors) {
   assert.equal(out.selectionStyled, true, 'the active file row has a distinct primary-tinted highlight')
   assert.equal(out.officialCodeHighlight, true, 'code preview renders syntax spans from the DSH highlighter')
   assert.equal(out.codeIconPath, 'src/index.ts', 'code file glyph receives its relative path for official type classification')
-  assert.equal(out.filesRefreshShown, true, "a refresh control floats at the file tree's top-right corner")
+  assert.equal(out.filesRefreshShown, true, 'a refresh control sits in the status bar above the file tree')
   assert.equal(out.refreshRelistedRoot, true, 'refresh re-lists the root directory')
   assert.equal(out.refreshRelistedOpenDir, true, 'refresh re-lists every expanded directory')
   assert.equal(out.refreshRereadSelectedFile, true, 'refresh re-reads the selected file')

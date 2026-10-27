@@ -1,54 +1,96 @@
 /**
- * The Repositories tab's list model.
+ * The repository switcher's row model.
  *
- * The entries are the repositories the workspace scan found, plus one
- * synthetic "workspace root" entry when the cwd is not itself a checkout —
- * without it a pick would strand the reader inside one subdirectory with no
- * way back. Kept pure so that fallback, and the label rule that avoids
- * "site (site)", are unit-tested instead of living in render code.
+ * The entries are the checkouts the host certifies — the workspace's own
+ * repository and its worktrees, plus the repositories a scan found. A cwd that
+ * owns no checkout lists only what the scan found: the root itself is not a
+ * checkout and gets no row, so a non-git root never offers a "workspace root"
+ * choice. Kept pure so the group split (the repository family vs the unrelated
+ * repositories of the workspace) and the label rules are unit-tested instead
+ * of living in render code.
  */
 import type { GitRepoEntry } from './types.js'
 
 export interface RepoChoice {
   /** Request tag for the host: '' is the session cwd itself. */
   readonly path: string
-  /** Repository basename; null on the synthetic workspace-root entry. */
-  readonly name: string | null
-  /** Absolute repository root; '' on the synthetic entry. */
+  /** Repository basename. */
+  readonly name: string
+  /** Absolute repository root. */
   readonly root: string
-  readonly kind: 'workspace' | 'nested' | 'root'
+  /** `workspace` = the workspace's own checkout, `worktree` = a linked
+   * worktree of a repository, `repo` = a repository of its own. */
+  readonly kind: 'workspace' | 'worktree' | 'repo'
+  /** Identity inside a repository family (see GitRepoEntry.role); absent on an
+   * older host that predates the field. */
+  readonly role?: 'main' | 'linked' | 'repo'
+  /** HEAD branch of this checkout; null = detached, absent = unknown. */
+  readonly branch?: string | null
+  /** Why the row cannot be chosen: outside the cwd, or its directory is gone. */
+  readonly disabled?: 'outside' | 'stale'
+  /** git's `locked` flag on this worktree. */
+  readonly locked?: boolean
 }
-
-/** The synthetic entry that stands for a cwd with no checkout of its own. */
-const ROOT_CHOICE: RepoChoice = { path: '', name: null, root: '', kind: 'root' }
 
 /**
  * Tab entries. An empty list means "no repository to pick from" (host that does
  * not answer repo-list yet, or a scan still in flight) and yields no tab at
  * all — the panel must keep its three panes in that case rather than open on a
- * page with a single unusable row. When the scan only found nested checkouts,
- * the cwd owns none of them, so the synthetic root entry leads as the way back.
+ * page with a single unusable row.
  */
 export function repoChoices(repos: readonly GitRepoEntry[]): readonly RepoChoice[] {
-  if (repos.length === 0) return []
-  const hasWorkspaceEntry = repos.some((entry) => entry.kind === 'workspace')
-  const scanned: readonly RepoChoice[] = repos.map((entry) => ({
+  return repos.map((entry) => ({
     path: entry.path,
     name: entry.name,
     root: entry.root,
-    kind: entry.kind,
+    kind: entry.kind === 'workspace'
+      ? 'workspace'
+      : entry.role === 'linked' ? 'worktree' : 'repo',
+    ...(entry.role !== undefined ? { role: entry.role } : {}),
+    ...(entry.branch !== undefined ? { branch: entry.branch } : {}),
+    ...(entry.disabled !== undefined ? { disabled: entry.disabled } : {}),
+    ...(entry.locked !== undefined ? { locked: entry.locked } : {}),
   }))
-  return hasWorkspaceEntry ? scanned : [ROOT_CHOICE, ...scanned]
+}
+
+/** Which group a choice belongs to: `own` is the repository family the session
+ * cwd itself sits in (its main checkout and worktrees), `foreign` is
+ * everything else the workspace offers. */
+export type RepoGroupKey = 'own' | 'foreign'
+
+export interface RepoGroup {
+  readonly key: RepoGroupKey
+  readonly items: readonly RepoChoice[]
+  /** How many rows in this group can actually be chosen (disabled rows count
+   * in `items` but not here — a group count must say both numbers). */
+  readonly selectable: number
+}
+
+/**
+ * Split the rows into the two groups, own first, dropping empty ones. A single
+ * group means the caller renders no group header at all: a "Worktrees" heading
+ * over one family, or the flat list of an unrelated-repositories workspace, is
+ * noise — the header earns its line only when there is something to separate.
+ */
+export function repoGroups(choices: readonly RepoChoice[]): readonly RepoGroup[] {
+  const own = choices.filter((c) => c.kind === 'workspace' || c.kind === 'worktree')
+  const foreign = choices.filter((c) => c.kind === 'repo')
+  const groups: RepoGroup[] = []
+  if (own.length > 0) groups.push({ key: 'own', items: own, selectable: own.filter((c) => c.disabled === undefined).length })
+  if (foreign.length > 0) groups.push({ key: 'foreign', items: foreign, selectable: foreign.filter((c) => c.disabled === undefined).length })
+  return groups
 }
 
 /**
  * Primary label of an entry. The relative path disambiguates two checkouts
  * sharing a basename, but repeating it when the basename already is the whole
- * path only adds noise. The synthetic entry returns '' — the caller supplies
- * the localized workspace-root name.
+ * path only adds noise.
  */
 export function repoLabel(choice: RepoChoice): string {
-  if (choice.kind === 'root' || choice.name === null) return ''
+  // Worktrees already get their path on the detail line; putting it into the
+  // label too would print "pr-85 (.agents/worktrees/review/pr-85)" in a
+  // column narrow enough that the name alone is all that fits.
+  if (choice.kind === 'worktree') return choice.name
   // The cwd's own checkout carries an empty path — the repository is the
   // workspace, so there is nothing to disambiguate.
   if (choice.path === '' || choice.name === choice.path) return choice.name
@@ -56,11 +98,25 @@ export function repoLabel(choice: RepoChoice): string {
 }
 
 /**
- * Secondary line under the name: the checkout path. Empty for the root entry,
- * and empty when the basename already is the whole path — the label shows it
- * once, so a second line repeating it would only add noise.
+ * Secondary line under the name: the checkout path. Empty when the basename
+ * already is the whole path — the label shows it once, so a second line
+ * repeating it would only add noise. A worktree whose directory name equals its
+ * basename shows the *parent* path: the directory itself is already the name on
+ * the first line.
  */
 export function repoDetail(choice: RepoChoice): string {
-  if (choice.kind === 'root') return ''
+  if (choice.kind === 'worktree') {
+    if (choice.path.endsWith('/' + choice.name)) {
+      return choice.path.slice(0, -(choice.name.length + 1))
+    }
+    return choice.path
+  }
   return choice.name === choice.path ? '' : choice.path
+}
+
+/** i18n key explaining why a row cannot be chosen; null when it can. */
+export function repoDisabledKey(choice: RepoChoice): 'repos.disabled.outside' | 'repos.disabled.stale' | null {
+  if (choice.disabled === 'outside') return 'repos.disabled.outside'
+  if (choice.disabled === 'stale') return 'repos.disabled.stale'
+  return null
 }
