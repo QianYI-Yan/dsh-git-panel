@@ -701,10 +701,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
-    // Stacked only: the checkout's path and branch sit above the search — the
-    // left column's status bar names neither, and in the tight tier it is
-    // behind the drawer.
-    stacked ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
+    // Tight stacked only: the left column — repo list plus branch tree — names
+    // the checkout whenever it stays in the band, so the bar would only repeat
+    // it; the tier that moves the column behind the drawer needs this line.
+    stacked && tight ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0

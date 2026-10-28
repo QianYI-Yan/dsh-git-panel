@@ -111,9 +111,12 @@ export const CSS = `
 
 /* Checkout bar above the history search (stacked overview only): the root
  * path is click-to-copy and elides from the left (direction:rtl text + LRM),
- * the current branch rides beside it as a chip. */
-.gp-repobar{display:flex;align-items:center;gap:8px;flex:none;min-width:0;padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-repobar__path{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;margin:0 0 0 -6px;padding:2px 6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;border-radius:6px}
+ * the current branch rides beside it as a chip. Height mirrors the collapsed
+ * repository block (.gp-repolist: 6px/4px padding + 22px head row) so the two
+ * stacked information bars read as one row height — padding matches the list's
+ * and the row floor matches the head's content height + its 4px tail. */
+.gp-repobar{display:flex;align-items:center;gap:8px;flex:none;min-width:0;padding:6px 8px 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.gp-repobar__path{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;box-sizing:border-box;min-height:22px;margin:0 0 0 -6px;padding:2px 6px;border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;text-align:left;cursor:pointer;border-radius:6px}
 .gp-repobar__path:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-repobar__path:hover .gp-repobar__code{text-decoration:underline}
 .gp-repobar__path:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}

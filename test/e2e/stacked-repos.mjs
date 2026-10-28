@@ -181,6 +181,8 @@ const probe = () => page.evaluate(() => {
       inInline: inline !== null && inline.contains(list),
       inDrawer: drawer !== null && drawer.contains(list),
       maxHeight: getComputedStyle(list).maxHeight,
+      // The collapsed block's row height: the checkout bar mirrors it.
+      height: +list.getBoundingClientRect().height.toFixed(2),
       // Above the branch tree: the list is the first block of the column.
       aboveBranches: branchTree === null ? false : (list.compareDocumentPosition(branchTree) & 4) !== 0,
       scrollOverflow: scroll === null ? null : getComputedStyle(scroll).overflow,
@@ -196,14 +198,16 @@ const probe = () => page.evaluate(() => {
     },
     rows,
     activeName: rows.find((row) => row.active)?.name ?? null,
-    // The checkout bar above the history search (stacked only); the path text
-    // carries the invisible LRM prefix, so strip it before comparing.
+    // The checkout bar above the history search (tight stacked only); the path
+    // text carries the invisible LRM prefix, so strip it before comparing.
     repoBar: (() => {
       const bar = document.querySelector('.gp-repobar')
       const search = document.querySelector('.gp-search')
       if (bar === null) return null
       return {
         aboveSearch: search !== null && (bar.compareDocumentPosition(search) & 4) !== 0,
+        // The bar mirrors the collapsed repository block's row height.
+        height: +bar.getBoundingClientRect().height.toFixed(2),
         path: (bar.querySelector('.gp-repobar__text')?.textContent ?? '').replace(/\u200e/g, '').trim(),
         branch: (bar.querySelector('.gp-repobar__branch')?.textContent ?? '').trim(),
       }
@@ -236,10 +240,8 @@ const booted = await probe()
 assert.equal(booted.layout, 'stacked', 'the desktop sidebar stacks below its wide bar')
 assert.equal(booted.collapse.expanded, false, 'the list block boots collapsed')
 assert.equal(booted.collapse.selected, 'fixture-repo', 'the collapsed head names the checkout in use')
-assert.ok(booted.repoBar !== null, 'the stacked overview carries the checkout bar')
-assert.equal(booted.repoBar.aboveSearch, true, 'it sits above the search')
-assert.equal(booted.repoBar.path, 'fixture-repo', 'the bar states the checkout root')
-assert.equal(booted.repoBar.branch, 'main', 'and the current branch')
+const collapsedBlockHeight = booted.list.height
+assert.equal(booted.repoBar, null, 'the band tier drops the checkout bar: the left column already names the checkout')
 await page.click('.gp-repolist__collapse')
 await page.waitForTimeout(300)
 const inline = await probe()
@@ -305,6 +307,12 @@ assert.equal(collapsed.drawer.inert, true, 'and inert while collapsed')
 assert.equal(collapsed.list.inDrawer, true, 'the repository list collapsed with the column')
 assert.equal(collapsed.list.inInline, false, 'no inline copy remains')
 assert.ok(collapsed.repoBar !== null, 'the tight tier keeps the checkout bar above the search')
+// The bar matches the repository block's collapsed height (the changes column's
+// collapsed info bar is the same block with the same CSS).
+assert.equal(collapsed.repoBar.height, collapsedBlockHeight, 'the bar matches the collapsed repository block height: ' + collapsed.repoBar.height + ' vs ' + collapsedBlockHeight)
+assert.equal(collapsed.repoBar.aboveSearch, true, 'it sits above the search')
+assert.equal(collapsed.repoBar.path, 'fixture-repo', 'the bar states the checkout root')
+assert.equal(collapsed.repoBar.branch, 'main', 'and the current branch')
 
 await page.click('.gp-toolbar__branches')
 await settleDrawer(true)

@@ -374,7 +374,7 @@ async function mount(repos, action, options = {}) {
     observed.rows = listRows()
     // Boot state, read before any pick expands the block.
     observed.head = headInfo()
-    // The stacked-only checkout bar must stay out of every other layout.
+    // The tight-stacked checkout bar must stay out of every other layout.
     observed.repoBarPresent = document.querySelector('.gp-repobar') !== null
     if (action === 'compact') {
       // Compact has no left column to host the list, so it keeps a page of its

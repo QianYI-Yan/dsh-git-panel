@@ -1,10 +1,10 @@
 /**
- * Stacked overview's checkout bar: the current checkout's absolute root path
- * (elided from the left, click-to-copy with a fast hover tip) beside the
- * branch chip, above the history search. The stacked status bar lives in the
- * left column — behind the tight tier's drawer, and it never names the path or
- * the branch — so the history column carries this line where it is always on
- * screen.
+ * Tight stacked overview's checkout bar: the current checkout's absolute root
+ * path (elided from the left, click-to-copy with a fast hover tip) beside the
+ * branch chip, above the history search. It renders only in the tight tier —
+ * the tier where the left column (repo list plus branch tree, which carry the
+ * same identity) sits behind the drawer; with the column in the band the bar
+ * would repeat it.
  */
 import { createElement as h } from 'react'
 import type { JSX } from 'react'
