@@ -325,3 +325,47 @@ test('when git worktree list fails, discovery degrades to the plain scan', async
   assert.equal(degraded.kind, 'nested')
   assert.equal(degraded.role, 'repo')
 })
+
+test('a git that refuses -z still reports its worktrees through the newline form', async () => {
+  const deps = depsAt(wtRepo)
+  const inner = deps.run.run.bind(deps.run)
+  const seen = []
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv.includes('worktree')) seen.push(argv.join(' '))
+      if (argv.includes('worktree') && argv.includes('-z')) {
+        return { exitCode: 129, stdout: '', stderr: 'error: unknown switch `z\'', timedOut: false, cancelled: false, stdoutLossy: false }
+      }
+      return inner(argv, opts)
+    },
+  }
+  const listed = await listSessionRepos(deps, SID, true)
+  assert.equal(listed.ok, true)
+  assert.deepEqual(seen, ['git worktree list --porcelain -z', 'git worktree list --porcelain'], 'the NUL form first, the newline form as the fallback')
+  const linked = listed.value.repos.find((r) => r.path === '.agents/worktrees/feat-a')
+  assert.equal(linked.role, 'linked', 'the fallback keeps the family identity')
+  assert.equal(linked.branch, 'wt-a')
+})
+
+test('a worktree path holding a newline is one row, not a phantom of its prefix', async (t) => {
+  const odd = join(wtRepo, 'docs\nevil')
+  try {
+    await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'nl-b', odd])
+  } catch {
+    t.skip('this filesystem refuses a newline in a directory name')
+    return
+  }
+  mkdirSync(join(wtRepo, 'docs'), { recursive: true })
+  try {
+    const listed = await listSessionRepos(depsAt(wtRepo), SID, true)
+    assert.equal(listed.ok, true)
+    const rows = listed.value.repos
+    assert.equal(rows.some((r) => r.path === 'docs'), false, 'the plain docs directory is no worktree')
+    const nl = rows.find((r) => r.path === 'docs\nevil')
+    assert.equal(nl?.role, 'linked', 'the real worktree keeps its identity')
+    assert.equal(nl?.branch, 'nl-b')
+  } finally {
+    await runGit(wtRepo, ['worktree', 'remove', '--force', odd])
+    rmSync(join(wtRepo, 'docs'), { recursive: true, force: true })
+  }
+})

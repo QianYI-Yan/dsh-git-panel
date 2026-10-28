@@ -1,5 +1,5 @@
 /**
- * Worktree discovery for the repository switcher (issue #83).
+ * Worktree discovery for the repository switcher.
  *
  * `git worktree list --porcelain` reports every checkout a repository has — the
  * primary work tree and each linked worktree — with the branch each one holds,
@@ -48,23 +48,12 @@ export interface WorktreeCheckout {
   readonly disabled?: 'outside' | 'stale'
 }
 
-/** git may quote a path containing quotes or control characters; the quoted
- * form is JSON-compatible in every case git actually emits. */
-function pathValue(raw: string): string {
-  if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')) {
-    try {
-      const parsed: unknown = JSON.parse(raw)
-      if (typeof parsed === 'string') return parsed
-    } catch {
-      // not a quoted string after all — use it verbatim
-    }
-  }
-  return raw
-}
-
-/** Parse `git worktree list --porcelain` output into records. Blank lines
- * separate records; a line that is a bare key (`detached`, `bare`) carries no
- * value, and `locked` / `prunable` carry an optional reason after the key. */
+/** Parse `git worktree list --porcelain [-z]` output into records. git prints
+ * paths verbatim (never quoted), so only the `-z` form — every attribute
+ * NUL-terminated, an empty attribute between records — survives a path holding
+ * a newline; output without a NUL is the newline form of a git that predates
+ * `-z`. An empty attribute separates records; a bare key (`detached`, `bare`)
+ * carries no value, and `locked` / `prunable` carry an optional reason. */
 export function parseWorktreePorcelain(stdout: string): WorktreeInfo[] {
   const rows: WorktreeInfo[] = []
   let current: { path: string; head: string | null; branch: string | null; locked: boolean; prunable: boolean; bare: boolean } | null = null
@@ -72,14 +61,14 @@ export function parseWorktreePorcelain(stdout: string): WorktreeInfo[] {
     if (current !== null) rows.push(current)
     current = null
   }
-  for (const line of stdout.split(/\r?\n/)) {
+  for (const line of stdout.includes('\0') ? stdout.split('\0') : stdout.split(/\r?\n/)) {
     if (line === '') {
       flush()
       continue
     }
     if (line.startsWith('worktree ')) {
       flush()
-      current = { path: pathValue(line.slice(9)), head: null, branch: null, locked: false, prunable: false, bare: false }
+      current = { path: line.slice(9), head: null, branch: null, locked: false, prunable: false, bare: false }
       continue
     }
     if (current === null) continue

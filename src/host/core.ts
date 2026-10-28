@@ -418,7 +418,9 @@ export async function resolveWorkspace(deps: SnapshotDeps, sessionId: string, re
 
 /**
  * Every checkout of the repository the session's cwd belongs to, from
- * `git worktree list --porcelain`. Any failure — git missing, an old git,
+ * `git worktree list --porcelain -z` (NUL-separated, so a path holding a
+ * newline parses). A git that predates `-z` (< 2.36) refuses the flag; the
+ * newline form is the fallback there. Any other failure — git missing,
  * unexpected output — returns no rows at all: the caller then lists only what
  * the filesystem scan finds, which is exactly a workspace without worktrees.
  */
@@ -427,9 +429,14 @@ async function workspaceWorktrees(
   cwd: string,
   root: string,
 ): Promise<readonly WorktreeCheckout[]> {
-  const run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain'], root, 'worktrees', deps.signal)
+  let run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain', '-z'], root, 'worktrees', deps.signal)
   if ('failure' in run) return []
-  if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return []
+  if (run.run.cancelled || run.run.timedOut) return []
+  if (run.run.exitCode !== 0) {
+    run = await runCommand(deps.run, ['git', 'worktree', 'list', '--porcelain'], root, 'worktrees', deps.signal)
+    if ('failure' in run) return []
+    if (run.run.cancelled || run.run.timedOut || run.run.exitCode !== 0) return []
+  }
   const infos = parseWorktreePorcelain(run.run.stdout)
   if (infos.length === 0) return []
   return worktreeCheckouts(deps.fs, cwd, root, infos)

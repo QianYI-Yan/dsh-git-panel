@@ -1,5 +1,5 @@
 /**
- * Worktree discovery (issue #83): parsing `git worktree list --porcelain` and
+ * Worktree discovery: parsing `git worktree list --porcelain` and
  * converting its records into switcher rows. The trust rules under test are the
  * ones the selector cannot re-check on its own: a directory outside the cwd
  * stays visible but unchoosable, a lost directory reports itself instead of
@@ -43,14 +43,19 @@ test('porcelain parsing reads every record and its markers', () => {
   assert.equal(rows[3].locked, false)
 })
 
-test('porcelain parsing handles a bare worktree, quoted paths and CRLF', () => {
+test('porcelain parsing handles a bare worktree, the -z form and CRLF', () => {
   const bare = parseWorktreePorcelain('worktree /srv/git.git\nbare\n')
   assert.equal(bare.length, 1)
   assert.equal(bare[0].bare, true)
   assert.equal(bare[0].branch, null)
 
-  const quoted = parseWorktreePorcelain('worktree "/w/say \\"hi\\""\nHEAD aaaa\nbranch refs/heads/x\n')
-  assert.equal(quoted[0].path, '/w/say "hi"', 'git quotes with JSON-compatible escapes')
+  // git prints paths verbatim; only -z keeps a newline inside a path.
+  const nul = parseWorktreePorcelain('worktree /w/docs\nevil\0HEAD aaaa\0branch refs/heads/x\0\0worktree /w/"q"\0HEAD bbbb\0detached\0\0')
+  assert.equal(nul.length, 2, 'records split on the empty attribute, not on the newline')
+  assert.equal(nul[0].path, '/w/docs\nevil', 'a newline stays inside the path')
+  assert.equal(nul[0].branch, 'x')
+  assert.equal(nul[1].path, '/w/"q"', 'quotes are never unescaped: git does not add them')
+  assert.equal(nul[1].branch, null)
 
   const crlf = parseWorktreePorcelain('worktree /w/a\r\nHEAD aaaa\r\nbranch refs/heads/x\r\n\r\n')
   assert.equal(crlf.length, 1)
