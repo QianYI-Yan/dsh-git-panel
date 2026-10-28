@@ -141,7 +141,9 @@ async function mount(repos, action, options = {}) {
       }
       if ((taggedRoot || follow.active) && endpoint === 'gitPanel/snapshot') {
         const tag = request && typeof request.repo === 'string' ? request.repo : ''
-        const value = { ...snap, root: tag === '' ? snap.root : 'fixture-repo/' + tag }
+        // Every sample is stamped when it is taken, the way the host does: the
+        // follow flip is read off the newest sample.
+        const value = { ...snap, root: tag === '' ? snap.root : 'fixture-repo/' + tag, checkedAt: Date.now() }
         if (follow.active) value.filesFollowRepo = follow.on
         return { ok: true, value: { ok: true, value } }
       }
@@ -765,6 +767,40 @@ async function mount(repos, action, options = {}) {
       observed.afterOn = { status: statusbarInfo(), menu: rootMenuInfo() }
       return { observed, calls }
     }
+    if (action === 'files-root-cold-mount') {
+      // Follow on. This session parks its browser on the project root, then the
+      // panel follows another checkout, so the override is what keeps the root.
+      // A second panel for a session whose controller is cold reads the same
+      // config value for the first time: that is no flip, and this session's
+      // override must survive it.
+      clickTab('tab.files')
+      await wait(400)
+      await openRootMenu()
+      await clickRootItem('files.rootProject')
+      await wait(400)
+      clickTab('tab.overview')
+      await wait(250)
+      await expandRepos()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      clickTab('tab.files')
+      await wait(400)
+      observed.pinned = { status: statusbarInfo() }
+      const second = document.createElement('div')
+      second.style.cssText = 'width:900px;height:600px'
+      document.body.appendChild(second)
+      window.ReactDOM.createRoot(second).render(view.component({ sessionId: 'sess-2' }))
+      await wait(900)
+      observed.secondMounted = second.querySelector('.gp-panel') !== null
+      clickTab('tab.overview')
+      await wait(250)
+      clickTab('tab.files')
+      await wait(400)
+      observed.afterColdMount = { status: statusbarInfo() }
+      await openRootMenu()
+      observed.afterColdMount.menu = rootMenuInfo()
+      return { observed, calls }
+    }
     if (action === 'files-root-git') {
       // A browse-root pick is a directory switch: when the root is a checkout,
       // Git switches with it while the browser stays in front. The reverse
@@ -1355,6 +1391,24 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-flip observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 15. Follow on: a second panel mounting cold reads the config for the first
+// time — no flip — so another session's manual root survives it.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'files-root-cold-mount', { taggedRoot: true, follow: 'on', scene: 'S15' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.pinned.status.path, 'fixture-repo', 'the manual project root holds while the panel follows site')
+    assert.equal(seen.secondMounted, true, 'a second panel mounted for another session')
+    assert.equal(seen.afterColdMount.status.path, 'fixture-repo', 'its first sample is no config flip: the override stays')
+    assert.equal(seen.afterColdMount.menu.items[1].active, true, 'and the project row is still the source')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('files-cold-mount observation: ' + JSON.stringify({ observed: out.observed, errors }))
     failures.push(error)
   }
 }

@@ -106,6 +106,32 @@ export function resetFilesRootPicks(): void {
   filesFollowPicks.clear()
 }
 
+/** The follow config as last read off a ready sample, with that sample's
+ * `checkedAt`. The config is host-wide, so one record serves every panel
+ * instance and session; undefined = no sample read yet. */
+let followConfig: { readonly value: boolean; readonly at: number } | undefined
+
+/** The follow config the newest ready sample carried, if any. */
+export function knownFilesFollowConfig(): boolean | undefined {
+  return followConfig?.value
+}
+
+/**
+ * Feed the follow config from a ready sample. Only a change seen on a sample
+ * newer than the last one read re-arms the default (every override dropped):
+ * the first sighting is a mount, not a flip, and an older sample — a hidden
+ * session's cached view — must not flip it back.
+ *
+ * @returns Whether the overrides were reset.
+ */
+export function syncFilesFollowConfig(value: boolean, checkedAt: number): boolean {
+  if (followConfig !== undefined && checkedAt <= followConfig.at) return false
+  const flipped = followConfig !== undefined && followConfig.value !== value
+  followConfig = { value, at: checkedAt }
+  if (flipped) resetFilesRootPicks()
+  return flipped
+}
+
 /**
  * A remote face that tags every repository-scoped request with `repo`. The tabs
  * and their hooks stay unaware of the selection: they keep calling

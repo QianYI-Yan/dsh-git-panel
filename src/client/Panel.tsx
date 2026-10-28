@@ -32,7 +32,7 @@ import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
-import { clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, resetFilesRootPicks, resumeFilesRootFollow, selectedRepo, selectRepo, withRepo } from './repo-select.js'
+import { clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, syncFilesFollowConfig, withRepo } from './repo-select.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -292,19 +292,22 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // last ready answer (a view dip must not flip it); an older host omits the
   // field → off, the browser parks at the project root by default. It is only
   // the default: a session can override it either way from the root dropdown.
-  const filesFollowRef = useRef(false)
+  // Before this panel's first ready sample it borrows the value another panel
+  // already read: the config is host-wide.
+  const filesFollowRef = useRef<boolean | null>(null)
   if (view.state === 'ready') filesFollowRef.current = view.snapshot.filesFollowRepo ?? false
-  const filesFollow = filesFollowRef.current
+  const filesFollow = filesFollowRef.current ?? knownFilesFollowConfig() ?? false
   // A config flip re-arms the default for every session: overrides belong to
-  // the setting that was in force when they were made. The bump re-renders the
-  // panes off the module-level store.
-  const prevFilesFollow = useRef(filesFollow)
+  // the setting that was in force when they were made. The detection lives in
+  // the module store, keyed on sample age, so a cold mount or a second panel
+  // instance reading the value for the first time is not mistaken for a flip.
+  // The bump re-renders the panes off the store.
+  const readyFollow = view.state === 'ready' ? view.snapshot.filesFollowRepo ?? false : null
+  const readyAt = view.state === 'ready' ? view.snapshot.checkedAt : null
   useEffect(() => {
-    if (prevFilesFollow.current === filesFollow) return
-    prevFilesFollow.current = filesFollow
-    resetFilesRootPicks()
-    setFilesRootBump((n) => n + 1)
-  }, [filesFollow])
+    if (readyFollow === null || readyAt === null) return
+    if (syncFilesFollowConfig(readyFollow, readyAt)) setFilesRootBump((n) => n + 1)
+  }, [readyFollow, readyAt])
   // The browser runs under its own selector — an explicit root pick → the
   // follow opt-in → the config default (off: the project root, on: the
   // repository the panel follows). The generation bumps only when that

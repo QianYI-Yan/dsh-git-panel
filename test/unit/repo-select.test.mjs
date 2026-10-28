@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, withRepo } from '../../lib/testkit.mjs'
+import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -163,4 +163,27 @@ test('a config flip drops every override at once', () => {
   pickFilesRoot('fr-4a', 'site')
   assert.equal(filesRootSelector('fr-4a', true), 'site', 'picking works again after the reset')
   resumeFilesRootFollow('fr-4a')
+})
+
+test('only a newer sample carrying another value is a config flip', () => {
+  // The first sighting records the value: a panel mounting cold is no flip.
+  assert.equal(knownFilesFollowConfig(), undefined, 'nothing read yet')
+  pickFilesRoot('fr-5', '')
+  assert.equal(syncFilesFollowConfig(true, 100), false)
+  assert.equal(knownFilesFollowConfig(), true, 'the value is shared for panels without a sample of their own')
+  assert.equal(filesRootPick('fr-5', true), '', 'the override survives the first sighting')
+  // The same value again (a second panel instance, a later poll) changes nothing.
+  assert.equal(syncFilesFollowConfig(true, 120), false)
+  assert.equal(filesRootPick('fr-5', true), '')
+  // An older sample with another value — a cached view of a hidden session —
+  // must not flip the setting back.
+  assert.equal(syncFilesFollowConfig(false, 110), false)
+  assert.equal(knownFilesFollowConfig(), true)
+  assert.equal(filesRootPick('fr-5', true), '')
+  // A newer sample carrying a new value is the flip: every override goes.
+  assert.equal(syncFilesFollowConfig(false, 130), true)
+  assert.equal(filesRootPick('fr-5', false), '', 'back on the default: off parks at the project root')
+  pickFilesRoot('fr-5', 'site')
+  assert.equal(syncFilesFollowConfig(true, 140), true)
+  assert.equal(filesRootPick('fr-5', true), null, 'the pick made under the old setting is dropped')
 })
