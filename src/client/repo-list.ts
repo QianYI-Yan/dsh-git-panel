@@ -147,7 +147,7 @@ export function repoRowTip(
   return lines
 }
 
-/** One candidate root of the browse-root dropdown (files-follow mode). */
+/** One candidate root of the browse-root dropdown. */
 export interface FilesRootRow {
   /** '' = the project root, otherwise the repository selector tag. */
   readonly selector: string

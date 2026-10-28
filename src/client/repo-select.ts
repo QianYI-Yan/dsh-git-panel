@@ -51,27 +51,36 @@ const filesPicks = new Map<string, string>()
 /** Sessions whose file-root pick was `''` (the project root): '' deletes from
  * the map, so the deliberate pick needs the same side-set as `rootPicks`. */
 const filesRootPicks = new Set<string>()
+/** Sessions that chose the follow row: the browser tracks the switched
+ * repository whatever the config default says. */
+const filesFollowPicks = new Set<string>()
 
-/** The selector file-browser requests run under: follow off → the project root
- * ('') whatever the panel follows; on → the manual pick, else the repository
- * the panel follows. */
+/** The selector file-browser requests run under: an explicit choice first (a
+ * root pick, then the follow opt-in), else the config default — off parks at
+ * the project root, on follows the repository the panel follows. */
 export function filesRootSelector(sessionId: string, follow: boolean): string {
-  if (!follow) return ''
   const pick = filesPicks.get(sessionId)
   if (pick !== undefined) return pick
   if (filesRootPicks.has(sessionId)) return ''
-  return selectedRepo(sessionId)
+  if (filesFollowPicks.has(sessionId)) return selectedRepo(sessionId)
+  return follow ? selectedRepo(sessionId) : ''
 }
 
-/** The manual pick itself: '' = the project root, null = none (the browser
- * follows the switched repository). Drives the dropdown's row highlights. */
-export function filesRootPick(sessionId: string): string | null {
+/** The dropdown's source mark: '' = the project root, a path = that checkout,
+ * null = following (the follow row highlights then). An unchosen session
+ * reads its source off the config default: on → follow, off → project root. */
+export function filesRootPick(sessionId: string, follow: boolean): string | null {
   if (filesRootPicks.has(sessionId)) return ''
-  return filesPicks.get(sessionId) ?? null
+  const pick = filesPicks.get(sessionId)
+  if (pick !== undefined) return pick
+  if (filesFollowPicks.has(sessionId)) return null
+  return follow ? null : ''
 }
 
-/** Root the browser at a candidate ('' = the project root). */
+/** Root the browser at a candidate ('' = the project root); picking a root
+ * ends any follow opt-in. */
 export function pickFilesRoot(sessionId: string, path: string): void {
+  filesFollowPicks.delete(sessionId)
   if (path === '') {
     filesPicks.delete(sessionId)
     filesRootPicks.add(sessionId)
@@ -81,16 +90,20 @@ export function pickFilesRoot(sessionId: string, path: string): void {
   }
 }
 
-/** Drop the manual pick: the browser follows the switched repository again. */
+/** Choose the follow row: the browser tracks the switched repository again —
+ * an opt-in that holds whatever the config default says. */
 export function resumeFilesRootFollow(sessionId: string): void {
   filesPicks.delete(sessionId)
   filesRootPicks.delete(sessionId)
+  filesFollowPicks.add(sessionId)
 }
 
-/** Drop every session's manual pick: flipping the follow config re-arms it. */
+/** Drop every session's override: flipping the follow config re-arms the
+ * default for all of them. */
 export function resetFilesRootPicks(): void {
   filesPicks.clear()
   filesRootPicks.clear()
+  filesFollowPicks.clear()
 }
 
 /**

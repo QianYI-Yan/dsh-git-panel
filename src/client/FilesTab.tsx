@@ -480,9 +480,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     onClick: () => refresh(),
   }, h(RefreshIcon, { size: 14 }))
 
-  // Follow mode gives the address a candidate-root list instead of copy: it
-  // opens under the bar, closes on an outside press or Escape, and offers the
-  // follow state, the project root, every checkout, and a copy entry.
+  // A second candidate root gives the address a list instead of copy: it opens
+  // under the bar, closes on an outside press or Escape, and offers the
+  // follow state, the project root, every checkout, and a copy entry. The
+  // config default decides nothing here — the list is the session's override.
   const [rootMenuOpen, setRootMenuOpen] = useState(false)
   const rootMenuRef = useRef<HTMLDivElement | null>(null)
   const menuable = rootMenu !== undefined && rootMenu !== null && browseRoot !== null
@@ -545,10 +546,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     ])
 
   // The tree column's own header row: the absolute browse root on the left —
-  // click to copy, or (while following) to open the candidate-root list — the
-  // refresh control on the right. It belongs to the directory tree column only
-  // and it is where the degrade (no snapshot at all) names where the browser
-  // is rooted. The tree wrap carries the reader's inert state.
+  // click to copy, or (with a second candidate root) to open the candidate-root
+  // list — the refresh control on the right. It belongs to the directory tree
+  // column only and it is where the degrade (no snapshot at all) names where
+  // the browser is rooted. The tree wrap carries the reader's inert state.
   const statusBar = h('div', {
     key: 'status', className: 'gp-files__statusbar',
   }, [

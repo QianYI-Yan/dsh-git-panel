@@ -19,12 +19,12 @@
  * keeps the three-pane panel unchanged.
  * The changes column docks the same list (one collapse state with the
  * overview; the compact layout keeps its cards page instead), and the file
- * browser roots itself independently of the repository the panel follows:
- * follow off (the default) it stays at the project root — no dropdown, tree
- * state intact across a switch; follow on the address becomes a
- * candidate-root dropdown whose manual pick sticks across switches until the
- * follow row takes it back, and a config flip (delivered by the next polled
- * sample) parks it on the project root again.
+ * browser roots itself independently of the repository the panel follows: the
+ * config only sets each session's default (off: the project root, tree state
+ * intact across a switch; on: the followed repository), the address is a
+ * candidate-root dropdown either way,
+ * a session's own pick or follow opt-in sticks across switches, and a config
+ * flip (delivered by the next polled sample) re-arms the new default.
  *
  * Fully isolated — a local file:// harness, no dsh server, no touch of any
  * running instance. Requires the e2e fixtures (run test/e2e/setup.mjs first,
@@ -532,11 +532,15 @@ async function mount(repos, action, options = {}) {
         switching: switchingNow(),
         repoRows: document.querySelectorAll('.gp-panel .gp-repolist__item, .gp-panel .gp-repos__item').length,
       }
-      // The status bar path copies on the same pattern.
+      // The status bar path: with several candidate roots the click opens the
+      // dropdown instead of copying, and the copy entry inside it does the
+      // copying; with one root the click still writes straight through.
       armClipboard('__copiedStatus')
       const statusBtn = document.querySelector('.gp-panel .gp-files__status-path')
       if (statusBtn !== null) statusBtn.click()
-      await wait(80)
+      await wait(120)
+      observed.statusMenuOpen = document.querySelector('.gp-panel .gp-files__rootmenu') !== null
+      if (observed.statusMenuOpen) await clickRootItem('files.copyRootMenu')
       observed.statusPathCopy = window.__copiedStatus
       observed.statusPathCopiedClass = document.querySelector('.gp-panel .gp-files__status-path')?.classList.contains('gp-files__status-path--copied') ?? false
       return { observed, calls }
@@ -609,14 +613,16 @@ async function mount(repos, action, options = {}) {
     }
     if (action === 'files-root') {
       // Follow off (the default): the browser stays at the project root across
-      // a repository switch, keeps the tree it was showing, and its address
-      // stays a click-to-copy path with no dropdown.
+      // a repository switch and keeps the tree it was showing. The address
+      // still carries the candidate-root dropdown — the config only sets the
+      // default — so this session can opt into following from there.
       clickTab('tab.files')
       await wait(400)
       observed.boot = { status: statusbarInfo(), menu: rootMenuInfo(), tree: treeText() }
+      await openRootMenu()
+      observed.menuOpen = rootMenuInfo()
       armClipboard('__copiedStatus')
-      rootButton().click()
-      await wait(80)
+      await clickRootItem('files.copyRootMenu')
       observed.boot.copy = window.__copiedStatus
       await expandTree('src')
       observed.boot.treeAfterExpand = treeText()
@@ -629,10 +635,16 @@ async function mount(repos, action, options = {}) {
       await wait(400)
       observed.afterSwitch = {
         status: statusbarInfo(),
-        menu: rootMenuInfo(),
         tree: treeText(),
         snapshotTags: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo),
       }
+      // The override: pick the follow row and this session tracks the switch
+      // the config default kept it out of.
+      await openRootMenu()
+      await clickRootItem('files.rootFollowGit')
+      observed.afterFollow = { status: statusbarInfo() }
+      await openRootMenu()
+      observed.afterFollow.menuOpen = rootMenuInfo()
       return { observed, calls }
     }
     if (action === 'files-root-follow') {
@@ -666,16 +678,16 @@ async function mount(repos, action, options = {}) {
       return { observed, calls }
     }
     if (action === 'files-root-flip') {
-      // A config flip rides the polled sample: off parks the browser on the
-      // project root and takes the dropdown away; back on clears the manual
-      // pick and re-arms following.
+      // A config flip rides the polled sample: off clears every override and
+      // parks the browser on the project root — the dropdown stays, the config
+      // only re-arms the default; back on, the unchosen session follows again.
       clickTab('tab.files')
       await wait(400)
       await openRootMenu()
       await clickRootItem('site')
       observed.beforeFlip = { status: statusbarInfo(), menu: rootMenuInfo() }
       window.__gpFollow(false)
-      for (let i = 0; i < 80 && rootMenuInfo().hasPopup; i += 1) await wait(50)
+      for (let i = 0; i < 80 && statusbarInfo().path !== 'fixture-repo'; i += 1) await wait(50)
       observed.afterOff = { status: statusbarInfo(), menu: rootMenuInfo() }
       clickTab('tab.overview')
       await wait(250)
@@ -686,7 +698,7 @@ async function mount(repos, action, options = {}) {
       await wait(400)
       observed.afterGitSwitch = { status: statusbarInfo() }
       window.__gpFollow(true)
-      for (let i = 0; i < 80 && !rootMenuInfo().hasPopup; i += 1) await wait(50)
+      for (let i = 0; i < 80 && statusbarInfo().path !== 'fixture-repo/site'; i += 1) await wait(50)
       await wait(300)
       await openRootMenu()
       observed.afterOn = { status: statusbarInfo(), menu: rootMenuInfo() }
@@ -903,7 +915,8 @@ const failures = []
     assert.equal(seen.steady.head.expanded, true, 'the block stays where it was left')
     assert.equal(seen.state.activeTab, 'tab.overview', 'the panel stays on the overview')
     assert.equal(seen.state.switching, false, 'and settled')
-    assert.equal(seen.statusPathCopy, '/mock', 'clicking the status path writes the project root to the clipboard')
+    assert.equal(seen.statusMenuOpen, true, 'several candidate roots make the status path a dropdown even with follow off')
+    assert.equal(seen.statusPathCopy, '/mock', 'the menu copy entry writes the project root to the clipboard')
     assert.equal(seen.statusPathCopiedClass, true, 'and confirms on the button')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -936,6 +949,7 @@ const failures = []
     assert.equal(seen.state.statusbar.barInTree, true, 'the bar is the tree column header, not a full-width row on top of the page')
     assert.equal(seen.state.statusbar.precedesRows, true, 'and it stands above the file entries, outside the scrolling list')
     assert.equal(seen.state.statusbar.spansColumnOnly, true, 'the bar only spans the tree column, never the preview side')
+    assert.equal(seen.statusMenuOpen, false, 'one candidate root keeps the status path a plain copy button')
     assert.equal(seen.statusPathCopy, '/mock', 'clicking the status path writes the project root to the clipboard')
     assert.equal(seen.statusPathCopiedClass, true, 'and confirms on the button')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
@@ -1158,21 +1172,27 @@ const failures = []
 }
 
 // 11. Follow off (the default): the browser roots itself at the project root
-// and a repository switch must not move it or reset the tree it shows; the
-// address stays a click-to-copy path with no dropdown.
+// and a repository switch must not move it or reset the tree it shows — but
+// the address still carries the candidate-root dropdown, so a session can opt
+// into following without touching the config.
 {
   const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'files-root', { taggedRoot: true, scene: 'S11' })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
     assert.equal(seen.boot.status.path, 'fixture-repo', 'the browser opens at the project root')
-    assert.equal(seen.boot.menu.hasPopup, false, 'follow off keeps the address a copy button')
-    assert.equal(seen.boot.copy, 'fixture-repo', 'clicking the address copies the root')
+    assert.equal(seen.boot.menu.hasPopup, true, 'follow off keeps the dropdown: the config only sets the default')
+    assert.equal(seen.menuOpen.open, true, 'the click opens the candidate roots')
+    assert.deepEqual(seen.menuOpen.items.map((item) => item.key), ['files.rootFollowGit', 'files.rootProject', 'site', 'files.copyRootMenu'], 'follow row, project root, the checkout, then the copy entry')
+    assert.equal(seen.menuOpen.items[1].active, true, 'the default parks the session on the project row')
+    assert.equal(seen.menuOpen.items[0].active, false, 'and the follow row is not the source')
+    assert.equal(seen.boot.copy, 'fixture-repo', 'the copy entry writes the browse root')
     assert.ok(seen.boot.treeAfterExpand.includes('index.ts'), 'the tree was expanded')
     assert.equal(seen.afterSwitch.status.path, 'fixture-repo', 'a repository switch leaves the browser where it was')
     assert.ok(seen.afterSwitch.tree.includes('index.ts'), 'and does not reset the tree it was showing')
     assert.ok(seen.afterSwitch.snapshotTags.includes('site'), 'the repository switch really happened: ' + JSON.stringify(seen.afterSwitch.snapshotTags))
-    assert.equal(seen.afterSwitch.menu.hasPopup, false, 'still no dropdown')
+    assert.equal(seen.afterFollow.status.path, 'fixture-repo/site', 'the follow row opts this session in: the browser re-roots on the switched repository')
+    assert.equal(seen.afterFollow.menuOpen.items[0].active, true, 'and the follow row marks the source')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-root observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
@@ -1207,20 +1227,20 @@ const failures = []
   }
 }
 
-// 13. A config flip rides the polled sample: off parks the browser on the
-// project root and takes the dropdown away; back on clears the manual pick
-// and re-arms following.
+// 13. A config flip rides the polled sample: off clears every override and
+// parks the browser on the project root while the dropdown stays offered;
+// back on, the unchosen session follows the switched repository again.
 {
   const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'files-root-flip', { taggedRoot: true, follow: 'flip', pollMs: 500, scene: 'S13' })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
     assert.equal(seen.beforeFlip.status.path, 'fixture-repo/site', 'the manual pick roots the browser on the checkout')
-    assert.equal(seen.afterOff.status.path, 'fixture-repo', 'flipping follow off parks the browser on the project root')
-    assert.equal(seen.afterOff.menu.hasPopup, false, 'and takes the dropdown away')
+    assert.equal(seen.afterOff.status.path, 'fixture-repo', 'flipping follow off clears the pick and parks the browser on the project root')
+    assert.equal(seen.afterOff.menu.hasPopup, true, 'the dropdown stays: the config only re-arms the default')
     assert.equal(seen.afterGitSwitch.status.path, 'fixture-repo', 'with follow off a repository switch still does not move it')
     assert.equal(seen.afterOn.status.path, 'fixture-repo/site', 'back on, the browser follows the switched repository again')
-    assert.equal(seen.afterOn.menu.items[0].active, true, 'the cleared pick leaves the follow row as the source')
+    assert.equal(seen.afterOn.menu.items[0].active, true, 'the cleared override leaves the follow row as the source')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-flip observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))

@@ -269,12 +269,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   // The browser's follow switch rides the snapshot the same way, sticky at the
   // last ready answer (a view dip must not flip it); an older host omits the
-  // field → off, the browser stays at the project root.
+  // field → off, the browser parks at the project root by default. It is only
+  // the default: a session can override it either way from the root dropdown.
   const filesFollowRef = useRef(false)
   if (view.state === 'ready') filesFollowRef.current = view.snapshot.filesFollowRepo ?? false
   const filesFollow = filesFollowRef.current
-  // A config flip re-arms following: manual root picks belong to the mode that
-  // offers them. The bump re-renders the panes off the module-level store.
+  // A config flip re-arms the default for every session: overrides belong to
+  // the setting that was in force when they were made. The bump re-renders the
+  // panes off the module-level store.
   const prevFilesFollow = useRef(filesFollow)
   useEffect(() => {
     if (prevFilesFollow.current === filesFollow) return
@@ -282,8 +284,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     resetFilesRootPicks()
     setFilesRootBump((n) => n + 1)
   }, [filesFollow])
-  // The browser runs under its own selector — project root (follow off) → the
-  // manual pick → the followed repository. The generation bumps only when that
+  // The browser runs under its own selector — an explicit root pick → the
+  // follow opt-in → the config default (off: the project root, on: the
+  // repository the panel follows). The generation bumps only when that
   // selector changes, so switching repositories while the browser is parked at
   // the project root keeps the tree the user is browsing.
   const filesSelector = sessionId === undefined ? '' : filesRootSelector(sessionId, filesFollow)
@@ -443,14 +446,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     : filesSelector === ''
       ? projectRoot ?? (repo === '' && view.state === 'ready' ? view.snapshot.root : null)
       : repoList.find((c) => c.path === filesSelector)?.root ?? null
-  // The browse-root dropdown exists only while following, and only when the
-  // list offers a second root; with one candidate the address keeps its plain
-  // click-to-copy behaviour.
-  const rootPick = sessionId === undefined ? null : filesRootPick(sessionId)
+  // The browse-root dropdown exists whenever the list offers a second root,
+  // follow config on or off: the config sets the session default, but the
+  // dropdown is where a session opts the other way (park at a root while the
+  // default follows, follow while the default parks). With one candidate the
+  // address keeps its plain click-to-copy behaviour.
+  const rootPick = sessionId === undefined ? null : filesRootPick(sessionId, filesFollow)
   const rootRows = projectRoot === null || !repoListReady
     ? []
     : filesRootRows(projectRoot, repoList, rootPick)
-  const rootMenu = filesFollow && rootRows.length > 1
+  const rootMenu = rootRows.length > 1
     ? { rows: rootRows, followActive: rootPick === null }
     : null
   // A wide or stacked panel hosts the repository list in the overview's left
