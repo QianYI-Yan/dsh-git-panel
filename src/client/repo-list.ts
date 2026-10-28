@@ -33,10 +33,9 @@ export interface RepoChoice {
 }
 
 /**
- * Tab entries. An empty list means "no repository to pick from" (host that does
- * not answer repo-list yet, or a scan still in flight) and yields no tab at
- * all — the panel must keep its three panes in that case rather than open on a
- * page with a single unusable row.
+ * List entries. An empty list means "no repository to pick from" (a host that
+ * does not answer repo-list yet, or a scan still in flight) and renders no list
+ * block at all.
  */
 export function repoChoices(repos: readonly GitRepoEntry[]): readonly RepoChoice[] {
   return repos.map((entry) => ({

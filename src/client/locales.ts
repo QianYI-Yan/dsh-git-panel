@@ -17,7 +17,7 @@ export const zh = {
   'tab.overviewShort': 'Git',
   'tab.changesShort': '变更',
   'tab.filesShort': '文件',
-  // repositories tab
+  // repository list
   'repo.switching': '正在切换…',
   'tab.repos': '存储库',
   'repos.changedCount': '{n} 个待提交文件',

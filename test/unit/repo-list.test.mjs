@@ -1,5 +1,5 @@
 /**
- * Repositories tab list model: which rows exist, what each row says, and how
+ * Repository list model: which rows exist, what each row says, and how
  * they group.
  *
  * The load-bearing properties: an empty scan yields no tab at all (an older

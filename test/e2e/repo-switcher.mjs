@@ -976,7 +976,7 @@ const failures = []
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     assert.deepEqual(out.observed.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'no scan result means no repository list')
-    assert.equal(out.observed.tabCount, '3', 'the bar reports its tab count for the compact indicator')
+    assert.equal(out.observed.tabCount, '3', 'the bar reports its three tabs')
     assert.equal(out.observed.inLeftColumn, false, 'nothing to list')
     assert.ok(out.calls.length > 0, 'the panel still asked for a snapshot')
     assert.ok(out.calls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the panel sampled the checkout')

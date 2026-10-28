@@ -55,7 +55,7 @@ interface ChangesTabProps {
    */
   readonly cramped: boolean
   /** Docked repository list above the change list; the panel withholds it in
-   * the compact layout, which leads with its repositories page instead. */
+   * the compact layout, which keeps the list in the overview's branch filter. */
   readonly repositories?: RepositoriesHost
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }

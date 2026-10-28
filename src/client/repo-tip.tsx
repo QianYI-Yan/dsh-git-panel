@@ -1,6 +1,6 @@
 /**
- * Hover-tip content for one repository row, shared by the switcher list and
- * the compact cards page: each detail sits on its own icon-led line (the
+ * Hover-tip content for one repository row, shared by every copy of the
+ * repository list: each detail sits on its own icon-led line (the
  * reason line stays text — it is a preface, not a fact about the checkout),
  * and a hairline above the path separates where you are from which branch
  * you are on. The tip itself stays the shared portal in `tip.tsx`.

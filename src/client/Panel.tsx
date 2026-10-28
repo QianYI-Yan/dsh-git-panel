@@ -1,14 +1,14 @@
 /**
- * Main Git panel shell: Repositories / Overview / Changes / Files over the
- * conversation.view slot. Snapshot state chooses the initial tab unless the
- * input-bar pill supplied a one-shot focus request; the Repositories tab leads
- * the bar whenever the workspace scan returns a checkout to pick from.
+ * Main Git panel shell: Overview / Changes / Files over the conversation.view
+ * slot, three sub-tabs in every layout (the browser alone for a cwd with no
+ * checkout). Snapshot state chooses the initial tab unless the input-bar pill
+ * supplied a one-shot focus request.
  *
- * Repositories is a dock of the overview rather than a fourth page: picking a
- * checkout splits the overview (the panes above, the list below, like an
- * editor's source-control view), and the Overview tab closes the dock again.
- * Only a cwd with no checkout of its own gives the list a page of its own,
- * because there is nothing to split there.
+ * The repository list has no page of its own: it leads the surface that holds
+ * the branch tree (and, outside compact, the changes column), both copies
+ * sharing one collapse state owned here. The panel also owns the per-session
+ * checkout pick, the file browser's root selector, and the switch between
+ * checkouts.
  */
 import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { inertAttr } from './inert.js'
@@ -228,8 +228,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // through this face: the tabs stay unaware of the selection.
   const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
   // The controller samples exactly one repository; keep it aligned with the
-  // switcher. setRepo() publishes the loading state itself, so no pane keeps
-  // reading the previous work tree's snapshot under the new selection.
+  // switcher. setRepo() keeps the previous sample published until the new one
+  // lands; the body dims and goes inert meanwhile (repoSwitching).
   useEffect(() => {
     if (!hasSession(sessionId)) return
     const controller = controllerFor(sessionId)
@@ -683,6 +683,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
   return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode, ...(repoSwitching ? { 'data-repo-switching': 'true' } : {}) }, [
     // data-tab-count reports how many cells the bar carries (three, or the
+    // browser alone); no rule reads it — tests and diagnostics do.
     // browser alone for a cwd without a checkout).
     h('div', { key: 'tabs', className: 'gp-tabbar', 'data-tab-count': tabs.length }, [
       h(SegmentedTabs, {
