@@ -5,7 +5,8 @@
  *   conversation.view (order 30)   → the Git panel (Overview / Changes tabs)
  *   conversation.input.left        → the zsh-style Git branch marker pill
  *   plugins.bundle.config          → the detail-page config form (showInputPill)
- * Bilingual dictionaries are registered under the `gitPanel` namespace; the
+ * Dictionaries for every DSH language are registered under the `gitPanel`
+ * namespace (English is the fallback for any other locale); the
  * per-session snapshot controller registry is bound to this context.
  *
  * The panel's mount is a preference, not a constant: the user picks whether it
@@ -15,7 +16,8 @@
  */
 import { createElement as h } from 'react'
 import { ensureStyles } from './styles.js'
-import { en, zh, NS } from './locales.js'
+import { NS } from './locales.js'
+import { DICTIONARIES } from './locale-dicts.js'
 import { bindContext, disposeAll, resyncAll } from './registry.js'
 import { Panel } from './Panel.js'
 import { GitPill } from './GitPill.js'
@@ -43,7 +45,7 @@ function apply(ctx: ClientCtx): void {
   ensureStyles()
   bindContext(ctx)
 
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }) ?? undefined, 'dsh-git-panel: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, DICTIONARIES) ?? undefined, 'dsh-git-panel: dictionaries')
   const t = ctx.locale.bind(NS) as (key: GitKey, params?: Record<string, string | number>) => string
 
   // Slot registrations may return an unregister handle; collect them and undo

@@ -35,7 +35,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 - **差异与源码查看**：统一 / 对照 / 变更前 / 变更后四种视图，语法高亮、词级改动强调、块间隐藏上下文按需展开，<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> 就地查找；图片以光标为锚点缩放（10%–800%）、可拖拽平移与全屏。
 - **窄面板 / 移动端**：宽度 ≤620px 时自动切为单栏「钻取」布局（分支筛选改为底部弹层、提交行改两行式），变宽后自动恢复三栏。
 - **共享工作区护栏**：与 dsh 的 AI 共用同一仓库，写操作弹窗统一提示「可直接让 AI 执行 Git 操作」；撞上 `.git/index.lock` 会自动重试一次并提示「Git 正忙」。
-- UI 跟随 DSH 系统语言设置，支持简体中文和英文。
+- UI 跟随 DSH 系统语言设置，支持 DSH 提供的全部界面语言：简体中文、English、日本語、Español、Français、Deutsch、Русский、Português；其他语言（如后续语言包新增的）回落为英文。
 
 ## 权限与数据边界
 

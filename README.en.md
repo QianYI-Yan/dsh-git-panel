@@ -35,7 +35,7 @@ After installing or updating, the **Git** panel appears in the workspace tab bar
 - **Diff and source viewing** — unified / split / before / after views with syntax highlighting, word-level emphasis, on-demand expansion of hidden context, and <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> find-in-place; images zoom around the cursor (10%–800%) and can be panned by dragging or opened fullscreen.
 - **Narrow panel / mobile** — at 620px wide or below the UI switches to a single-column drill-in (branch filter as a bottom sheet, two-line commit rows) and restores the three columns when widened.
 - **Shared-worktree guards** — write actions share the repository with the dsh AI, so dialog footers suggest letting the AI run Git for you; a `.git/index.lock` clash retries once and reports a friendly "Git is busy".
-- The UI follows the DSH system language, in Simplified Chinese and English.
+- The UI follows the DSH system language in every language DSH ships: Simplified Chinese, English, 日本語, Español, Français, Deutsch, Русский and Português; any other language (one a later language pack adds, say) falls back to English.
 
 ## Permissions and data boundaries
 
