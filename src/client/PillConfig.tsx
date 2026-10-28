@@ -40,6 +40,15 @@ const SECTION_GLYPH: Record<SectionId, (props: { readonly size?: number }) => JS
   repos: RepoIcon,
 }
 
+/** Per-section icon tone: three semantic hues plus a neutral for the section
+ * whose colour would read as a warning. Drives the `--<tone>` chip modifier. */
+const SECTION_TONE: Record<SectionId, 'business' | 'success' | 'warn' | 'neutral'> = {
+  basic: 'business',
+  view: 'success',
+  suggest: 'warn',
+  repos: 'neutral',
+}
+
 /** Catalog load lifecycle for the model cascading selects. */
 type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -440,8 +449,11 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         onClick: () => { setOpenSections((s) => ({ ...s, [id]: !s[id] })) },
       }, [
         h('span', { key: 'l', className: 'gp-cfg__section-left' }, [
-          h('span', { key: 'i', className: 'gp-cfg__section-ic', 'aria-hidden': 'true' },
-            h(SECTION_GLYPH[id], { size: 14 })),
+          h('span', {
+            key: 'i',
+            className: `gp-cfg__section-ic gp-cfg__section-ic--${SECTION_TONE[id]}`,
+            'aria-hidden': 'true',
+          }, h(SECTION_GLYPH[id], { size: 14 })),
           h('span', { key: 't', className: 'gp-cfg__section-title' }, title),
         ]),
         h(ChevronIcon, { key: 'c', size: 16, open: openSections[id] }),

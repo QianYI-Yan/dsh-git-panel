@@ -33,23 +33,51 @@ export const CSS = `
 .gp-pill--compact .gp-pill__repo,.gp-pill--compact .gp-pill__git{display:none}
 
 /* plugin detail config form (plugins.bundle.config slot body) — font sizes
- * follow the shell settings page: 15px section titles, 14px labels, 13px hints. */
-.gp-cfg{display:flex;flex-direction:column;gap:12px;padding:16px 20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
+ * follow the shell settings page: 15px section titles, 14px labels, 13px hints.
+ * The form carries no card of its own: it sits on the detail page like the
+ * host's own sections, separated only by the host's hairline divider. */
+.gp-cfg{display:flex;flex-direction:column;gap:0}
 .gp-cfg__title{margin:0;font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary)}
-/* Form sections: a header button collapses its body (aria-controls stays
- * resolvable, so the body is hidden, not unmounted); only the first boots open. */
-.gp-cfg__section{display:flex;flex-direction:column;gap:12px}
-.gp-cfg__section + .gp-cfg__section{padding-top:12px;border-top:1px solid var(--dsw-alias-border-l1)}
-.gp-cfg__section-hd{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%;margin:0;padding:0;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer}
-.gp-cfg__section-hd:hover{color:var(--dsw-alias-state-business-primary)}
+/* Collapsible sections: a header button collapses its body (aria-controls stays
+ * resolvable, so the body is hidden, not unmounted); only the first boots open.
+ * The header fills only on hover — bg-layer-1/2 both resolve to the page's own
+ * white in the light theme, so a layer token would leave the hover invisible;
+ * the solid interactive surface is the one fill that reads there. The -8px
+ * bleed lets the hover pill overhang the text column on both sides. */
+.gp-cfg__section{display:flex;flex-direction:column;gap:12px;padding:14px 0}
+.gp-cfg__section:first-child{padding-top:0}
+.gp-cfg__section:last-child{padding-bottom:0}
+.gp-cfg__section+.gp-cfg__section{border-top:.5px solid var(--dsw-alias-border-l2)}
+.gp-cfg__section-hd{position:relative;display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 -8px;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:15px;font-weight:600;text-align:left;cursor:pointer}
+.gp-cfg__section-hd:hover{background:var(--dsw-alias-interactive-bg-hover-solid);color:var(--dsw-alias-state-business-primary)}
 .gp-cfg__section-hd:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
 .gp-cfg__section-hd svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+/* A dotted rule under an OPEN section title: 15px/600 title over 14px body
+ * labels differs by only a pixel and a weight, so a divider lifts the title off
+ * its content the way the host's own sectionTitle-over-facts does — but a
+ * collapsed body has nothing to separate, so only aria-expanded headers carry
+ * it. Dots on a 5px tile at border-l3: a dot holds less ink than a solid line,
+ * hence the next contrast step. Anchored to the header box (spanning the -8px
+ * bleed column) and dropped 4px below it, landing mid-way in the section's 12px
+ * header→body gap — title-side air without eating the content side, and clear
+ * of the hover pill's bottom edge. */
+.gp-cfg__section-hd[aria-expanded="true"]::after{content:"";position:absolute;left:0;right:0;bottom:-4px;height:2px;background-image:radial-gradient(circle,var(--dsw-alias-border-l3) 0,var(--dsw-alias-border-l3) 1px,transparent 1.2px);background-size:5px 2px;background-repeat:repeat-x}
 /* Section mark chip: identity at a glance while the body is collapsed. The
- * glyph carries its own colour — the header's svg rule above would pin it. */
+ * glyph carries its own colour — the header's svg rule above would pin it.
+ * The chip fill is the solid interactive surface: bg-layer-1 resolves to the
+ * page's own white in the light theme, which would make the neutral chip
+ * disappear. */
 .gp-cfg__section-left{display:flex;align-items:center;gap:8px;min-width:0}
-.gp-cfg__section-ic{display:flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:7px;background:var(--dsw-alias-bg-layer-2)}
+.gp-cfg__section-ic{display:flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover-solid)}
 .gp-cfg__section-ic svg{color:var(--dsw-alias-label-secondary)}
-.gp-cfg__section-hd:hover .gp-cfg__section-ic svg{color:var(--dsw-alias-state-business-primary)}
+/* Three semantic hues keep each menu row recognisable at a glance; the repos
+ * section stays neutral so its colour cannot read as a warning. Tints too. */
+.gp-cfg__section-ic--business{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
+.gp-cfg__section-ic--business svg{color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__section-ic--success{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
+.gp-cfg__section-ic--success svg{color:var(--dsw-alias-state-success-primary)}
+.gp-cfg__section-ic--warn{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent)}
+.gp-cfg__section-ic--warn svg{color:var(--dsw-alias-state-warn-primary)}
 .gp-cfg__section-body{display:flex;flex-direction:column;gap:12px}
 /* An author display rule beats the UA's [hidden]{display:none} — restate it. */
 .gp-cfg__section-body[hidden]{display:none}
