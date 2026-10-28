@@ -488,8 +488,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggle(e.currentTarget.checked) },
         }),
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.toggle')),
-    ]),
-    h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.hint')),
+      ]),
+      h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.hint')),
     ]),
   ]
   const viewBody = [
@@ -528,7 +528,7 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSuggest(e.currentTarget.checked) },
         }),
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
-    ]),
+      ]),
     ]),
     field('sglang', [
       h('p', { key: 'sglangtitle', className: 'gp-cfg__seglabel' }, t('cfg.suggestLangLabel')),
@@ -550,8 +550,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
         }),
         h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestMaxBytesUnit')),
-    ]),
-    h('p', { key: 'numaxhint', id: 'gp-cfg-maxkib-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestMaxBytesHint')),
+      ]),
+      h('p', { key: 'numaxhint', id: 'gp-cfg-maxkib-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestMaxBytesHint')),
     ]),
     field('nuout', [
       h('div', { key: 'nuout', className: 'gp-cfg__numrow' }, [
@@ -566,8 +566,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
         }),
         h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestOutputUnit')),
-    ]),
-    h('p', { key: 'nuouthint', id: 'gp-cfg-outtok-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestOutputHint')),
+      ]),
+      h('p', { key: 'nuouthint', id: 'gp-cfg-outtok-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestOutputHint')),
     ]),
     field('nuto', [
       h('div', { key: 'nuto', className: 'gp-cfg__numrow' }, [
@@ -582,46 +582,46 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
         }),
         h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
-    ]),
-    h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
+      ]),
+      h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
     ]),
     field('sgmodel', [
       h('div', { key: 'sgmodel', className: 'gp-cfg__menur' }, [
         h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestModelLabel')),
         providerMenu,
-    ]),
-    uiProvider !== ''
-      ? h('div', { key: 'sgmodel2', className: 'gp-cfg__menur' }, [
-        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestProviderLabel')),
-        modelMenu,
-      ])
-      : null,
-    uiProvider !== '' && uiModel !== '' && efforts !== undefined && efforts.length > 0
-      ? h('div', { key: 'sgeffort', className: 'gp-cfg__menur' }, [
-        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestEffortLabel')),
-        effortMenu,
-      ])
-      : null,
-    catalogStatus === 'loading'
-      ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelLoading'))
-      : catalogStatus === 'error'
-        ? h('p', { key: 'sgerr', className: 'gp-cfg__err', role: 'alert' }, [
-          t('cfg.suggestModelFailed'),
-          ' ',
-          h('button', {
-            key: 'retry', type: 'button', className: 'gp-cfg__retry',
-            onClick: () => { loadCatalog() },
-          }, t('cfg.suggestModelRetry')),
+      ]),
+      uiProvider !== ''
+        ? h('div', { key: 'sgmodel2', className: 'gp-cfg__menur' }, [
+          h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestProviderLabel')),
+          modelMenu,
         ])
-        // Failures win over the empty hint: a fully failed catalog is an
-        // adapter error, not proof that the host has no models.
-        : catalogFailures.length > 0
-          ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint' },
-            `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
-          : catalog.length === 0
-            ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelEmpty'))
-            : null,
-    h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
+        : null,
+      uiProvider !== '' && uiModel !== '' && efforts !== undefined && efforts.length > 0
+        ? h('div', { key: 'sgeffort', className: 'gp-cfg__menur' }, [
+          h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestEffortLabel')),
+          effortMenu,
+        ])
+        : null,
+      catalogStatus === 'loading'
+        ? h('p', { key: 'sgload', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelLoading'))
+        : catalogStatus === 'error'
+          ? h('p', { key: 'sgerr', className: 'gp-cfg__err', role: 'alert' }, [
+            t('cfg.suggestModelFailed'),
+            ' ',
+            h('button', {
+              key: 'retry', type: 'button', className: 'gp-cfg__retry',
+              onClick: () => { loadCatalog() },
+            }, t('cfg.suggestModelRetry')),
+          ])
+          // Failures win over the empty hint: a fully failed catalog is an
+          // adapter error, not proof that the host has no models.
+          : catalogFailures.length > 0
+            ? h('p', { key: 'sgfail', className: 'gp-cfg__rangehint' },
+              `${t('cfg.suggestModelFailed')}: ${catalogFailures.map((f) => f.name).join(', ')}`)
+            : catalog.length === 0
+              ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelEmpty'))
+              : null,
+      h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
     ]),
   ]
   const reposBody = [
@@ -633,8 +633,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleDetect(e.currentTarget.checked) },
         }),
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
-    ]),
-    h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
+      ]),
+      h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
     ]),
     field('follow', [
       h('label', { key: 'followrow', className: 'gp-cfg__row' }, [
@@ -644,8 +644,8 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
           onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleFilesFollow(e.currentTarget.checked) },
         }),
         h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.filesFollowToggle')),
-    ]),
-    h('p', { key: 'followhint', className: 'gp-cfg__hint' }, t('cfg.filesFollowHint')),
+      ]),
+      h('p', { key: 'followhint', className: 'gp-cfg__hint' }, t('cfg.filesFollowHint')),
     ]),
   ]
 
