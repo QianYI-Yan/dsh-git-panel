@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, withRepo } from '../../lib/testkit.mjs'
+import { selectedRepo, selectRepo, hasRepoPick, clearRepoPick, filesRootSelector, filesRootPick, pickFilesRoot, resumeFilesRootFollow, resetFilesRootPicks, syncFilesFollowConfig, knownFilesFollowConfig, pinnedFilesRoot, clearFilesRootPin, withRepo } from '../../lib/testkit.mjs'
 
 /** A remote that records what reached it, keyed by method. */
 function recordingRemote() {
@@ -186,4 +186,17 @@ test('only a newer sample carrying another value is a config flip', () => {
   pickFilesRoot('fr-5', 'site')
   assert.equal(syncFilesFollowConfig(true, 140), true)
   assert.equal(filesRootPick('fr-5', true), null, 'the pick made under the old setting is dropped')
+})
+
+test('clearing a pin returns the session to the config default and keeps a project-root pick', () => {
+  pickFilesRoot('fr-6', 'site')
+  assert.equal(pinnedFilesRoot('fr-6'), 'site')
+  clearFilesRootPin('fr-6')
+  assert.equal(pinnedFilesRoot('fr-6'), undefined)
+  assert.equal(filesRootPick('fr-6', false), '', 'off: back on the project root')
+  assert.equal(filesRootPick('fr-6', true), null, 'on: back to following')
+  pickFilesRoot('fr-6', '')
+  assert.equal(pinnedFilesRoot('fr-6'), undefined, 'the project root is no checkout pin')
+  clearFilesRootPin('fr-6')
+  assert.equal(filesRootPick('fr-6', true), '', 'so the repair never touches it')
 })

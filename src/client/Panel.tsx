@@ -32,7 +32,7 @@ import type { GitKey } from './locales.js'
 import { opErrorText } from './ops-modals.js'
 import { NoticeBar } from './notice.js'
 import { usePageVisibility } from './use-page-visibility.js'
-import { clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, syncFilesFollowConfig, withRepo } from './repo-select.js'
+import { clearFilesRootPin, clearRepoPick, filesRootPick, filesRootSelector, hasRepoPick, pickFilesRoot, knownFilesFollowConfig, resumeFilesRootFollow, selectedRepo, selectRepo, pinnedFilesRoot, syncFilesFollowConfig, withRepo } from './repo-select.js'
 
 function coerceFontDelta(value: unknown): FontDelta {
   return value === -1 || value === 1 ? value : 0
@@ -367,6 +367,18 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // dropRepo only calls setters and the module-level selection store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoListReady, repos, repo])
+
+  // The browser's own pin gets the same repair: a pinned checkout that left the
+  // list (probe switched off, directory gone) or can no longer be chosen
+  // returns the session to the config default — otherwise the address and its
+  // dropdown would vanish with the root while the tree stayed on the old one.
+  const pinnedRoot = sessionId === undefined ? undefined : pinnedFilesRoot(sessionId)
+  useEffect(() => {
+    if (!repoListReady || sessionId === undefined || pinnedRoot === undefined) return
+    if (repos.some((entry) => entry.path === pinnedRoot && entry.disabled === undefined)) return
+    clearFilesRootPin(sessionId)
+    setFilesRootBump((n) => n + 1)
+  }, [repoListReady, repos, pinnedRoot, sessionId])
 
   // A sample that rejects the pick is the other half of the same repair: the
   // selector stopped resolving (directory gone, no longer a work-tree top) or

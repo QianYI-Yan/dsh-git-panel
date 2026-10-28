@@ -608,6 +608,24 @@ async function mount(repos, action, options = {}) {
       }
       return { observed, calls }
     }
+    if (action === 'probe-files-pin') {
+      // The browser is pinned to a checkout when the probe switch goes off: the
+      // checkout leaves the list, so the pin is repaired back to the default
+      // root instead of leaving the address blank over the old tree.
+      clickTab('tab.files')
+      await wait(400)
+      await openRootMenu()
+      await clickRootItem('site')
+      await wait(700)
+      observed.pinned = { status: statusbarInfo(), menu: rootMenuInfo() }
+      const mark = calls.length
+      probe.off = true
+      for (let i = 0; i < 80 && statusbarInfo().path !== 'fixture-repo'; i += 1) await wait(50)
+      await wait(400)
+      const dirLists = calls.slice(mark).filter((call) => call.kind === 'dir-list')
+      observed.afterProbeOff = { status: statusbarInfo(), menu: rootMenuInfo(), lastDirListTag: dirLists.length === 0 ? null : dirLists.at(-1).repo }
+      return { observed, calls }
+    }
     if (action === 'changes-bar') {
       // The changes column docks the same list as the overview: same rows, one
       // collapse state read from either side.
@@ -1391,6 +1409,24 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-flip observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 16. A browser pinned to a checkout that leaves the list (probe switched off)
+// returns to the default root: the address stays, the tree re-roots.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'probe-files-pin', { pollMs: 500, probeToggle: true, scene: 'S16' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.pinned.status.path, 'fixture-repo/site', 'the browser is pinned to the checkout')
+    assert.equal(seen.afterProbeOff.status.present, true, 'the status bar stays')
+    assert.equal(seen.afterProbeOff.status.path, 'fixture-repo', 'the pin is repaired back to the project root')
+    assert.equal(seen.afterProbeOff.lastDirListTag, '', 'and the tree re-lists untagged: ' + JSON.stringify(seen.afterProbeOff))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('probe-files-pin observation: ' + JSON.stringify({ observed: out.observed, errors }))
     failures.push(error)
   }
 }

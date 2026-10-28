@@ -90,6 +90,18 @@ export function pickFilesRoot(sessionId: string, path: string): void {
   }
 }
 
+/** The checkout a session's browser is pinned to, when it picked one. */
+export function pinnedFilesRoot(sessionId: string): string | undefined {
+  return filesPicks.get(sessionId)
+}
+
+/** Drop a session's checkout pin without recording intent: the repair path
+ * when the pinned checkout left the list — the session returns to the config
+ * default, exactly like a session that never picked. */
+export function clearFilesRootPin(sessionId: string): void {
+  filesPicks.delete(sessionId)
+}
+
 /** Choose the follow row: the browser tracks the switched repository again —
  * an opt-in that holds whatever the config default says. */
 export function resumeFilesRootFollow(sessionId: string): void {

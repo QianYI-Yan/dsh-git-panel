@@ -486,7 +486,8 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // config default decides nothing here — the list is the session's override.
   const [rootMenuOpen, setRootMenuOpen] = useState(false)
   const rootMenuRef = useRef<HTMLDivElement | null>(null)
-  const menuable = rootMenu !== undefined && rootMenu !== null && browseRoot !== null
+  // The list does not need a resolved root: it is how the session gets one.
+  const menuable = rootMenu !== undefined && rootMenu !== null
   useEffect(() => { if (!menuable) setRootMenuOpen(false) }, [menuable])
   useEffect(() => {
     if (!rootMenuOpen) return
@@ -535,9 +536,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
           }, row.kind === 'project' ? rtlPathText(row.root) : row.path),
         ]),
       ])),
-      h('button', {
+      browseRoot === null ? null : h('button', {
         key: 'copy', type: 'button', className: 'gp-files__rootmenu__item gp-files__rootmenu__copy',
-        onClick: () => { hideTip(); setRootMenuOpen(false); if (browseRoot !== null) rootCopy.copy(browseRoot) },
+        onClick: () => { hideTip(); setRootMenuOpen(false); rootCopy.copy(browseRoot) },
       }, [
         rootCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 13 }) : h(CopyIcon, { key: 'i', size: 13 }),
         h('span', { key: 'n', className: 'gp-files__rootmenu__name' },
@@ -553,7 +554,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const statusBar = h('div', {
     key: 'status', className: 'gp-files__statusbar',
   }, [
-    browseRoot === null
+    browseRoot === null && !menuable
       ? null
       : h('button', {
         key: 'root', type: 'button',
@@ -563,15 +564,15 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
           : { 'aria-label': rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRoot') }),
         // The tip carries the full path (and the copy outcome while the ✓
         // shows); the visible text elides from the left, slash included.
-        ...tipProps(rootCopy.feedback === 'copied' ? t('files.rootCopied') : browseRoot),
+        ...tipProps(rootCopy.feedback === 'copied' ? t('files.rootCopied') : browseRoot ?? t('files.chooseRoot')),
         onClick: () => {
           hideTip()
           if (menuable) setRootMenuOpen((open) => !open)
-          else rootCopy.copy(browseRoot)
+          else if (browseRoot !== null) rootCopy.copy(browseRoot)
         },
       }, [
         h('code', { key: 'p', className: 'gp-files__status-code' }, [
-          h('span', { key: 'body', className: 'gp-files__status-body' }, rtlPathText(browseRoot)),
+          h('span', { key: 'body', className: 'gp-files__status-body' }, browseRoot === null ? t('files.chooseRoot') : rtlPathText(browseRoot)),
         ]),
         menuable
           ? h(ChevronIcon, { key: 'chev', size: 12, open: rootMenuOpen })
