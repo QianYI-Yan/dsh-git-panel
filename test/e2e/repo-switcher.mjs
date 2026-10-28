@@ -24,7 +24,8 @@
  * state intact across a switch; on: the followed repository), the address is a
  * candidate-root dropdown either way,
  * a session's own pick or follow opt-in sticks across switches, and a config
- * flip (delivered by the next polled sample) re-arms the new default.
+ * flip (delivered by the next polled sample) re-arms the new default. The
+ * coupling is one-way: a root pick that lands on a checkout switches Git too.
  *
  * Fully isolated — a local file:// harness, no dsh server, no touch of any
  * running instance. Requires the e2e fixtures (run test/e2e/setup.mjs first,
@@ -744,6 +745,45 @@ async function mount(repos, action, options = {}) {
       observed.afterOn = { status: statusbarInfo(), menu: rootMenuInfo() }
       return { observed, calls }
     }
+    if (action === 'files-root-git') {
+      // A browse-root pick is a directory switch: when the root is a checkout,
+      // Git switches with it while the browser stays in front. The reverse
+      // stays the follow setting's call (off here: the browser keeps its root).
+      const snapTags = (from) => calls.slice(from).filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo ?? '')
+      clickTab('tab.files')
+      await wait(400)
+      let mark = calls.length
+      await openRootMenu()
+      await clickRootItem('site')
+      await wait(700)
+      observed.afterSitePick = { activeTab: activeTabLabel(), status: statusbarInfo(), switching: switchingNow(), tags: snapTags(mark) }
+      clickTab('tab.overview')
+      await wait(300)
+      observed.afterSitePick.overviewSelected = headInfo().selected
+      clickTab('tab.files')
+      await wait(300)
+      mark = calls.length
+      await openRootMenu()
+      await clickRootItem('files.rootProject')
+      await wait(700)
+      observed.afterProjectPick = { activeTab: activeTabLabel(), status: statusbarInfo(), tags: snapTags(mark) }
+      clickTab('tab.overview')
+      await wait(300)
+      observed.afterProjectPick.overviewSelected = headInfo().selected
+      await expandRepos()
+      mark = calls.length
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      clickTab('tab.files')
+      await wait(400)
+      observed.afterGitPick = { status: statusbarInfo(), tags: snapTags(mark) }
+      mark = calls.length
+      await openRootMenu()
+      await clickRootItem('files.rootFollowGit')
+      await wait(500)
+      observed.afterFollow = { status: statusbarInfo(), tags: snapTags(mark) }
+      return { observed, calls }
+    }
     if (action === 'inspect') {
       // The track must keep one width whichever tab is selected: the selected
       // label turns bold, and the cells size to the widest label.
@@ -1288,6 +1328,35 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-flip observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 14. Git follows every directory switch: a browse-root pick that lands on a
+// checkout moves the overview and the changes with it (the browser stays in
+// front), the project root counts when it is the cwd's own checkout, while a
+// Git pick leaves a parked browser alone and the follow row moves only the
+// browser.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'files-root-git', { taggedRoot: true, scene: 'S14' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.afterSitePick.activeTab, 'tab.files', 'a root pick keeps the browser in front')
+    assert.equal(seen.afterSitePick.status.path, 'fixture-repo/site', 'the browser roots on the checkout')
+    assert.ok(seen.afterSitePick.tags.includes('site'), 'and Git samples the same checkout: ' + JSON.stringify(seen.afterSitePick.tags))
+    assert.equal(seen.afterSitePick.switching, false, 'the switch completes in place')
+    assert.equal(seen.afterSitePick.overviewSelected, 'site', 'the overview list reads the checkout the browser picked')
+    assert.equal(seen.afterProjectPick.status.path, 'fixture-repo', 'the project-root pick re-roots the browser')
+    assert.ok(seen.afterProjectPick.tags.includes(''), 'and, the project root being the cwd\'s own checkout, Git returns to it: ' + JSON.stringify(seen.afterProjectPick.tags))
+    assert.equal(seen.afterProjectPick.overviewSelected, 'fixture-repo', 'the overview list follows')
+    assert.ok(seen.afterGitPick.tags.includes('site'), 'a Git pick still switches Git: ' + JSON.stringify(seen.afterGitPick.tags))
+    assert.equal(seen.afterGitPick.status.path, 'fixture-repo', 'but leaves the parked browser where it was')
+    assert.equal(seen.afterFollow.status.path, 'fixture-repo/site', 'the follow row re-roots the browser on the Git checkout')
+    assert.ok(!seen.afterFollow.tags.some((tag) => tag !== 'site'), 'and moves no Git selection: ' + JSON.stringify(seen.afterFollow.tags))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('files-root-git observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls.slice(-30), errors }))
     failures.push(error)
   }
 }

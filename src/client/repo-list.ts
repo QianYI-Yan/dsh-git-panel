@@ -172,6 +172,21 @@ export interface FilesRootMenu {
 }
 
 /**
+ * The checkout a browse-root pick moves the whole panel to. Choosing a root
+ * that is itself a selectable checkout switches Git with it — the project root
+ * counts when the cwd owns a checkout (the '' entry). null = the pick leaves Git
+ * alone: the follow row, a project root that is no repository, a disabled row.
+ */
+export function gitRepoForFilesRoot(
+  selector: string | null,
+  entries: readonly { readonly path: string; readonly disabled?: string }[],
+): string | null {
+  if (selector === null) return null
+  const entry = entries.find((e) => e.path === selector)
+  return entry === undefined || entry.disabled !== undefined ? null : entry.path
+}
+
+/**
  * Candidate roots behind the browse-root dropdown: the project root first,
  * then every checkout; disabled entries stay listed and marked, mirroring the
  * switcher. `pick` is the manual pick ('' = project root, null = following).

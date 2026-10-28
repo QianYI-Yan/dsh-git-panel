@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows } from '../../lib/testkit.mjs'
+import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows, gitRepoForFilesRoot } from '../../lib/testkit.mjs'
 
 /** A scan entry; only the fields the list reads. */
 function entry(path, name, kind) {
@@ -136,6 +136,22 @@ test('the browse-root menu marks the manual pick and keeps disabled rows listed'
   assert.equal(project.length, 1, 'a workspace without checkouts still offers the project root')
   assert.equal(project[0].active, true, "'' is the project-root pick itself")
   assert.equal(project[0].root, '/p')
+})
+
+test('a browse-root pick that lands on a checkout drags Git along', () => {
+  const entries = [
+    { path: '', name: 'p', kind: 'workspace', root: '/p' },
+    { path: 'site', name: 'site', kind: 'nested', root: '/p/site' },
+    { path: 'gone', name: 'gone', kind: 'nested', root: '/p/gone', disabled: 'stale' },
+  ]
+  assert.equal(gitRepoForFilesRoot('site', entries), 'site', 'a checkout root switches Git to it')
+  assert.equal(gitRepoForFilesRoot('', entries), '', 'a project root that is a checkout switches Git back to it')
+  assert.equal(gitRepoForFilesRoot(null, entries), null, 'the follow row moves the browser, not Git')
+  assert.equal(gitRepoForFilesRoot('gone', entries), null, 'a disabled row cannot be switched to')
+  assert.equal(gitRepoForFilesRoot('elsewhere', entries), null, 'a root the list does not offer is no checkout')
+  const nonGit = entries.slice(1)
+  assert.equal(gitRepoForFilesRoot('', nonGit), null, 'a project root that is no repository leaves Git where it is')
+  assert.equal(gitRepoForFilesRoot('site', nonGit), 'site')
 })
 
 const tipText = (lines) => lines.map((line) => line.text).join('\n')

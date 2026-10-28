@@ -20,7 +20,7 @@ import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } f
 import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
-import { filesRootRows, repoChoices } from './repo-list.js'
+import { filesRootRows, gitRepoForFilesRoot, repoChoices } from './repo-list.js'
 import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
@@ -234,16 +234,22 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     setRepoState({ session: sessionId, path: '' })
   }
 
-  const chooseRepo = (next: string): void => {
-    if (!hasSession(sessionId) || next === repo) return
+  // Point the panel at another checkout without navigating. The panes keep the
+  // previous sample until the new one lands; the body dims and the tab bar says
+  // why, so the switch reads as one step rather than a collapse and a rebuild.
+  // The current view is the reference point the completion effect compares
+  // against.
+  const switchRepo = (next: string): boolean => {
+    if (!hasSession(sessionId) || next === repo) return false
     selectRepo(sessionId, next)
     setRepoState({ session: sessionId, path: next })
-    // The panes keep the previous sample until the new one lands; the body dims
-    // and the tab bar says why, so the switch reads as one step rather than a
-    // collapse and a rebuild. The current view is the reference point the
-    // completion effect compares against.
     switchBase.current = view
     setRepoSwitching(true)
+    return true
+  }
+
+  const chooseRepo = (next: string): void => {
+    if (!hasSession(sessionId) || !switchRepo(next)) return
     // A pick retires the block: the switch hands the column back to the branch
     // tree (both docked copies share this state), and reopening is one click
     // when another pick is wanted. A repeat pick of the current checkout
@@ -296,11 +302,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     setWorktreeGen((n) => n + 1)
   }, [filesSelector])
   const filesRemote = useMemo(() => withRepo(remote, filesSelector), [remote, filesSelector])
+  // A root pick is a directory switch, and Git follows every directory switch:
+  // a root that is a checkout moves the overview and changes with it (the
+  // browser stays in front). The reverse is the follow setting's call.
   const applyFilesRootPick = (selector: string | null): void => {
     if (sessionId === undefined) return
     if (selector === null) resumeFilesRootFollow(sessionId)
     else pickFilesRoot(sessionId, selector)
     setFilesRootBump((n) => n + 1)
+    const gitTarget = gitRepoForFilesRoot(selector, repos)
+    if (gitTarget !== null) switchRepo(gitTarget)
   }
 
   useEffect(() => {
@@ -438,7 +449,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // before the list does (or when the host cannot answer it at all); the rest
   // resolves from the list, the error's cwd, or stays hidden.
   const projectRoot = repoList.find((c) => c.path === '')?.root ?? repoCwd ?? browsePath ?? null
-  const filesRoot = filesSelector === repo && view.state === 'ready'
+  // Mid-switch the sample on screen is still the previous checkout's, so the
+  // root comes off the list until the new one lands.
+  const filesRoot = filesSelector === repo && view.state === 'ready' && !repoSwitching
     ? view.snapshot.root
     : filesSelector === ''
       ? projectRoot ?? (repo === '' && view.state === 'ready' ? view.snapshot.root : null)
