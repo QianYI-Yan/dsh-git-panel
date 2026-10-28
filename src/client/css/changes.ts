@@ -42,7 +42,7 @@ export const CSS = `
  * leaves unchanged. */
 .gp-files__rootmenu__item--active{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);cursor:default}
 .gp-files__rootmenu__item--disabled{opacity:.55;cursor:default}
-.gp-files__rootmenu__item--disabled:hover{background:transparent}
+.gp-files__rootmenu__item--disabled:hover:not(.gp-files__rootmenu__item--active){background:transparent}
 .gp-files__rootmenu__icon{display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-files__rootmenu__item--active .gp-files__rootmenu__icon{color:var(--dsw-alias-state-business-primary)}
 .gp-files__rootmenu__text{display:flex;flex-direction:column;gap:1px;flex:1 1 auto;min-width:0}
