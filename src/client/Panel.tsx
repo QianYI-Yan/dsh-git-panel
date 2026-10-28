@@ -474,7 +474,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     value: tb.key,
     label: [
       h('span', { key: 'i', className: 'gp-tab__icon' }, tb.icon),
-      h('span', { key: 'l', className: 'gp-tab__label' }, tb.label),
+      // data-label feeds the hidden bold copy that reserves the selected width
+      // (css/base.ts), so the track does not resize as the selection moves.
+      h('span', { key: 'l', className: 'gp-tab__label', 'data-label': tb.label }, tb.label),
     ],
     id: `${tabsId}-${tb.key}`,
     panelId: `${tabsId}-${tb.key}-panel`,

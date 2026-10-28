@@ -743,6 +743,17 @@ async function mount(repos, action, options = {}) {
       observed.afterOn = { status: statusbarInfo(), menu: rootMenuInfo() }
       return { observed, calls }
     }
+    if (action === 'inspect') {
+      // The track must keep one width whichever tab is selected: the selected
+      // label turns bold, and the cells size to the widest label.
+      const track = document.querySelector('.gp-panel .gp-tabbar__tabs')
+      observed.trackWidths = []
+      for (const label of tabLabels()) {
+        clickTab(label)
+        await wait(150)
+        observed.trackWidths.push(track.getBoundingClientRect().width)
+      }
+    }
     if (action !== 'switch') return { observed, calls }
 
     // Park the sample the pick triggers, so the in-flight state can be read
@@ -832,6 +843,8 @@ const failures = []
     assert.ok(out.calls.length > 0, 'the panel still asked for a snapshot')
     assert.ok(out.calls.every((call) => call.repo === ''), 'a single checkout never tags requests')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+    assert.equal(out.observed.trackWidths.length, 3, 'every tab was selected once')
+    assert.ok(Math.max(...out.observed.trackWidths) - Math.min(...out.observed.trackWidths) < 0.5, 'the tab track keeps its width whichever tab is selected: ' + JSON.stringify(out.observed.trackWidths))
   } catch (error) {
     console.error('scan-less observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
