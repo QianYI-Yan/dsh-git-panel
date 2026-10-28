@@ -245,12 +245,17 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // completion effect compares against.
     switchBase.current = view
     setRepoSwitching(true)
-    // Land where the new checkout has something to say: every pick comes from a
-    // scanned entry, so the landing stays put — the overview, whose left column
-    // holds the list, or the Repositories tab in the compact layout. An entry
-    // that no longer resolves is the defensive fall-through to the browser.
+    // A pick retires the block: the switch hands the column back to the branch
+    // tree (both docked copies share this state), and reopening is one click
+    // when another pick is wanted. A repeat pick of the current checkout
+    // returns above and leaves the block alone.
+    setReposCollapsed(true)
+    // The pick comes from the list on the page in front — the overview's left
+    // column, the changes column, or the compact picker — so that page stays
+    // put; a page hosting no list lands on the overview (defensive), and an
+    // entry that no longer resolves is the fall-through to the browser.
     const target = repos.find((entry) => entry.path === next)
-    const stay: SubTab = compact ? 'repos' : 'overview'
+    const stay: SubTab = compact ? 'repos' : activeTab === 'changes' ? 'changes' : 'overview'
     setSelection({ sessionId, tab: target !== undefined ? stay : 'files' })
   }
 

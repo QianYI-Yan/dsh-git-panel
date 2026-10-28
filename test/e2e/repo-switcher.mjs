@@ -566,6 +566,8 @@ async function mount(repos, action, options = {}) {
         head: headInfo(),
         rows: listRows(),
       }
+      // A pick from this column must not navigate away: the same list lives
+      // here, so the switch happens in place on the changes page.
       const collapse = visibleList()?.querySelector('.gp-repolist__collapse')
       if (collapse !== null && collapse !== undefined && collapse.getAttribute('aria-expanded') === 'true') {
         collapse.click()
@@ -575,6 +577,25 @@ async function mount(repos, action, options = {}) {
       clickTab('tab.overview')
       await wait(300)
       observed.changesBar.overviewAfter = headInfo()
+      // Back on the changes column for the in-place pick: reopen the block so
+      // the pick comes from an on-screen row — it then retires the block it
+      // left behind, without navigating anywhere.
+      clickTab('tab.changes')
+      await wait(300)
+      await expandRepos()
+      const pickMark = calls.length
+      const pickList = visibleList()
+      const siteRow = pickList === null ? null : [...pickList.querySelectorAll('.gp-repolist__item')]
+        .find((node) => textOf(node, '.gp-repolist__name') === 'site')
+      if (siteRow === null || siteRow === undefined) throw new Error('no site row in the changes column list')
+      siteRow.click()
+      await wait(700)
+      observed.changesBar.afterPick = {
+        activeTab: activeTabLabel(),
+        switching: switchingNow(),
+        expanded: headInfo().expanded,
+        scoped: calls.slice(pickMark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
+      }
       return { observed, calls }
     }
     if (action === 'files-root') {
@@ -695,6 +716,7 @@ async function mount(repos, action, options = {}) {
     observed.afterNested = {
       activeTab: activeTabLabel(), tabs: tabLabels(), inLeftColumn: listInLeftColumn(),
       rows: listRows(), switching: switchingNow(), calls: calls.slice(mark),
+      head: headInfo(),
     }
     // A cwd without a checkout of its own lists no workspace row to return to;
     // the pick is the last step there.
@@ -784,6 +806,7 @@ const failures = []
     assert.equal(seen.afterNested.inLeftColumn, true, 'the list stays on screen while the panes reload')
     assert.equal(seen.afterNested.switching, false, 'the badge clears once the new sample lands')
     assert.deepEqual(seen.afterNested.rows.map((row) => row.active), [false, true, false], 'the list marks the checkout the panes act on')
+    assert.equal(seen.afterNested.head.expanded, false, 'the pick retires the block: the column goes back to the tree')
     assert.ok(nestedCalls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the switch refetched a snapshot')
     // The scan answers "which repositories does this cwd offer", not "which one
     // is picked": a switch must not walk the tree again for an answer that has
@@ -1025,7 +1048,8 @@ const failures = []
 }
 
 // 10. The changes column docks the same repository list as the overview: one
-// block, one collapse state, the same rows (the compact layout's cards page
+// block, one collapse state, the same rows, and a pick from it switches in
+// place without navigating to the overview (the compact layout's cards page
 // was asserted with scene 8).
 {
   const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'changes-bar', { scene: 'S10' })
@@ -1038,6 +1062,10 @@ const failures = []
     assert.deepEqual(seen.changesBar.rows.map((row) => row.name), ['fixture-repo', 'site'], 'and the same rows')
     assert.equal(seen.changesBar.afterCollapse.expanded, false, 'collapsing from the changes side lands')
     assert.equal(seen.changesBar.overviewAfter.expanded, false, 'the overview reads the same state back')
+    assert.equal(seen.changesBar.afterPick.activeTab, 'tab.changes', 'a pick from the changes column stays on the changes page')
+    assert.equal(seen.changesBar.afterPick.switching, false, 'and the switch completes there')
+    assert.ok(seen.changesBar.afterPick.scoped.some((call) => call.repo === 'site'), 'the pick reached the wire tagged with the new checkout')
+    assert.equal(seen.changesBar.afterPick.expanded, false, 'and the pick collapses the block it came from')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('changes-bar observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))

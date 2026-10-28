@@ -267,6 +267,11 @@ assert.equal(picked.list.inTop, true, 'and the list stayed in the band')
 const scoped = picked.calls.slice(mark).filter((call) => !(call.endpoint === 'gitPanel/query' && call.kind === 'repo-list'))
 assert.ok(scoped.length > 0, 'the pick produced requests: ' + JSON.stringify(picked.calls.slice(mark)))
 assert.ok(scoped.every((call) => call.repo === '.agents/worktrees/feat/sidebar'), 'every repository-scoped request carries the worktree: ' + JSON.stringify(picked.calls.slice(mark)))
+// The pick retired the block (click → collapse, 拍板 2026-10-28). Reopen it:
+// the cross-band read below exercises the shared state, and the drawer pick
+// further down needs its rows on screen.
+await page.click('.gp-repolist__collapse')
+await page.waitForTimeout(300)
 
 // ── the changes band docks the same list: one block, one collapse state,
 // the same rows with the pick still marked (read against the changes pane —
