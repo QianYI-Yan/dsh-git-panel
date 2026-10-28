@@ -651,7 +651,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
     // until the user opens it), then stays mounted to retain its tree state.
-    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot: filesRoot, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
+    // The sample describes the browser's files only when both sides sit on the
+    // same checkout and it is not the previous one's mid-switch.
+    const filesSnapshot = filesSelector === repo && !repoSwitching ? snapshot : null
+    return filesVisited ? h(FilesTab, { key: sessionId, remote: filesRemote, sessionId, compact, stacked, worktreeGen, snapshot: filesSnapshot, browseRoot: filesRoot, rootMenu, onPickRoot: applyFilesRootPick, t }) : null
   }
 
   // One panel per tab, so every tab's aria-controls resolves.

@@ -48,7 +48,9 @@ interface FilesTabProps {
    * files under the root, so the preserved browser state and the per-directory
    * cache are stale and must be dropped. */
   readonly worktreeGen: number
-  /** Panel snapshot; null in the non-git degrade (properties then skip Git). */
+  /** The sample of the checkout the browser is rooted in; null when there is
+   * none (non-git degrade) or the browser shows another root than the panel
+   * follows — properties then skip the Git facts. */
   readonly snapshot: GitSnapshot | null
   /** Absolute browse root Panel resolved for the browser's selector; null
    * until the list (or the error's cwd) names it — the bar then shows only
@@ -812,7 +814,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     tipNode,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
-      ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
+      ? h(FilePropsModal, { key: 'props-modal', input: propsInput, root: browseRoot, snapshot, onClose: () => setShowProps(false), t })
       : null,
   ])
 

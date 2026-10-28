@@ -719,6 +719,26 @@ async function mount(repos, action, options = {}) {
         tree: treeText(),
         snapshotTags: calls.filter((call) => call.endpoint === 'gitPanel/snapshot').map((call) => call.repo),
       }
+      // File properties describe the browser's files: the path hangs off the
+      // browse root, and the Git facts belong to the followed checkout only
+      // while the browser is rooted in it.
+      const readProps = async () => {
+        const row = [...document.querySelectorAll('.gp-panel .gp-files__tree .gp-tree-row')].find((r) => (r.textContent || '').includes('a.txt'))
+        row?.click()
+        await wait(350)
+        document.querySelector('.gp-panel .gp-files__props[aria-label="files.propsTitle"]')?.click()
+        await wait(150)
+        const absRow = [...document.querySelectorAll('.gp-props__row')].find((r) => r.querySelector('.gp-props__label')?.textContent === 'files.propsAbsPath')
+        const out = {
+          opened: document.querySelector('.gp-props__statusbar') !== null,
+          abs: absRow?.querySelector('.gp-props__copy')?.textContent ?? null,
+          badges: [...document.querySelectorAll('.gp-props__badge')].map((b) => b.textContent),
+        }
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await wait(150)
+        return out
+      }
+      observed.afterSwitch.props = await readProps()
       // The override: pick the follow row and this session tracks the switch
       // the config default kept it out of.
       await openRootMenu()
@@ -726,6 +746,9 @@ async function mount(repos, action, options = {}) {
       observed.afterFollow = { status: statusbarInfo() }
       await openRootMenu()
       observed.afterFollow.menuOpen = rootMenuInfo()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await wait(400)
+      observed.afterFollow.props = await readProps()
       return { observed, calls }
     }
     if (action === 'files-root-follow') {
@@ -1358,6 +1381,11 @@ const failures = []
     assert.ok(seen.afterSwitch.snapshotTags.includes('site'), 'the repository switch really happened: ' + JSON.stringify(seen.afterSwitch.snapshotTags))
     assert.equal(seen.afterFollow.status.path, 'fixture-repo/site', 'the follow row opts this session in: the browser re-roots on the switched repository')
     assert.equal(seen.afterFollow.menuOpen.items[0].active, true, 'and the follow row marks the source')
+    assert.equal(seen.afterSwitch.props.opened, true, 'properties open on the parked browser')
+    assert.equal(seen.afterSwitch.props.abs, 'fixture-repo/a.txt', 'the absolute path hangs off the browse root, not the followed checkout')
+    assert.deepEqual(seen.afterSwitch.props.badges, [], 'and the followed checkout\'s Git facts are not claimed for another root')
+    assert.equal(seen.afterFollow.props.abs, 'fixture-repo/site/a.txt', 'rooted in the followed checkout, the path follows')
+    assert.ok(seen.afterFollow.props.badges.length > 0, 'and its Git facts apply: ' + JSON.stringify(seen.afterFollow.props.badges))
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('files-root observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
