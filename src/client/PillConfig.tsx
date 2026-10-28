@@ -437,9 +437,10 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
 
   // One collapsible section: a header button (aria-expanded / aria-controls)
   // over a body that hides while collapsed; only `basic` boots expanded. The
-  // header's mark chip is decorative — the title names the button.
+  // header's mark chip is decorative — the title names the button. The body is
+  // a column of fields; the section tone also tints the body's guide rule.
   const section = (id: SectionId, title: string, body: readonly (JSX.Element | null)[]): JSX.Element =>
-    h('section', { key: id, className: 'gp-cfg__section' }, [
+    h('section', { key: id, className: `gp-cfg__section gp-cfg__section--${SECTION_TONE[id]}` }, [
       h('button', {
         key: 'hd',
         type: 'button',
@@ -465,104 +466,129 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
         hidden: openSections[id] ? undefined : true,
       }, body),
     ])
+  // One setting: its title / control / hint grouped, so the gap between fields
+  // reads wider than the gap inside one.
+  const field = (key: string, children: readonly (JSX.Element | null)[]): JSX.Element =>
+    h('div', { key, className: 'gp-cfg__field' }, children)
 
   const basicBody = [
-    h('h3', { key: 'placetitle', className: 'gp-cfg__title' }, t('cfg.placementTitle')),
-    h('div', { key: 'placeseg', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.placementTitle') },
-      segButtons<GitPanelPlacement>(['all', 'tab', 'sidebar'], placement, (v) => { void setPlacement(v) },
-        (v) => t(v === 'all' ? 'cfg.placementAll' : v === 'tab' ? 'cfg.placementTab' : 'cfg.placementSidebar'), busy || snap?.writable === false)),
-    h('p', { key: 'placehint', className: 'gp-cfg__hint' }, t('cfg.placementHint')),
-    h('h3', { key: 'title', className: 'gp-cfg__title' }, t('cfg.title')),
-    h('label', { key: 'row', className: 'gp-cfg__row' }, [
-      h('input', {
-        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
-        checked, disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggle(e.currentTarget.checked) },
-      }),
-      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.toggle')),
+    field('place', [
+      h('h3', { key: 'placetitle', className: 'gp-cfg__title' }, t('cfg.placementTitle')),
+      h('div', { key: 'placeseg', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.placementTitle') },
+        segButtons<GitPanelPlacement>(['all', 'tab', 'sidebar'], placement, (v) => { void setPlacement(v) },
+          (v) => t(v === 'all' ? 'cfg.placementAll' : v === 'tab' ? 'cfg.placementTab' : 'cfg.placementSidebar'), busy || snap?.writable === false)),
+      h('p', { key: 'placehint', className: 'gp-cfg__hint' }, t('cfg.placementHint')),
+    ]),
+    field('pill', [
+      h('h3', { key: 'title', className: 'gp-cfg__title' }, t('cfg.title')),
+      h('label', { key: 'row', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggle(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.toggle')),
     ]),
     h('p', { key: 'hint', className: 'gp-cfg__hint' }, t('cfg.hint')),
+    ]),
   ]
   const viewBody = [
-    h('h3', { key: 'difftitle', className: 'gp-cfg__title' }, t('cfg.diffTitle')),
-    h('div', { key: 'diffseg', className: 'gp-seg gp-cfg__seg' },
-      segButtons<DiffView>(['unified', 'split'], diffView, (v) => { void setView(v) },
-        (v) => t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit'), busy || snap?.writable === false)),
-    h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
-    h('h3', { key: 'graphtitle', className: 'gp-cfg__title' }, t('cfg.graphTitle')),
-    h('div', { key: 'graphseg', className: 'gp-seg gp-cfg__seg' },
-      segButtons<GraphStyle>(['parallel', 'compact'], graphStyle, (v) => { void setGraph(v) },
-        (v) => t(v === 'parallel' ? 'cfg.graphParallel' : 'cfg.graphCompact'), busy || snap?.writable === false)),
-    h('p', { key: 'graphhint', className: 'gp-cfg__hint' }, t('cfg.graphHint')),
-    h('h3', { key: 'fonttitle', className: 'gp-cfg__title' }, t('cfg.fontTitle')),
-    h('div', { key: 'fontseg', className: 'gp-seg gp-cfg__seg' },
-      segButtons<'smaller' | 'default' | 'larger'>(
-        ['smaller', 'default', 'larger'],
-        fontDelta === -1 ? 'smaller' : fontDelta === 1 ? 'larger' : 'default',
-        (v) => { void setFont(v === 'smaller' ? -1 : v === 'larger' ? 1 : 0) },
-        (v) => t(v === 'smaller' ? 'cfg.fontSmaller' : v === 'larger' ? 'cfg.fontLarger' : 'cfg.fontDefault'),
-        busy || snap?.writable === false)),
-    h('p', { key: 'fonthint', className: 'gp-cfg__hint' }, t('cfg.fontHint')),
+    field('diff', [
+      h('h3', { key: 'difftitle', className: 'gp-cfg__title' }, t('cfg.diffTitle')),
+      h('div', { key: 'diffseg', className: 'gp-seg gp-cfg__seg' },
+        segButtons<DiffView>(['unified', 'split'], diffView, (v) => { void setView(v) },
+          (v) => t(v === 'unified' ? 'cfg.diffUnified' : 'cfg.diffSplit'), busy || snap?.writable === false)),
+      h('p', { key: 'diffhint', className: 'gp-cfg__hint' }, t('cfg.diffHint')),
+    ]),
+    field('graph', [
+      h('h3', { key: 'graphtitle', className: 'gp-cfg__title' }, t('cfg.graphTitle')),
+      h('div', { key: 'graphseg', className: 'gp-seg gp-cfg__seg' },
+        segButtons<GraphStyle>(['parallel', 'compact'], graphStyle, (v) => { void setGraph(v) },
+          (v) => t(v === 'parallel' ? 'cfg.graphParallel' : 'cfg.graphCompact'), busy || snap?.writable === false)),
+      h('p', { key: 'graphhint', className: 'gp-cfg__hint' }, t('cfg.graphHint')),
+    ]),
+    field('font', [
+      h('h3', { key: 'fonttitle', className: 'gp-cfg__title' }, t('cfg.fontTitle')),
+      h('div', { key: 'fontseg', className: 'gp-seg gp-cfg__seg' },
+        segButtons<'smaller' | 'default' | 'larger'>(
+          ['smaller', 'default', 'larger'],
+          fontDelta === -1 ? 'smaller' : fontDelta === 1 ? 'larger' : 'default',
+          (v) => { void setFont(v === 'smaller' ? -1 : v === 'larger' ? 1 : 0) },
+          (v) => t(v === 'smaller' ? 'cfg.fontSmaller' : v === 'larger' ? 'cfg.fontLarger' : 'cfg.fontDefault'),
+          busy || snap?.writable === false)),
+      h('p', { key: 'fonthint', className: 'gp-cfg__hint' }, t('cfg.fontHint')),
+    ]),
   ]
   const suggestBody = [
-    h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
-      h('input', {
-        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
-        checked: suggestEnabled, disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSuggest(e.currentTarget.checked) },
-      }),
-      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
+    field('sgon', [
+      h('label', { key: 'sgrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: suggestEnabled, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleSuggest(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.suggestToggle')),
     ]),
-    h('p', { key: 'sglangtitle', className: 'gp-cfg__seglabel' }, t('cfg.suggestLangLabel')),
-    h('div', { key: 'sglang', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.suggestLangLabel') },
-      segButtons<SuggestLanguage>([...SUGGEST_LANGUAGES], suggestLanguage, (v) => { void setLanguage(v) },
-        (v) => t(v === 'auto' ? 'cfg.suggestLangAuto' : v === 'zh' ? 'cfg.suggestLangZh' : 'cfg.suggestLangEn'), busy || snap?.writable === false)),
-    h('p', { key: 'sglanghint', className: 'gp-cfg__rangehint' }, t('cfg.suggestLangHint')),
-    h('div', { key: 'numax', className: 'gp-cfg__numrow' }, [
-      h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-maxkib' }, t('cfg.suggestMaxBytesLabel')),
-      h('input', {
-        key: 'input', id: 'gp-cfg-maxkib', type: 'number', className: 'gp-cfg__numinput',
-        inputMode: 'numeric', min: MAX_KIB.min, max: MAX_KIB.max, 'aria-describedby': 'gp-cfg-maxkib-hint',
-        value: draftMaxKib ?? String(suggestMaxKib),
-        disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftMaxKib(e.currentTarget.value) },
-        onBlur: () => { void commitMaxKib(draftMaxKib) },
-        onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
-      }),
-      h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestMaxBytesUnit')),
+    ]),
+    field('sglang', [
+      h('p', { key: 'sglangtitle', className: 'gp-cfg__seglabel' }, t('cfg.suggestLangLabel')),
+      h('div', { key: 'sglang', className: 'gp-seg gp-cfg__seg', role: 'group', 'aria-label': t('cfg.suggestLangLabel') },
+        segButtons<SuggestLanguage>([...SUGGEST_LANGUAGES], suggestLanguage, (v) => { void setLanguage(v) },
+          (v) => t(v === 'auto' ? 'cfg.suggestLangAuto' : v === 'zh' ? 'cfg.suggestLangZh' : 'cfg.suggestLangEn'), busy || snap?.writable === false)),
+      h('p', { key: 'sglanghint', className: 'gp-cfg__rangehint' }, t('cfg.suggestLangHint')),
+    ]),
+    field('numax', [
+      h('div', { key: 'numax', className: 'gp-cfg__numrow' }, [
+        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-maxkib' }, t('cfg.suggestMaxBytesLabel')),
+        h('input', {
+          key: 'input', id: 'gp-cfg-maxkib', type: 'number', className: 'gp-cfg__numinput',
+          inputMode: 'numeric', min: MAX_KIB.min, max: MAX_KIB.max, 'aria-describedby': 'gp-cfg-maxkib-hint',
+          value: draftMaxKib ?? String(suggestMaxKib),
+          disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftMaxKib(e.currentTarget.value) },
+          onBlur: () => { void commitMaxKib(draftMaxKib) },
+          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+        }),
+        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestMaxBytesUnit')),
     ]),
     h('p', { key: 'numaxhint', id: 'gp-cfg-maxkib-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestMaxBytesHint')),
-    h('div', { key: 'nuout', className: 'gp-cfg__numrow' }, [
-      h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-outtok' }, t('cfg.suggestOutputLabel')),
-      h('input', {
-        key: 'input', id: 'gp-cfg-outtok', type: 'number', className: 'gp-cfg__numinput',
-        inputMode: 'numeric', min: SUGGEST_LIMITS.maxOutputTokens.min, max: SUGGEST_LIMITS.maxOutputTokens.max, 'aria-describedby': 'gp-cfg-outtok-hint',
-        value: draftOutputTokens ?? String(suggestOutputTokens),
-        disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftOutputTokens(e.currentTarget.value) },
-        onBlur: () => { void commitOutputTokens(draftOutputTokens) },
-        onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
-      }),
-      h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestOutputUnit')),
+    ]),
+    field('nuout', [
+      h('div', { key: 'nuout', className: 'gp-cfg__numrow' }, [
+        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-outtok' }, t('cfg.suggestOutputLabel')),
+        h('input', {
+          key: 'input', id: 'gp-cfg-outtok', type: 'number', className: 'gp-cfg__numinput',
+          inputMode: 'numeric', min: SUGGEST_LIMITS.maxOutputTokens.min, max: SUGGEST_LIMITS.maxOutputTokens.max, 'aria-describedby': 'gp-cfg-outtok-hint',
+          value: draftOutputTokens ?? String(suggestOutputTokens),
+          disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftOutputTokens(e.currentTarget.value) },
+          onBlur: () => { void commitOutputTokens(draftOutputTokens) },
+          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+        }),
+        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestOutputUnit')),
     ]),
     h('p', { key: 'nuouthint', id: 'gp-cfg-outtok-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestOutputHint')),
-    h('div', { key: 'nuto', className: 'gp-cfg__numrow' }, [
-      h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-timeout' }, t('cfg.suggestTimeoutLabel')),
-      h('input', {
-        key: 'input', id: 'gp-cfg-timeout', type: 'number', className: 'gp-cfg__numinput',
-        inputMode: 'numeric', min: TIMEOUT_S.min, max: TIMEOUT_S.max, 'aria-describedby': 'gp-cfg-timeout-hint',
-        value: draftTimeout ?? String(suggestTimeoutS),
-        disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftTimeout(e.currentTarget.value) },
-        onBlur: () => { void commitTimeout(draftTimeout) },
-        onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
-      }),
-      h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
+    ]),
+    field('nuto', [
+      h('div', { key: 'nuto', className: 'gp-cfg__numrow' }, [
+        h('label', { key: 'lab', className: 'gp-cfg__numlabel', htmlFor: 'gp-cfg-timeout' }, t('cfg.suggestTimeoutLabel')),
+        h('input', {
+          key: 'input', id: 'gp-cfg-timeout', type: 'number', className: 'gp-cfg__numinput',
+          inputMode: 'numeric', min: TIMEOUT_S.min, max: TIMEOUT_S.max, 'aria-describedby': 'gp-cfg-timeout-hint',
+          value: draftTimeout ?? String(suggestTimeoutS),
+          disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { setDraftTimeout(e.currentTarget.value) },
+          onBlur: () => { void commitTimeout(draftTimeout) },
+          onKeyDown: (e) => { if (e.key === 'Enter') { e.currentTarget.blur() } },
+        }),
+        h('span', { key: 'unit', className: 'gp-cfg__numunit' }, t('cfg.suggestTimeoutUnit')),
     ]),
     h('p', { key: 'nutohint', id: 'gp-cfg-timeout-hint', className: 'gp-cfg__rangehint' }, t('cfg.suggestTimeoutHint')),
-    h('div', { key: 'sgmodel', className: 'gp-cfg__menur' }, [
-      h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestModelLabel')),
-      providerMenu,
+    ]),
+    field('sgmodel', [
+      h('div', { key: 'sgmodel', className: 'gp-cfg__menur' }, [
+        h('span', { key: 'lab', className: 'gp-cfg__menulabel' }, t('cfg.suggestModelLabel')),
+        providerMenu,
     ]),
     uiProvider !== ''
       ? h('div', { key: 'sgmodel2', className: 'gp-cfg__menur' }, [
@@ -596,26 +622,31 @@ export function PillConfig({ ctx, t }: PillConfigProps): JSX.Element {
             ? h('p', { key: 'sgempty', className: 'gp-cfg__rangehint' }, t('cfg.suggestModelEmpty'))
             : null,
     h('p', { key: 'sghint2', className: 'gp-cfg__hint' }, t('cfg.suggestHint')),
+    ]),
   ]
   const reposBody = [
-    h('label', { key: 'detrow', className: 'gp-cfg__row' }, [
-      h('input', {
-        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
-        checked: detectCheckouts, disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleDetect(e.currentTarget.checked) },
-      }),
-      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
+    field('detect', [
+      h('label', { key: 'detrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: detectCheckouts, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleDetect(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.detectToggle')),
     ]),
     h('p', { key: 'dethint', className: 'gp-cfg__hint' }, t('cfg.detectHint')),
-    h('label', { key: 'followrow', className: 'gp-cfg__row' }, [
-      h('input', {
-        key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
-        checked: filesFollowRepo, disabled: busy || snap?.writable === false,
-        onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleFilesFollow(e.currentTarget.checked) },
-      }),
-      h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.filesFollowToggle')),
+    ]),
+    field('follow', [
+      h('label', { key: 'followrow', className: 'gp-cfg__row' }, [
+        h('input', {
+          key: 'switch', type: 'checkbox', role: 'switch', className: 'gp-cfg__switch',
+          checked: filesFollowRepo, disabled: busy || snap?.writable === false,
+          onChange: (e: ChangeEvent<HTMLInputElement>) => { void toggleFilesFollow(e.currentTarget.checked) },
+        }),
+        h('span', { key: 'text', className: 'gp-cfg__text' }, t('cfg.filesFollowToggle')),
     ]),
     h('p', { key: 'followhint', className: 'gp-cfg__hint' }, t('cfg.filesFollowHint')),
+    ]),
   ]
 
   return h('div', { className: 'gp-cfg' }, [

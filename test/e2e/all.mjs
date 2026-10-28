@@ -27,6 +27,9 @@ const RUNNERS = [
   'overview-detail-scroll',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   'sidebar-tab',
+  // The plugin detail page's config form: section / field hierarchy and the
+  // collapse contract.
+  'config-sections',
   // The tab bar's repository switcher: a workspace with nested checkouts must
   // route every request through the picked one (issue #83).
   'repo-switcher',
