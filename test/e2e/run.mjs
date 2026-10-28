@@ -8,6 +8,7 @@
  */
 import { chromium } from 'playwright-core'
 import { assertPanelResults } from './assert-panel-results.mjs'
+import { SCREEN_TIMEOUT_MS } from '../../lib/testkit.mjs'
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -1491,6 +1492,26 @@ const out = await page.evaluate(async (snap) => {
     && screenBtn?.getAttribute('aria-pressed') === 'false'
     // A refusal is not console-only: the card says so, as a live notice.
     && document.querySelector('.gp-files__preview--full .gp-notice')?.textContent === 'files.screenFullRefused'
+  // A Permissions-Policy lockout surfaces as a TypeError from the request; it
+  // names its own reason rather than the generic refusal.
+  Element.prototype.requestFullscreen = function () { return Promise.reject(new TypeError('permissions policy')) }
+  screenBtn?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.screenFullBlocked = document.querySelector('.gp-files__preview--full .gp-notice')?.textContent === 'files.screenFullBlocked'
+  // A host that never settles the request is caught by the watchdog instead of
+  // leaving the button dead. Wait past the watchdog budget (screen-full.ts
+  // SCREEN_TIMEOUT_MS) plus a settle margin; this runs inside page.evaluate, so
+  // the Node-side import is not in scope here.
+  Element.prototype.requestFullscreen = function () { return new Promise(() => {}) }
+  screenBtn?.click()
+  await new Promise((r) => setTimeout(r, 1320))
+  result.screenFullNoResponse = document.querySelector('.gp-files__preview--full .gp-notice')?.textContent === 'files.screenFullNoResponse'
+  delete Element.prototype.requestFullscreen
+  // An engine with no requestFullscreen API reports it as unsupported instead
+  // of throwing (the button would otherwise be dead).
+  screenBtn?.click()
+  await new Promise((r) => setTimeout(r, 120))
+  result.screenFullUnsupported = document.querySelector('.gp-files__preview--full .gp-notice')?.textContent === 'files.screenFullUnsupported'
   let exits = 0
   const realExit = document.exitFullscreen
   Element.prototype.requestFullscreen = function () {

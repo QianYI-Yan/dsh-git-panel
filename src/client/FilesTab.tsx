@@ -33,6 +33,7 @@ import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
+import { screenFailKeyOf, SCREEN_TIMEOUT_MS } from './screen-full.js'
 import type { FilesRootMenu } from './repo-list.js'
 
 interface FilesTabProps {
@@ -153,9 +154,14 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const [fullscreen, setFullscreen] = useState(false)
   // Browser fullscreen of the reader card, tracked from the browser's own state.
   const [screenFull, setScreenFull] = useState(false)
-  // Set when the browser refuses the request: the toggle then does nothing on
-  // its own, so the panel states it instead of leaving a dead control silent.
-  const [screenRefused, setScreenRefused] = useState(false)
+  // Set to the notice key naming why the request could not take effect
+  // (refused, policy-blocked, unsupported, or never answered): the toggle
+  // then does nothing on its own, so the panel states the reason instead of
+  // leaving a dead control silent.
+  const [screenFail, setScreenFail] = useState<GitKey | null>(null)
+  // Watchdog for a request the host never answers: cancelled when the
+  // promise settles, when full screen is entered, and on unmount.
+  const screenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fsCardRef = useRef<HTMLDivElement | null>(null)
   const fsCloseRef = useRef<HTMLButtonElement | null>(null)
   const fsTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -218,27 +224,55 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       const own = document.fullscreenElement === fsCardRef.current
       setScreenFull(own)
       // A granted request (or any later state where the card owns the screen)
-      // retires the refusal notice.
-      if (own) setScreenRefused(false)
+      // retires the failure notice.
+      if (own) setScreenFail(null)
     }
     document.addEventListener('fullscreenchange', sync)
-    return () => document.removeEventListener('fullscreenchange', sync)
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      if (screenTimer.current !== null) { clearTimeout(screenTimer.current); screenTimer.current = null }
+    }
   }, [])
   const closeFullscreen = useCallback(() => {
     if (document.fullscreenElement !== null && document.fullscreenElement === fsCardRef.current) {
       void document.exitFullscreen().catch(() => undefined)
     }
-    setScreenRefused(false)
+    setScreenFail(null)
     setFullscreen(false)
   }, [])
   const toggleScreenFull = useCallback(() => {
     const card = fsCardRef.current
     if (card === null) return
     if (document.fullscreenElement === card) { void document.exitFullscreen().catch(() => undefined); return }
-    // A host that denies fullscreen (a Permissions-Policy on an embedded GUI)
-    // rejects here; the button follows the browser's state, so the request is
-    // reported through the notice bar below instead of the console.
-    void card.requestFullscreen().catch(() => { setScreenRefused(true) })
+    // Every way this request can fail must leave a visible reason instead of
+    // a dead control: a host that denies fullscreen rejects the promise
+    // (Chrome reports a Permissions-Policy lockout as a TypeError), an engine
+    // without the API throws synchronously, and a host that never settles
+    // the promise is caught by the watchdog below.
+    const clearTimer = (): void => {
+      if (screenTimer.current !== null) { clearTimeout(screenTimer.current); screenTimer.current = null }
+    }
+    clearTimer()
+    setScreenFail(null)
+    if (typeof card.requestFullscreen !== 'function') { setScreenFail('files.screenFullUnsupported'); return }
+    screenTimer.current = setTimeout(() => {
+      screenTimer.current = null
+      if (document.fullscreenElement !== card) setScreenFail('files.screenFullNoResponse')
+    }, SCREEN_TIMEOUT_MS)
+    try {
+      void card.requestFullscreen().then(() => {
+        clearTimer()
+        // The spec resolves only after fullscreenElement is set; a host that
+        // resolves without entering is reported like a silent one.
+        if (document.fullscreenElement !== card) setScreenFail('files.screenFullNoResponse')
+      }, (error: unknown) => {
+        clearTimer()
+        setScreenFail(screenFailKeyOf(error))
+      })
+    } catch {
+      clearTimer()
+      setScreenFail('files.screenFullUnsupported')
+    }
   }, [])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
@@ -760,13 +794,14 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
     heavyNotice,
-    // The browser-fullscreen toggle sits in this same card, so a refusal is
-    // reported where the user just clicked (the live region announces it).
-    screenRefused
+    // The browser-fullscreen toggle sits in this same card, so a failure is
+    // reported where the user just clicked, naming its reason (the live
+    // region announces it).
+    screenFail !== null
       ? h(NoticeBar, {
-        key: 'fs-refused', status: true,
-        text: t('files.screenFullRefused'), closeLabel: t('common.close'),
-        onClose: () => setScreenRefused(false),
+        key: 'fs-fail', status: true,
+        text: t(screenFail), closeLabel: t('common.close'),
+        onClose: () => setScreenFail(null),
       })
       : null,
     // Hover tip for the copy-content icon, next to the only bar that can raise
