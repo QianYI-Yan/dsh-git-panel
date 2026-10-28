@@ -438,8 +438,11 @@ await phonePage.goto(harness)
 await phonePage.addStyleTag({ content: THEME })
 await phonePage.addScriptTag({ path: resolve(E2E, 'mock-rpc.mjs') })
 await phonePage.addScriptTag({ path: resolve(E2E, 'client.js') })
-await phonePage.evaluate(async ({ snap, w }) => {
-  const { connection } = window.createGitPanelMock(snap)
+await phonePage.evaluate(async ({ snap, w, repos }) => {
+  const { fixture, connection } = window.createGitPanelMock(snap)
+  // Two checkouts: the drawer leads with the repository list, like the tight
+  // stacked one — compact grows no tab of its own for it.
+  fixture.repos = repos
   const ctl = { registered: {} }
   const settings = {
     view: { namespaces: [{ ns: 'gitPanel', schema: { dict: { showInputPill: {}, placement: {} } }, value: { showInputPill: true, placement: 'sidebar' } }] },
@@ -475,7 +478,13 @@ await phonePage.evaluate(async ({ snap, w }) => {
   host.style.height = '800px'
   window.ReactDOM.createRoot(host).render(entry.component({ sessionId: 'sess-1', useTabInfo: () => ({ tab: { visible: true } }) }))
   await new Promise((r) => setTimeout(r, 800))
-}, { snap: SNAP, w: 390 })
+}, {
+  snap: SNAP, w: 390,
+  repos: [
+    { path: '', root: 'fixture-repo', name: 'fixture-repo', kind: 'workspace' },
+    { path: 'site', root: 'fixture-repo/site', name: 'site', kind: 'nested' },
+  ],
+})
 const phone = await phonePage.evaluate(() => {
   // The pill is the toolbar button whose aria-controls names the drawer: a
   // title/text match would depend on the locale the harness bind resolves.
@@ -489,6 +498,7 @@ const phone = await phonePage.evaluate(() => {
     stackedBands: document.querySelectorAll('.gp-overview__top, .gp-resizer--row').length,
     compactRoot: document.querySelector('.gp-overview--compact') !== null,
     sheet: document.querySelector('.gp-sheet') !== null,
+    tabCount: document.querySelector('.gp-tabbar')?.getAttribute('data-tab-count') ?? null,
     pill: pill === undefined ? null : {
       expanded: pill.getAttribute('aria-expanded'),
       controlsResolve: pill.getAttribute('aria-controls') === drawer?.id,
@@ -502,6 +512,7 @@ assert.equal(phone.toggle, false, 'no stacked-tight toolbar toggle on a phone (t
 assert.equal(phone.stackedBands, 0, 'no stacked bands or row resizer on a phone')
 assert.equal(phone.compactRoot, true, 'the overview renders its compact single-column form')
 assert.equal(phone.sheet, false, 'the bottom sheet is gone on a phone')
+assert.equal(phone.tabCount, '3', 'two checkouts add no repositories tab to the phone bar')
 assert.equal(phone.pill?.expanded, 'false', 'the filter pill reports the collapsed drawer state')
 assert.equal(phone.pill?.controlsResolve, true, "the pill's aria-controls resolves to the drawer")
 
@@ -530,6 +541,14 @@ const phoneOpen = await phonePage.evaluate(() => {
       && Math.abs(d.top - r.top) <= 2 && Math.abs(d.bottom - r.bottom) <= 2 && Math.abs(d.left - r.left) <= 2,
     width: d !== undefined ? Math.round(d.width) : 0,
     branchRows: drawer?.querySelectorAll('.gp-branch-row').length ?? 0,
+    // The repository block sits right under the drawer's title bar, ahead of
+    // the branch list.
+    reposLead: (() => {
+      const list = drawer?.querySelector('.gp-repolist')
+      const bar = drawer?.querySelector('.gp-drawer__bar')
+      return list != null && bar != null && bar.nextElementSibling === list
+    })(),
+    reposCollapsed: drawer?.querySelector('.gp-repolist__collapse')?.getAttribute('aria-expanded') === 'false',
   }
 })
 assert.equal(phoneOpen.open, 'true', 'the filter pill opens the phone drawer')
@@ -540,6 +559,8 @@ assert.equal(phoneOpen.sheet, false, 'the drawer replaces the bottom sheet, not 
 assert.equal(phoneOpen.coversRoot, true, "the drawer overlays the compact root's full height")
 assert.ok(phoneOpen.width >= 180 && phoneOpen.width <= 260, `the drawer keeps its clamp width (${phoneOpen.width}px)`)
 assert.ok(phoneOpen.branchRows > 0, 'the drawer carries the branch list')
+assert.equal(phoneOpen.reposLead, true, 'the repository list leads the phone drawer')
+assert.equal(phoneOpen.reposCollapsed, true, 'collapsed to its head line by default')
 await phonePage.locator('.gp-panel').screenshot({ path: resolve(REVIEW_DIR, 'sidebar-phone-branch-drawer.png') })
 
 // ── Escape dismisses it and returns focus to the pill. ──

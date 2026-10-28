@@ -20,9 +20,8 @@ import { takeSubTab, subscribeSubTab, stashSubTab, recentSubTab, type SubTab } f
 import { OverviewTab } from './OverviewTab.js'
 import { ChangesTab } from './ChangesTab.js'
 import { FilesTab } from './FilesTab.js'
-import { ReposTab } from './ReposTab.js'
 import { filesRootRows, repoChoices } from './repo-list.js'
-import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, RepoIcon, StarIcon } from './icons.js'
+import { CommitIcon, DiffIcon, FilesIcon, RefreshIcon, StarIcon } from './icons.js'
 import { usePanelLayout } from './layout.js'
 import { isCramped, panelMode, STACKED_TIGHT_BP } from './panel-fit.js'
 import { useHoverTip } from './tip.js'
@@ -250,12 +249,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // when another pick is wanted. A repeat pick of the current checkout
     // returns above and leaves the block alone.
     setReposCollapsed(true)
-    // The pick comes from the list on the page in front — the overview's left
-    // column, the changes column, or the compact picker — so that page stays
-    // put; a page hosting no list lands on the overview (defensive), and an
-    // entry that no longer resolves is the fall-through to the browser.
+    // The pick comes from the list on the page in front — the overview's
+    // branch surface (column, band, drawer or sheet) or the changes column — so
+    // that page stays put; an entry that no longer resolves is the fall-through
+    // to the browser.
     const target = repos.find((entry) => entry.path === next)
-    const stay: SubTab = compact ? 'repos' : activeTab === 'changes' ? 'changes' : 'overview'
+    const stay: SubTab = activeTab === 'changes' ? 'changes' : 'overview'
     setSelection({ sessionId, tab: target !== undefined ? stay : 'files' })
   }
 
@@ -422,13 +421,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // stacked sidebar show the short pair so the three cells still read as words
   // next to the trailing controls.
   const tabLabelKeys: Record<SubTab, { full: GitKey; short: GitKey }> = {
-    repos: { full: 'tab.repos', short: 'tab.reposShort' },
     overview: { full: 'tab.overview', short: 'tab.overviewShort' },
     changes: { full: 'tab.changes', short: 'tab.changesShort' },
     files: { full: 'tab.files', short: 'tab.filesShort' },
   }
   const tabIcons: Record<SubTab, JSX.Element> = {
-    repos: h(RepoIcon, { size: 14 }),
     overview: h(CommitIcon, { size: 14 }),
     changes: h(DiffIcon, { size: 14 }),
     files: h(FilesIcon, { size: 14 }),
@@ -458,24 +455,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const rootMenu = rootRows.length > 1
     ? { rows: rootRows, followActive: rootPick === null }
     : null
-  // A wide or stacked panel hosts the repository list in the overview's left
-  // column, so it needs no tab for it: picking a checkout keeps the branches,
-  // the commit list and the list itself on screen at once. The compact layout
-  // has no left column to put one in, so it keeps a page for it instead; a cwd
-  // without a checkout has no overview at all, so it gets neither — the browser
-  // alone opens there.
-  const reposTab = repoList.length > 0 && compact && !filesOnly
-  const tabOrder: SubTab[] = reposTab
-    ? ['repos', 'overview', 'changes', 'files']
-    : ['overview', 'changes', 'files']
+  // Every layout hosts the repository list where the branch tree lives (and at
+  // the top of the changes column), so the bar never needs a tab for it.
+  const tabOrder: SubTab[] = ['overview', 'changes', 'files']
   const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = tabOrder.map((key) => ({
     key,
     label: t(shortLabels ? tabLabelKeys[key].short : tabLabelKeys[key].full),
     icon: tabIcons[key],
   }))
-  // A non-git directory exposes the browser alone: neither the repositories
-  // page nor the overview exists there — without a checkout behind them those
-  // pages have no content to render.
+  // A non-git directory exposes the browser alone: without a checkout behind
+  // it the overview has no content to render.
   const tabs = filesOnly ? allTabs.filter((tb) => tb.key === 'files') : allTabs
   // The switcher is the platform SegmentedTabs primitive: it owns the tablist
   // role, the sliding indicator and the keyboard walk; we own the panes and
@@ -491,16 +480,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     panelId: `${tabsId}-${tb.key}-panel`,
   }))
   // SegmentedTabs requires the value to belong to items; before a snapshot lands
-  // (cold/loading/no-cwd) there is no active pane, so show the first tab. A
-  // layout change can also retire the tab the selection points at — compact
-  // shows the picker, wide hosts the list in the overview — and a value that
-  // belongs to no item would leave every pane hidden.
+  // (cold/loading/no-cwd) there is no active pane, so show the first tab. The
+  // tab set can also shrink under the selection (a cwd turning files-only),
+  // and a value that belongs to no item would leave every pane hidden.
   const tabKeys = tabs.map((tb) => tb.key)
   const selectedTab: SubTab = activeTab !== null && tabKeys.includes(activeTab)
     ? activeTab
     : tabs[0]?.key ?? 'overview'
-  // Keep the stored selection on a tab that exists, so leaving the compact
-  // layout does not strand the session on the retired picker tab.
+  // Keep the stored selection on a tab that exists.
   const tabKeyList = tabKeys.join(' ')
   useEffect(() => {
     if (!hasSession(sessionId) || selection?.sessionId !== sessionId) return
@@ -531,21 +518,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     return null
   })()
 
-  // The picker renders ahead of the state placeholder: it reads the scan
-  // result and the one snapshot, needs neither a resolvable checkout nor a
-  // finished sample, and is the way out of a cwd that has no git view — in
-  // particular while the sample of a just-picked repository is still pending.
-  const reposPane = (): JSX.Element | null => hasSession(sessionId)
-    ? h(ReposTab, {
-      key: 'repos',
-      choices: repoList,
-      current: repo,
-      snapshot: view.state === 'ready' ? view.snapshot : null,
-      onChoose: chooseRepo,
-      t,
-    })
-    : null
-
   // A cwd that is not a checkout opens straight into its first sub-repository
   // when this session has never picked anything: the root itself has no git
   // view behind it. Only `not-a-git-repo` counts (git being missing would
@@ -565,9 +537,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, repoListReady, filesOnly, view, repo, repoList])
 
-  // One shared list block: the overview's left column and the changes column
-  // both dock it, so collapse state and the choice wiring stay in sync across
-  // the panes. The compact layout docks neither — its page leads the tab bar.
+  // One shared list block: the overview's branch surface and the changes
+  // column both dock it, so collapse state and the choice wiring stay in sync
+  // across the panes, in every layout.
   const repositories = hasSession(sessionId)
     ? {
       choices: repoList,
@@ -589,9 +561,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       key: live,
       remote: repoRemote,
       sessionId: live,
-      // Only the pane's own page keeps it live: the Repositories tab shows the
-      // same docked list, but in the compact layout the overview it belongs to is
-      // not on screen at all, and a hidden pane must start no queries.
+      // Only the pane's own page keeps it live: a hidden pane must start no
+      // queries.
       visible: queryVisible && selectedTab === 'overview',
       defaultDiffView: snapshot.defaultDiffView,
       snapshot,
@@ -611,9 +582,6 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const paneOwner = (key: SubTab): boolean => key === selectedTab
 
   const paneContent = (key: SubTab): JSX.Element | null => {
-    // The picker reads the scan and the one snapshot, so it renders ahead of the
-    // state placeholder; the wide layout reaches it through the overview instead.
-    if (key === 'repos' && hasSession(sessionId)) return reposPane()
     if (key === 'overview') return overviewPane()
     // The state placeholder (loading / no-cwd / error, including no-session)
     // lives in the selected pane; the guard below only narrows sessionId for the
@@ -630,7 +598,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const snapshot = view.snapshot
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, repositories: compact ? undefined : repositories, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, repositories, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list
@@ -663,9 +631,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // sidebar has no composer under it, so it opts out.
   const overlay = host === 'conversation' ? { 'data-conversation-composer-overlay': '' } : {}
   return h('div', { className: 'gp-panel', ref: setRootEl, ...overlay, 'data-gp-host': host, 'data-font-delta': fontDelta, 'data-layout': mode, ...(repoSwitching ? { 'data-repo-switching': 'true' } : {}) }, [
-    // data-tab-count feeds the compact indicator width (layout.ts): the
-    // Repositories tab is conditional, and the platform's sliding pill needs the
-    // same divisor the compact override restates.
+    // data-tab-count reports how many cells the bar carries (three, or the
+    // browser alone for a cwd without a checkout).
     h('div', { key: 'tabs', className: 'gp-tabbar', 'data-tab-count': tabs.length }, [
       h(SegmentedTabs, {
         key: 'switcher',

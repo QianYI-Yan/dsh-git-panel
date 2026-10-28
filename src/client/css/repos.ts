@@ -1,7 +1,8 @@
 /**
- * 存储库：宽屏 / 上下分档时，列表挂在 Git 总览左栏的顶部（分支树之上），
- * 行式紧凑，切换仓库时分支、提交列表、存储库列表同屏可见；手机 / 窄档时
- * 它是独立页签，用卡片铺列，好数清有几份检出。当前目录不是 git 仓库时面板
+ * 存储库：列表挂在分支树所在那一面的顶部——宽屏是 Git 总览左栏，上下分档
+ * 是上 band 左栏（紧档退成抽屉），手机 / 窄档是按分支筛选的抽屉或底部弹层——
+ * 另在变更记录列顶各挂一份。行式紧凑，切换仓库时分支、提交列表、存储库列表
+ * 同屏可见。当前目录不是 git 仓库时面板
  * 不显示任何存储库入口（直接进入首个子仓库，根目录视图是纯文件浏览）。
  * 层叠顺序即本文件的挂载顺序（见 styles.ts 的 CSS_PARTS）：写在后面的模块
  * 覆盖前面的。颜色一律走 --dsw-alias-*。
@@ -40,31 +41,6 @@ export const CSS = `
 /* A switch keeps the previous sample on screen: dim the body so the stale panes
  * read as "being replaced" rather than as the new checkout's state. */
 .gp-panel[data-repo-switching="true"] .gp-body{opacity:.55;transition:opacity .12s ease}
-/* Standalone page (compact layout): the list is the whole pane, so it keeps the
- * card grammar — one card per checkout, laid out in as many columns as the
- * width allows. */
-.gp-repos{display:flex;flex-direction:column;gap:10px;width:100%;flex:1 1 auto;height:100%;min-height:0;overflow:auto;padding:10px 12px;box-sizing:border-box}
-.gp-repos__hint{margin:0;font-size:11px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}
-.gp-repos__list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
-.gp-repos__row{margin:0;min-width:0}
-.gp-repos__item{box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-width:0;min-height:56px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
-.gp-repos__item:hover:not(.gp-repos__item--active){background:var(--dsw-alias-interactive-bg-hover)}
-.gp-repos__item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-.gp-repos__item--active{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);border-color:transparent;cursor:default}
-.gp-repos__icon{display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-tertiary)}
-.gp-repos__item--active .gp-repos__icon{color:var(--dsw-alias-state-business-primary)}
-.gp-repos__text{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}
-.gp-repos__name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-repos__path{font-family:var(--dsw-font-mono,ui-monospace,monospace);font-size:11px;color:var(--dsw-alias-label-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-repos__branch{display:inline-flex;align-items:center;gap:4px;flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-label-secondary)}
-.gp-repos__branch--detached{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary))}
-.gp-repos__count{flex:none;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-state-business-primary);color:#fff;font-size:11px;line-height:18px;text-align:center;box-sizing:border-box}
-/* Compact (phone / squeezed): the hint costs the list a row it cannot spare,
- * the columns collapse to one, and the cards grow to a thumb-sized target. */
-.gp-panel[data-layout="compact"] .gp-repos{padding:8px}
-.gp-panel[data-layout="compact"] .gp-repos__hint{display:none}
-.gp-panel[data-layout="compact"] .gp-repos__list{grid-template-columns:1fr}
-.gp-panel[data-layout="compact"] .gp-repos__item{min-height:44px;padding:8px 10px}
 /* Row line 1: name, then the row's own branch chip and change count. The name
  * takes what is left and ellipsizes; the chips never squeeze it to "dsh-…". */
 .gp-repolist__line{display:flex;align-items:center;gap:6px;min-width:0}
@@ -106,14 +82,4 @@ export const CSS = `
 .gp-repolist__collapse{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
 .gp-repolist__collapse:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .gp-repolist__collapse:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-/* Standalone page: a second family splits the cards into sections, each with
- * its own header and count; a single family stays one flat list. */
-.gp-repos__group{display:flex;flex-direction:column;gap:8px;min-width:0}
-.gp-repos__grouphd{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary)}
-.gp-repos__grouptitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.gp-repos__groupcount{flex:none;min-width:16px;height:15px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:15px;text-align:center;box-sizing:border-box}
-.gp-repos__tags{display:flex;flex-wrap:wrap;gap:4px}
-.gp-repos__tag{max-width:100%;padding:0 5px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;font-size:10px;line-height:15px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box}
-.gp-repos__item--disabled{opacity:.55;cursor:default}
-.gp-repos__item--disabled:hover:not(.gp-repos__item--active){background:transparent}
 `;

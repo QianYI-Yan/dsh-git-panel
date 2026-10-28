@@ -6,7 +6,7 @@
  * branch tree, so picking one keeps branches, commit list and the list itself
  * on screen together; the pick rides every repository-scoped request while the
  * panes themselves never learn about it. The compact layout has no left column,
- * so it keeps a Repositories page. The list block boots collapsed with the
+ * so the list leads its branch-filter surface instead (no extra tab). The list block boots collapsed with the
  * checkout in use named in its head line, and no row ever represents a non-git
  * workspace root. A cwd that is not a checkout shows **no repository entries**:
  * it opens straight into its first sub-repository (a session that never picked
@@ -18,11 +18,10 @@
  * "switching" badge until the new one lands. A host that cannot answer the scan
  * keeps the three-pane panel unchanged.
  * The changes column docks the same list (one collapse state with the
- * overview; the compact layout keeps its cards page instead), and the file
- * browser roots itself independently of the repository the panel follows: the
- * config only sets each session's default (off: the project root, tree state
- * intact across a switch; on: the followed repository), the address is a
- * candidate-root dropdown either way,
+ * overview, in every layout), and the file browser roots itself independently
+ * of the repository the panel follows: the config only sets each session's
+ * default (off: the project root, tree state intact across a switch; on: the
+ * followed repository), the address is a candidate-root dropdown either way,
  * a session's own pick or follow opt-in sticks across switches, and a config
  * flip (delivered by the next polled sample) re-arms the new default.
  *
@@ -233,25 +232,12 @@ async function mount(repos, action, options = {}) {
         // hover tip. The field stays to pin that absence.
         title: node.getAttribute('title') || '',
       }))
-    const cardRows = () => [...document.querySelectorAll('.gp-panel .gp-repos__item')].map((node) => ({
-      name: textOf(node, '.gp-repos__name'),
-      path: textOf(node, '.gp-repos__path'),
-      active: node.classList.contains('gp-repos__item--active'),
-      current: node.getAttribute('aria-current'),
-      disabled: node.disabled === true,
-      title: node.getAttribute('title') || '',
-      // The branch chip dropped its native title too: the full branch rides
-      // the row's tip now.
-      branchTitle: node.querySelector('.gp-repos__branch')?.getAttribute('title') ?? '',
-    }))
     // Group headers: they exist only when both checkout families do — a lone
     // family stays a flat list whose rows these helpers already read.
     const groupInfo = () => ({
       titles: [...document.querySelectorAll('.gp-panel .gp-repolist__grouptitle')].map((n) => n.textContent.trim()),
       counts: [...document.querySelectorAll('.gp-panel .gp-repolist__groupcount')].map((n) => n.textContent.trim()),
       labels: [...document.querySelectorAll('.gp-panel .gp-repolist__group')].map((n) => n.getAttribute('aria-label')),
-      cardTitles: [...document.querySelectorAll('.gp-panel .gp-repos__grouptitle')].map((n) => n.textContent.trim()),
-      cardCounts: [...document.querySelectorAll('.gp-panel .gp-repos__groupcount')].map((n) => n.textContent.trim()),
     })
     const pickRow = (selector, name) => {
       const row = [...document.querySelectorAll('.gp-panel ' + selector)]
@@ -382,27 +368,78 @@ async function mount(repos, action, options = {}) {
     observed.head = headInfo()
     // The tight-stacked checkout bar must stay out of every other layout.
     observed.repoBarPresent = document.querySelector('.gp-repobar') !== null
+    // The compact branch filter (a bottom sheet on a desktop-sized screen) is
+    // portaled outside the panel; it leads with the same repository block the
+    // stacked drawer carries.
+    const sheetList = () => document.querySelector('.gp-sheet .gp-repolist')
+    const sheetRows = () => [...document.querySelectorAll('.gp-sheet .gp-repolist__item')].map((node) => ({
+      name: textOf(node, '.gp-repolist__name'),
+      meta: textOf(node, '.gp-repolist__meta'),
+      active: node.classList.contains('gp-repolist__item--active'),
+      disabled: node.disabled === true,
+      title: node.getAttribute('title') || '',
+    }))
+    const sheetGroups = () => ({
+      titles: [...document.querySelectorAll('.gp-sheet .gp-repolist__grouptitle')].map((n) => n.textContent.trim()),
+      counts: [...document.querySelectorAll('.gp-sheet .gp-repolist__groupcount')].map((n) => n.textContent.trim()),
+    })
+    const openSheet = async () => {
+      const btn = document.querySelector('.gp-panel .gp-overview--compact .gp-toolbar button[title="overview.filterBranch"]')
+      if (btn === null) throw new Error('no compact branch filter button')
+      btn.click()
+      await wait(250)
+    }
+    const expandSheetRepos = async () => {
+      const btn = document.querySelector('.gp-sheet .gp-repolist__collapse')
+      if (btn !== null && btn.getAttribute('aria-expanded') === 'false') {
+        btn.click()
+        await wait(250)
+      }
+    }
+    const pickSheetRow = (name) => {
+      const row = [...document.querySelectorAll('.gp-sheet .gp-repolist__item')].find((node) => textOf(node, '.gp-repolist__name') === name)
+      if (!row) throw new Error('no sheet repository row ' + name + ' (have ' + sheetRows().map((r) => r.name).join('|') + ')')
+      row.click()
+    }
     if (action === 'compact') {
-      // Compact has no left column to host the list, so it keeps a page of its
-      // own: the bar gains a fourth cell, and its indicator has to follow the
-      // count the panel put there rather than a hard-coded divisor.
+      // Compact keeps the three-cell bar: the repository list rides the branch
+      // filter surface instead of a page of its own.
       const track = document.querySelector('.gp-panel .gp-tabbar__tabs')
       const indicator = track === null ? null : track.querySelector('span[aria-hidden="true"]')
       observed.layout = document.querySelector('.gp-panel').getAttribute('data-layout')
       observed.indicator = indicator === null || track === null
         ? null
         : { width: indicator.getBoundingClientRect().width, track: track.getBoundingClientRect().width }
-      clickTab('tab.reposShort')
-      await wait(300)
-      observed.picker = { activeTab: activeTabLabel(), cards: cardRows() }
-      // The panes behind the picker are not on screen; none of them may start a
-      // query of its own while the picker is the page in front.
-      calls.length = 0
-      await wait(900)
-      observed.idleKinds = calls.filter((call) => call.endpoint === 'gitPanel/query').map((call) => call.kind)
-      pickRow('.gp-repos__item', 'site')
+      await openSheet()
+      const head = sheetList()?.querySelector('.gp-repolist__collapse') ?? null
+      observed.sheet = {
+        open: document.querySelector('.gp-sheet') !== null,
+        listPresent: sheetList() !== null,
+        // The list precedes the branch tree inside the sheet body.
+        leadsBody: sheetList() !== null && sheetList().parentElement?.classList.contains('gp-sheet__body') === true
+          && sheetList().parentElement.firstElementChild === sheetList(),
+        collapsed: head === null ? null : head.getAttribute('aria-expanded') === 'false',
+      }
+      await expandSheetRepos()
+      observed.sheet.rows = sheetRows()
+      const mark = calls.length
+      pickSheetRow('site')
       await wait(700)
-      observed.afterPick = { activeTab: activeTabLabel(), cards: cardRows(), calls: calls.slice() }
+      observed.afterPick = {
+        activeTab: activeTabLabel(),
+        sheetOpen: document.querySelector('.gp-sheet') !== null,
+        collapsed: document.querySelector('.gp-sheet .gp-repolist__collapse')?.getAttribute('aria-expanded') === 'false',
+        selected: textOf(document.querySelector('.gp-sheet .gp-repolist') ?? document.body, '.gp-repolist__selected'),
+        calls: calls.slice(mark),
+      }
+      await expandSheetRepos()
+      observed.afterPick.rows = sheetRows()
+      // The compact changes column docks the same block at its top.
+      document.querySelector('.gp-sheet__close')?.click()
+      await wait(200)
+      clickTab('tab.changesShort')
+      await wait(300)
+      observed.changesList = document.querySelector('.gp-panel .gp-changes .gp-repolist') !== null
       return { observed, calls }
     }
     if (action === 'worktree') {
@@ -447,25 +484,28 @@ async function mount(repos, action, options = {}) {
       return { observed, calls }
     }
     if (action === 'compact-groups') {
-      // Compact hosts the list as a page of cards; two families split it into
-      // sections, and the disabled cards keep their reason instead of dying.
-      clickTab('tab.reposShort')
-      await wait(300)
+      // The compact sheet carries the same grouped rows as the overview: two
+      // families split it into sections, and the disabled rows keep their
+      // reason instead of dying.
       observed.layout = document.querySelector('.gp-panel').getAttribute('data-layout')
-      observed.activeTab = activeTabLabel()
-      observed.groups = groupInfo()
-      observed.cards = cardRows()
-      const mark = calls.length
-      pickRow('.gp-repos__item', 'gone')
-      await wait(400)
-      observed.disabledTap = {
-        active: cardRows().map((card) => card.active),
-        snapshots: calls.slice(mark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
-      }
-      // The compact changes pane docks no list: the cards page leads instead.
       clickTab('tab.changesShort')
       await wait(300)
       observed.changesList = document.querySelector('.gp-panel .gp-changes .gp-repolist') !== null
+      clickTab('tab.overviewShort')
+      await wait(300)
+      await openSheet()
+      await expandSheetRepos()
+      observed.activeTab = activeTabLabel()
+      observed.groups = sheetGroups()
+      observed.rows = sheetRows()
+      const mark = calls.length
+      pickSheetRow('gone')
+      await wait(400)
+      observed.disabledTap = {
+        active: sheetRows().map((row) => row.active),
+        snapshots: calls.slice(mark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
+      }
+      // The sheet stays open with the rows on screen for the hover probe.
       return { observed, calls }
     }
     if (action === 'reject') {
@@ -487,7 +527,6 @@ async function mount(repos, action, options = {}) {
       observed.rejected = {
         activeTab: activeTabLabel(),
         rows: listRows(),
-        cards: cardRows(),
         empties: empties.slice(),
         calls: calls.slice(mark),
       }
@@ -503,7 +542,7 @@ async function mount(repos, action, options = {}) {
       // behind [hidden], and the files page itself carries no repository entry.
       const bootRoot = document.querySelector('.gp-panel .gp-repolist__root')
       observed.rootHiddenAtBoot = bootRoot !== null && getComputedStyle(bootRoot).display === 'none'
-      observed.filesEntries = document.querySelectorAll('.gp-panel .gp-files .gp-repolist, .gp-panel .gp-files .gp-repos').length
+      observed.filesEntries = document.querySelectorAll('.gp-panel .gp-files .gp-repolist').length
       // The expanded block's absolute path line: click-to-copy with ✓ (1.6 s).
       await expandRepos()
       observed.afterExpand = headInfo()
@@ -530,7 +569,7 @@ async function mount(repos, action, options = {}) {
         tabCount: document.querySelector('.gp-panel .gp-tabbar').getAttribute('data-tab-count'),
         statusbar: statusbarInfo(),
         switching: switchingNow(),
-        repoRows: document.querySelectorAll('.gp-panel .gp-repolist__item, .gp-panel .gp-repos__item').length,
+        repoRows: document.querySelectorAll('.gp-panel .gp-repolist__item').length,
       }
       // The status bar path: with several candidate roots the click opens the
       // dropdown instead of copying, and the copy entry inside it does the
@@ -704,17 +743,7 @@ async function mount(repos, action, options = {}) {
       observed.afterOn = { status: statusbarInfo(), menu: rootMenuInfo() }
       return { observed, calls }
     }
-    if (action !== 'switch') {
-      // The standalone page (compact layout) only exists when the bar carries a
-      // Repositories tab; read its cards from there.
-      if (observed.tabs.includes('tab.repos')) {
-        clickTab('tab.repos')
-        await wait(250)
-        observed.cards = cardRows()
-        observed.activeTab = activeTabLabel()
-      }
-      return { observed, calls }
-    }
+    if (action !== 'switch') return { observed, calls }
 
     // Park the sample the pick triggers, so the in-flight state can be read
     // before the new snapshot replaces the old one.
@@ -959,35 +988,38 @@ const failures = []
   }
 }
 
-// 5. The compact layout has no left column, so the list becomes a page of its
-// own — and the tab bar's indicator has to follow the fourth cell that page
-// adds, while the panes behind it stay quiet.
+// 5. The compact layout keeps the three-cell bar: the repository list rides
+// the branch-filter surface (the bottom sheet on a desktop-sized screen), the
+// same block the tight stacked drawer leads with, and a pick stays on the
+// overview.
 {
   const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'compact', { panelWidth: 360, viewportWidth: 360 })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
     assert.equal(seen.layout, 'compact', 'a 360px panel is the compact layout')
-    assert.deepEqual(seen.tabs, ['tab.reposShort', 'tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the picker leads the compact bar')
-    assert.equal(seen.tabCount, '4', 'and the bar reports four cells')
+    assert.deepEqual(seen.tabs, ['tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'compact grows no repositories tab')
+    assert.equal(seen.tabCount, '3', 'and the bar reports three cells')
     assert.ok(seen.indicator !== null, 'the bar draws an indicator')
-    // (100% - 4px) / 4, the compact override's divisor: a hard-coded three would
-    // slide the pill off the cell of the page it names.
-    assert.ok(Math.abs(seen.indicator.width - (seen.indicator.track - 4) / 4) < 2, 'the indicator takes a quarter of the track: ' + JSON.stringify(seen.indicator))
-    assert.equal(seen.activeTab, 'tab.overviewShort', 'the overview still opens first')
-    assert.equal(seen.picker.activeTab, 'tab.reposShort', 'a tap on the first tab opens the picker')
-    assert.deepEqual(seen.picker.cards.map((row) => row.name), ['fixture-repo', 'site'], 'every checkout is carded')
-    assert.deepEqual(seen.picker.cards.map((row) => row.active), [true, false], 'the workspace checkout starts checked')
-    // The overview is behind the picker rather than on screen, so it must not
-    // keep querying for a page nobody is looking at.
-    assert.deepEqual(seen.idleKinds, [], 'no pane behind the picker starts a query')
-    assert.equal(seen.afterPick.activeTab, 'tab.reposShort', 'a pick in the compact layout stays on the picker')
-    assert.deepEqual(seen.afterPick.cards.map((row) => row.active), [false, true], 'and marks the picked checkout')
+    assert.ok(Math.abs(seen.indicator.width - (seen.indicator.track - 4) / 3) < 2, 'the indicator takes a third of the track: ' + JSON.stringify(seen.indicator))
+    assert.equal(seen.activeTab, 'tab.overviewShort', 'the overview opens first')
+    assert.equal(seen.sheet.open, true, 'the branch filter opens its sheet')
+    assert.equal(seen.sheet.listPresent, true, 'the sheet carries the repository list')
+    assert.equal(seen.sheet.leadsBody, true, 'ahead of the branch tree')
+    assert.equal(seen.sheet.collapsed, true, 'collapsed by default, like every docked copy')
+    assert.deepEqual(seen.sheet.rows.map((row) => row.name), ['fixture-repo', 'site'], 'every checkout is listed')
+    assert.deepEqual(seen.sheet.rows.map((row) => row.active), [true, false], 'the workspace checkout starts checked')
+    assert.equal(seen.afterPick.activeTab, 'tab.overviewShort', 'a pick stays on the overview')
+    assert.equal(seen.afterPick.sheetOpen, true, 'and leaves the sheet open, like the stacked drawer')
+    assert.equal(seen.afterPick.collapsed, true, 'the pick retires the block to its head line')
+    assert.equal(seen.afterPick.selected, 'site', 'which names the picked checkout')
+    assert.deepEqual(seen.afterPick.rows.map((row) => row.active), [false, true], 'and marks it')
     // `repo-list` is the one query that spans the whole workspace, so it stays
     // untagged; everything else has to follow the pick.
     const scoped = seen.afterPick.calls.filter((call) => call.kind !== 'repo-list')
     assert.ok(scoped.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the pick refetched a snapshot')
     assert.ok(scoped.every((call) => call.repo === 'site'), 'every repository-scoped request carries the pick: ' + JSON.stringify(seen.afterPick.calls))
+    assert.equal(seen.changesList, true, 'the compact changes column docks the block too')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('compact observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
@@ -1083,41 +1115,39 @@ const failures = []
   }
 }
 
-// 8. The compact layout carries the same families as sections of cards, with
-// the disabled cards greyed and their reason on the card — and a tap on one of
+// 8. The compact sheet carries the same families as the overview list, with
+// the disabled rows greyed and their reason on the row — and a tap on one of
 // them must be as inert as in the overview.
 {
   const { out, errors, hover } = await mount(MIXED_FAMILY, 'compact-groups', {
     panelWidth: 360, viewportWidth: 360, scene: 'S8',
-    // The script ends on the changes tab; the probe returns to the cards and
-    // hovers a disabled one — the card explains itself the same way a row does.
-    hoverProbe: async (page) => {
-      await page.locator('.gp-tabbar [role="tab"]', { hasText: 'tab.reposShort' }).click()
-      await page.waitForTimeout(300)
-      return { goneCard: await hoverRowTip(page, '.gp-repos__row', '.gp-repos__name', 'gone', '.gp-tabbar') }
-    },
+    // The script leaves the sheet open on the expanded list; a disabled row
+    // explains itself the same way it does in the overview.
+    hoverProbe: async (page) => ({
+      goneRow: await hoverRowTip(page, '.gp-sheet .gp-repolist__row', '.gp-repolist__name', 'gone', '.gp-sheet__title'),
+    }),
   })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
     assert.equal(seen.layout, 'compact', 'a 360px panel is the compact layout')
-    assert.equal(seen.activeTab, 'tab.reposShort', 'and it opens on the cards')
-    assert.deepEqual(seen.groups.cardTitles, ['repos.group.own', 'repos.group.foreign'], 'the cards split into one section per family')
-    assert.deepEqual(seen.groups.cardCounts, ['2/4', '2'], 'each section counts its choosable cards')
-    assert.deepEqual(seen.cards.map((card) => card.name), ['fixture-repo', 'sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'every checkout is carded, family first')
-    assert.deepEqual(seen.cards.map((card) => card.disabled), [false, false, true, true, false, false], 'the two disabled worktrees stay visible but dead')
-    assert.equal(seen.cards[2].path, 'repos.disabled.outside', 'an outside worktree states its reason on the card')
-    assert.equal(seen.cards[3].path, 'repos.disabled.stale', 'and a lost one names its cleanup')
-    assert.ok(seen.cards.every((card) => card.title === ''), 'no card carries a native title: ' + JSON.stringify(seen.cards.map((card) => card.title)))
-    assert.ok(seen.cards.every((card) => card.branchTitle === ''), 'nor does any branch chip: ' + JSON.stringify(seen.cards.map((card) => card.branchTitle)))
+    assert.deepEqual(seen.tabs, ['tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the bar keeps three cells')
+    assert.equal(seen.changesList, true, 'the compact changes column docks the list')
+    assert.equal(seen.activeTab, 'tab.overviewShort', 'the sheet opens over the overview')
+    assert.deepEqual(seen.groups.titles, ['repos.group.own', 'repos.group.foreign'], 'the list splits into one section per family')
+    assert.deepEqual(seen.groups.counts, ['2/4', '2'], 'each section counts its choosable rows')
+    assert.deepEqual(seen.rows.map((row) => row.name), ['fixture-repo', 'sidebar', 'spike', 'gone', 'site', 'web (apps/web)'], 'every checkout is listed, family first')
+    assert.deepEqual(seen.rows.map((row) => row.disabled), [false, false, true, true, false, false], 'the two disabled worktrees stay visible but dead')
+    assert.equal(seen.rows[2].meta, 'repos.disabled.outside', 'an outside worktree states its reason on the row')
+    assert.equal(seen.rows[3].meta, 'repos.disabled.stale', 'and a lost one names its cleanup')
+    assert.ok(seen.rows.every((row) => row.title === ''), 'no row carries a native title: ' + JSON.stringify(seen.rows.map((row) => row.title)))
     assert.equal(hover.error, undefined, 'the hover probe ran: ' + hover.error)
-    assert.deepEqual(hover.goneCard, {
+    assert.deepEqual(hover.goneRow, {
       lines: ['repos.disabled.stale', 'old', 'fixture-repo/gone'],
       kinds: ['reason', 'branch', 'path'], icons: 2, seps: 1, onBody: true, gone: true,
-    }, 'a disabled card tips reason, branch and ruled path — portaled, gone on leave')
-    assert.deepEqual(seen.disabledTap.active, [true, false, false, false, false, false], 'a tap on a disabled card changes nothing')
+    }, 'a disabled row tips reason, branch and ruled path — portaled, gone on leave')
+    assert.deepEqual(seen.disabledTap.active, [true, false, false, false, false, false], 'a tap on a disabled row changes nothing')
     assert.deepEqual(seen.disabledTap.snapshots, [], 'and asks for nothing')
-    assert.equal(seen.changesList, false, 'the compact changes pane docks no repository list — the cards page leads')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('compact-groups observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
@@ -1147,8 +1177,8 @@ const failures = []
 
 // 10. The changes column docks the same repository list as the overview: one
 // block, one collapse state, the same rows, and a pick from it switches in
-// place without navigating to the overview (the compact layout's cards page
-// was asserted with scene 8).
+// place without navigating to the overview (the compact copy is asserted in
+// scenes 5 and 8).
 {
   const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'changes-bar', { scene: 'S10' })
   try {
