@@ -152,3 +152,28 @@ test('no install-time lifecycle scripts are declared', () => {
   // The build entry stays available as an explicit, author-invoked script.
   assert.equal(pkg.scripts.build, 'node build.mjs', 'build remains an explicit script')
 })
+
+test('package metadata ships every UI language and names its detail document', async () => {
+  const { DICTIONARIES } = await import('../../lib/testkit.mjs')
+  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  const files = new Set(pkg.files)
+  for (const id of Object.keys(DICTIONARIES)) {
+    const meta = JSON.parse(readFileSync(new URL(`../../locale/${id}.json`, import.meta.url), 'utf8')).meta
+    assert.ok(typeof meta.title === 'string' && meta.title !== '', `${id}: title`)
+    assert.ok(typeof meta.description === 'string' && meta.description !== '', `${id}: description`)
+    if (meta.detail === undefined) continue
+    // The plugin page reads meta.detail along the language chain; the file
+    // must ship in the tarball and be a package-relative Markdown path.
+    assert.match(meta.detail, /^[^/\\:][^\\:]*\.md$/, `${id}: detail is a package-relative Markdown path`)
+    assert.ok(files.has(meta.detail), `${id}: ${meta.detail} ships in package.json files`)
+  }
+  // DSH resolves every locale file through the package exports map; one that
+  // is not exported fails the whole metadata read on the plugin page.
+  const shipped = readdirSync(new URL('../../locale/', import.meta.url)).filter((f) => f.endsWith('.json'))
+  for (const f of shipped) assert.equal(pkg.exports[`./locale/${f}`], `./locale/${f}`, `locale/${f} is exported`)
+  assert.deepEqual(shipped.map((f) => f.slice(0, -5)).sort(), Object.keys(DICTIONARIES).sort(), 'one locale file per UI language')
+  // Languages without their own detail fall back to English along the chain.
+  const en = JSON.parse(readFileSync(new URL('../../locale/en.json', import.meta.url), 'utf8')).meta
+  assert.equal(en.detail, 'README.en.md', 'English names the English README')
+})
+

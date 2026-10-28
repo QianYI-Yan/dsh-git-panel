@@ -32,6 +32,12 @@ const REQUIRED = [
   'lib/host/index.d.ts',
   'locale/zh.json',
   'locale/en.json',
+  'locale/ja.json',
+  'locale/es.json',
+  'locale/fr.json',
+  'locale/de.json',
+  'locale/ru.json',
+  'locale/pt.json',
   'icon.svg',
   'LICENSE',
 ]
