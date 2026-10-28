@@ -979,6 +979,7 @@ const failures = []
     assert.equal(out.observed.tabCount, '3', 'the bar reports its tab count for the compact indicator')
     assert.equal(out.observed.inLeftColumn, false, 'nothing to list')
     assert.ok(out.calls.length > 0, 'the panel still asked for a snapshot')
+    assert.ok(out.calls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the panel sampled the checkout')
     assert.ok(out.calls.every((call) => call.repo === ''), 'a single checkout never tags requests')
     assert.equal(out.observed.trackWidths.length, 3, 'every tab was selected once')
     assert.ok(Math.max(...out.observed.trackWidths) - Math.min(...out.observed.trackWidths) < 0.5, 'the tab track keeps its width whichever tab is selected: ' + JSON.stringify(out.observed.trackWidths))
@@ -999,6 +1000,7 @@ const failures = []
     assert.deepEqual(seen.tabs, ['tab.overview', 'tab.changes', 'tab.files'], 'one checkout needs no tab')
     assert.equal(seen.inLeftColumn, false, 'and no list either')
     assert.deepEqual(seen.rows, [], 'no rows are rendered')
+    assert.ok(out.calls.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the panel sampled the checkout')
     assert.ok(out.calls.every((call) => call.repo === ''), 'nothing is tagged while only one checkout exists')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -1052,6 +1054,7 @@ const failures = []
     assert.ok(scoped(nestedCalls).every((call) => call.repo === 'site'), 'every repository-scoped request carries the picked checkout: ' + JSON.stringify(nestedCalls))
     assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back stays on the overview')
     assert.deepEqual(seen.afterBack.rows.map((row) => row.active), [true, false, false], 'and marks the workspace checkout again')
+    assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'gitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
     assert.ok(scoped(seen.afterBack.calls).every((call) => call.repo === ''), 'the workspace checkout sends no tag: ' + JSON.stringify(seen.afterBack.calls))
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
@@ -1257,6 +1260,7 @@ const failures = []
     assert.equal(seen.afterPick.rows.find((row) => row.name === 'sidebar').active, true, 'the worktree row is checked')
     assert.equal(seen.afterPick.activeTab, 'tab.overview', 'picking a worktree stays on the overview')
     assert.equal(seen.afterPick.switching, false, 'the switch completes')
+    assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'gitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))
     assert.ok(scoped(seen.afterBack.calls).every((call) => call.repo === ''), 'the way back sends no tag: ' + JSON.stringify(seen.afterBack.calls))
     assert.equal(seen.afterBack.rows[0].active, true, 'and the workspace checkout is checked again')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))

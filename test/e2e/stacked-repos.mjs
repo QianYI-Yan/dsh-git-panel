@@ -276,6 +276,7 @@ await page.waitForTimeout(300)
 // ── the changes band docks the same list: one block, one collapse state,
 // the same rows with the pick still marked (read against the changes pane —
 // the overview's copy stays mounted behind display:none). ──
+const markTab = await page.evaluate(() => window.__calls.length)
 await page.locator('.gp-panel [role="tab"]').filter({ hasText: '变更记录' }).click()
 await page.waitForTimeout(300)
 const inChanges = await page.evaluate(() => {
@@ -298,7 +299,11 @@ assert.equal(inChanges.firstChild, true, 'as the band\'s first block')
 assert.equal(inChanges.expanded, true, 'sharing the overview band\'s expanded state')
 assert.deepEqual(inChanges.rows.map((row) => row.name), ['fixture-repo', 'sidebar', 'spike', 'gone', 'site'], 'and the same rows')
 assert.equal(inChanges.rows.find((row) => row.active)?.name, 'sidebar', 'with the pick still marked')
-assert.ok(inChanges.calls.slice(mark).length > 0, 'switching pages sends no requests of its own: ' + JSON.stringify(inChanges.calls.slice(mark)))
+// Opening the changes page loads its own data for the picked checkout only:
+// no re-scan of the list, no request that falls back to the workspace.
+const tabCalls = inChanges.calls.slice(markTab)
+assert.equal(tabCalls.some((call) => call.kind === 'repo-list'), false, 'switching pages does not re-scan the repositories: ' + JSON.stringify(tabCalls))
+assert.ok(tabCalls.every((call) => call.repo === '.agents/worktrees/feat/sidebar'), 'whatever the changes page loads is tagged with the pick: ' + JSON.stringify(tabCalls))
 await page.locator('.gp-panel [role="tab"]').filter({ hasText: 'Git 总览' }).click()
 await page.waitForTimeout(300)
 
