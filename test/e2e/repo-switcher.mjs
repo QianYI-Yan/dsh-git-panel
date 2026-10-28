@@ -642,13 +642,33 @@ async function mount(repos, action, options = {}) {
       const siteRow = pickList === null ? null : [...pickList.querySelectorAll('.gp-repolist__item')]
         .find((node) => textOf(node, '.gp-repolist__name') === 'site')
       if (siteRow === null || siteRow === undefined) throw new Error('no site row in the changes column list')
+      // Park the new sample: the old checkout's rows stay on screen while every
+      // request is already tagged with the new one, so they must not act.
+      fixture.holdSnapshot = true
       siteRow.click()
+      await wait(250)
+      const body = document.querySelector('.gp-panel .gp-body')
+      const stageBtn = document.querySelector('.gp-panel .gp-changes__left .gp-file-row__actions .gp-icon-btn')
+      const box = stageBtn?.getBoundingClientRect()
+      const hit = box === undefined ? null : document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      stageBtn?.focus()
+      observed.changesBar.midSwitch = {
+        switching: switchingNow(),
+        stageShown: stageBtn !== null,
+        inert: body?.hasAttribute('inert') ?? false,
+        busy: body?.getAttribute('aria-busy') ?? null,
+        stageHit: hit !== null && stageBtn !== null && stageBtn.contains(hit),
+        stageFocus: stageBtn !== null && document.activeElement === stageBtn,
+      }
+      if (typeof fixture.releaseSnapshot === 'function') fixture.releaseSnapshot()
+      fixture.holdSnapshot = false
       await wait(700)
       observed.changesBar.afterPick = {
         activeTab: activeTabLabel(),
         switching: switchingNow(),
         expanded: headInfo().expanded,
         scoped: calls.slice(pickMark).filter((call) => call.endpoint === 'gitPanel/snapshot'),
+        inert: document.querySelector('.gp-panel .gp-body')?.hasAttribute('inert') ?? null,
       }
       return { observed, calls }
     }
@@ -1234,7 +1254,7 @@ const failures = []
 // place without navigating to the overview (the compact copy is asserted in
 // scenes 5 and 8).
 {
-  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'changes-bar', { scene: 'S10' })
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'changes-bar', { scene: 'S10', dirty: true })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
@@ -1244,6 +1264,13 @@ const failures = []
     assert.deepEqual(seen.changesBar.rows.map((row) => row.name), ['fixture-repo', 'site'], 'and the same rows')
     assert.equal(seen.changesBar.afterCollapse.expanded, false, 'collapsing from the changes side lands')
     assert.equal(seen.changesBar.overviewAfter.expanded, false, 'the overview reads the same state back')
+    assert.equal(seen.changesBar.midSwitch.switching, true, 'the parked sample keeps the switch in flight')
+    assert.equal(seen.changesBar.midSwitch.stageShown, true, 'the previous checkout\'s rows stay on screen')
+    assert.equal(seen.changesBar.midSwitch.inert, true, 'but the body is inert while every request already names the next checkout')
+    assert.equal(seen.changesBar.midSwitch.busy, 'true', 'and reports itself busy')
+    assert.equal(seen.changesBar.midSwitch.stageHit, false, 'a pointer cannot reach the old stage button')
+    assert.equal(seen.changesBar.midSwitch.stageFocus, false, 'nor can the keyboard')
+    assert.equal(seen.changesBar.afterPick.inert, false, 'the body is live again once the new sample lands')
     assert.equal(seen.changesBar.afterPick.activeTab, 'tab.changes', 'a pick from the changes column stays on the changes page')
     assert.equal(seen.changesBar.afterPick.switching, false, 'and the switch completes there')
     assert.ok(seen.changesBar.afterPick.scoped.some((call) => call.repo === 'site'), 'the pick reached the wire tagged with the new checkout')

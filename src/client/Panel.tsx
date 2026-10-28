@@ -10,7 +10,8 @@
  * Only a cwd with no checkout of its own gives the list a page of its own,
  * because there is nothing to split there.
  */
-import { createElement as h, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createElement as h, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { inertAttr } from './inert.js'
 import type { JSX } from 'react'
 import { SegmentedTabs, StateDot, type SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import { gitPanelRemoteOf, hasSession, queryAs, type ClientCtx, type GitPanelRemote } from './rpc.js'
@@ -210,6 +211,19 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!repoSwitching || view === switchBase.current) return
     setRepoSwitching(false)
   }, [view, repoSwitching])
+  // The body goes inert for the switch (the sample on screen belongs to the
+  // previous checkout while every write is already tagged with the next one),
+  // which drops focus to the document; hand it back to the control that held
+  // it once the body is live again.
+  const switchFocus = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    if (repoSwitching) return
+    const el = switchFocus.current
+    switchFocus.current = null
+    if (el === null || !el.isConnected) return
+    if (document.activeElement !== null && document.activeElement !== document.body) return
+    el.focus({ preventScroll: true })
+  }, [repoSwitching])
   // Every repository-scoped call of the panes and of the write path goes
   // through this face: the tabs stay unaware of the selection.
   const repoRemote = useMemo(() => withRepo(remote, repo), [remote, repo])
@@ -244,6 +258,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     selectRepo(sessionId, next)
     setRepoState({ session: sessionId, path: next })
     switchBase.current = view
+    const active = document.activeElement
+    switchFocus.current = active instanceof HTMLElement && active !== document.body ? active : null
     setRepoSwitching(true)
     return true
   }
@@ -695,7 +711,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
         compact || stacked ? null : h(VersionBar, { key: 'ver', remote, t }),
       ]),
     ]),
-    h('div', { key: 'body', className: 'gp-body' }, body),
+    // Inert while a switch is in flight: the panes still show the previous
+    // checkout, but every request is tagged with the next one, so a stage or a
+    // discard clicked on the old list would land on the new work tree.
+    h('div', { key: 'body', className: 'gp-body', ...inertAttr(repoSwitching), ...(repoSwitching ? { 'aria-busy': 'true' } : {}) }, body),
   ])
 }
 
