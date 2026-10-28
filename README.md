@@ -22,7 +22,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 安装或更新后，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板，无需重启服务、也无需刷新页面：dsh 的 hmr 监听 profile 的 `package.json` 与 patch 文件，插件装好即热挂载；client 半产物（`lib/client.js`）被替换后也会被秒级轮询拾取，经 `/plugins/events` 推给浏览器原地热替换（拆掉旧 fiber 重挂新代码），已打开的页面不刷新即可拿到更新。仅 host 半模块（`lib/host/*.js`，进程内已加载的旧代码会一直跑到重启为止）与 hmr 不可用时的 profile 变更仍需重启服务。面板内的配置项（详情页的输入框标记开关、差异默认视图）走配置热写，改动即时生效。
 
-> **兼容性**：已在 `dsh@0.2.1-rc.2` 上实测，安装、Git 面板、输入框标记与 host RPC 均可正常使用。
+> **兼容性**：已在 `dsh@0.2.1-rc.2` 与 `dsh@0.2.2-alpha.2` 上实测，安装、Git 面板、输入框标记、host RPC 与插件详情页均可正常使用。
 
 ## 功能
 

@@ -22,7 +22,7 @@ Pre-release versions carry a `-` suffix (e.g. `1.8.0-rc.1`): they appear only as
 
 After installing or updating, the **Git** panel appears in the workspace tab bar (after Chat and Trajectory) with no service restart and no page refresh: dsh's hmr watches the profile's `package.json` and patch files and mounts the plugin live, while the client bundle (`lib/client.js`) is picked up within a second of being replaced and pushed to the browser over `/plugins/events`, where the old fiber is torn down and the new code remounted in place — already-open pages get the update without reloading. Only host-half modules (`lib/host/*.js`, whose loaded code keeps running until the next restart) and profile changes made while hmr is unavailable still need a restart. In-panel settings (the input-bar marker toggle and the default diff view on the detail page) are hot-written and apply immediately.
 
-> **Compatibility**: verified on `dsh@0.2.1-rc.2` — installation, the Git panel, the input-bar marker, and the host RPC all work normally.
+> **Compatibility**: verified on `dsh@0.2.1-rc.2` and `dsh@0.2.2-alpha.2` — installation, the Git panel, the input-bar marker, the host RPC, and the plugin detail page all work normally.
 
 ## Features
 
