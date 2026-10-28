@@ -455,8 +455,9 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const rootMenu = rootRows.length > 1
     ? { rows: rootRows, followActive: rootPick === null }
     : null
-  // Every layout hosts the repository list where the branch tree lives (and at
-  // the top of the changes column), so the bar never needs a tab for it.
+  // Every layout hosts the repository list where the branch tree lives (and,
+  // outside compact, at the top of the changes column), so the bar never needs
+  // a tab for it.
   const tabOrder: SubTab[] = ['overview', 'changes', 'files']
   const allTabs: Array<{ key: SubTab; label: string; icon: JSX.Element }> = tabOrder.map((key) => ({
     key,
@@ -541,7 +542,8 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   // One shared list block: the overview's branch surface and the changes
   // column both dock it, so collapse state and the choice wiring stay in sync
-  // across the panes, in every layout.
+  // across the panes. Compact docks it in the overview's branch filter only:
+  // the single-column changes page keeps its height for the change list.
   const repositories = hasSession(sessionId)
     ? {
       choices: repoList,
@@ -600,7 +602,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     const snapshot = view.snapshot
     if (key === 'changes') {
       return visited.current.tabs.has('changes')
-        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, repositories, t })
+        ? h(ChangesTab, { key: sessionId, remote: repoRemote, sessionId, visible: queryVisible && activeTab === 'changes', snapshot, onAction, onRefresh: () => controllerFor(sessionId).refresh(), onSetFullChanges: (full) => controllerFor(sessionId).setFullChanges(full), compact, stacked, cramped, repositories: compact ? undefined : repositories, t })
         : null
     }
     // Files tab mounts on first visit (keeps cold cost zero — no dir-list

@@ -18,10 +18,11 @@
  * "switching" badge until the new one lands. A host that cannot answer the scan
  * keeps the three-pane panel unchanged.
  * The changes column docks the same list (one collapse state with the
- * overview, in every layout), and the file browser roots itself independently
- * of the repository the panel follows: the config only sets each session's
- * default (off: the project root, tree state intact across a switch; on: the
- * followed repository), the address is a candidate-root dropdown either way,
+ * overview; compact keeps it in the overview's branch filter only), and the
+ * file browser roots itself independently of the repository the panel follows:
+ * the config only sets each session's default (off: the project root, tree
+ * state intact across a switch; on: the followed repository), the address is a
+ * candidate-root dropdown either way,
  * a session's own pick or follow opt-in sticks across switches, and a config
  * flip (delivered by the next polled sample) re-arms the new default.
  *
@@ -434,7 +435,7 @@ async function mount(repos, action, options = {}) {
       }
       await expandSheetRepos()
       observed.afterPick.rows = sheetRows()
-      // The compact changes column docks the same block at its top.
+      // The compact changes page docks no list: the overview's filter owns it.
       document.querySelector('.gp-sheet__close')?.click()
       await wait(200)
       clickTab('tab.changesShort')
@@ -842,9 +843,9 @@ const failures = []
     assert.equal(out.observed.inLeftColumn, false, 'nothing to list')
     assert.ok(out.calls.length > 0, 'the panel still asked for a snapshot')
     assert.ok(out.calls.every((call) => call.repo === ''), 'a single checkout never tags requests')
-    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
     assert.equal(out.observed.trackWidths.length, 3, 'every tab was selected once')
     assert.ok(Math.max(...out.observed.trackWidths) - Math.min(...out.observed.trackWidths) < 0.5, 'the tab track keeps its width whichever tab is selected: ' + JSON.stringify(out.observed.trackWidths))
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('scan-less observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
@@ -1032,7 +1033,7 @@ const failures = []
     const scoped = seen.afterPick.calls.filter((call) => call.kind !== 'repo-list')
     assert.ok(scoped.some((call) => call.endpoint === 'gitPanel/snapshot'), 'the pick refetched a snapshot')
     assert.ok(scoped.every((call) => call.repo === 'site'), 'every repository-scoped request carries the pick: ' + JSON.stringify(seen.afterPick.calls))
-    assert.equal(seen.changesList, true, 'the compact changes column docks the block too')
+    assert.equal(seen.changesList, false, 'the compact changes page docks no repository list')
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('compact observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
@@ -1145,7 +1146,7 @@ const failures = []
     const seen = out.observed
     assert.equal(seen.layout, 'compact', 'a 360px panel is the compact layout')
     assert.deepEqual(seen.tabs, ['tab.overviewShort', 'tab.changesShort', 'tab.filesShort'], 'the bar keeps three cells')
-    assert.equal(seen.changesList, true, 'the compact changes column docks the list')
+    assert.equal(seen.changesList, false, 'the compact changes page docks no list — the overview filter owns it')
     assert.equal(seen.activeTab, 'tab.overviewShort', 'the sheet opens over the overview')
     assert.deepEqual(seen.groups.titles, ['repos.group.own', 'repos.group.foreign'], 'the list splits into one section per family')
     assert.deepEqual(seen.groups.counts, ['2/4', '2'], 'each section counts its choosable rows')
