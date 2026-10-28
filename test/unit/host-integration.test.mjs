@@ -159,6 +159,21 @@ test('detectCheckouts config flows into the snapshot and normalizes volatile ref
   assert.notEqual(off.value.stateFingerprint, (await snapshotForSession(deps(), DEFAULT_CONFIG, SID)).value.stateFingerprint)
 })
 
+test('filesFollowRepo config flows into the snapshot and normalizes volatile refs', async () => {
+  // Default off; explicit on honored; a schemastery volatile ref is unwrapped.
+  assert.equal(normalizeConfig({}).filesFollowRepo, false)
+  assert.equal(normalizeConfig({ filesFollowRepo: true }).filesFollowRepo, true)
+  assert.equal(normalizeConfig({ filesFollowRepo: { get: () => true } }).filesFollowRepo, true)
+  const base = await snapshotForSession(deps(), DEFAULT_CONFIG, SID)
+  assert.equal(base.ok, true)
+  assert.equal(base.value.filesFollowRepo, false)
+  const on = await snapshotForSession(deps(), { ...DEFAULT_CONFIG, filesFollowRepo: true }, SID)
+  assert.equal(on.value.filesFollowRepo, true)
+  // A flip re-arms every session's default on the client, which only a
+  // fingerprint change delivers.
+  assert.notEqual(on.value.stateFingerprint, base.value.stateFingerprint)
+})
+
 test('placement config normalizes and unwraps volatile refs', () => {
   // Default all; each known value honored; unknown falls back; volatile ref
   // unwrapped. It is deliberately NOT carried in the snapshot (it is a mount
