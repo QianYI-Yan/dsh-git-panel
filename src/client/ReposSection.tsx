@@ -8,7 +8,8 @@
  * compact — the column is narrow — one line for the name (with the checkout's
  * branch chip and the change count at the right) and one for the badges and
  * the path. The block also states the current checkout's absolute path
- * outright (the rows carry it only as a hover title), click-to-copy. The block
+ * outright, click-to-copy; each row hovers to a tip that stacks what the row
+ * elides — disabled reason, branch, absolute root — one line each. The block
  * boots collapsed; its head line names the checkout in use.
  *
  * One rule governs what a row prints: **state on a row may only come from data
@@ -21,7 +22,8 @@ import { createElement as h, useId } from 'react'
 import type { JSX } from 'react'
 import { BranchIcon, CheckIcon, ChevronIcon, CopyIcon, RepoIcon, WorktreeIcon } from './icons.js'
 import type { RepoChoice, RepoGroup } from './repo-list.js'
-import { repoDetail, repoDisabledKey, repoGroups, repoLabel } from './repo-list.js'
+import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
+import { repoTipContent } from './repo-tip.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
@@ -94,17 +96,21 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       + (active ? ' gp-repolist__item--active' : '')
       + (disabledKey !== null ? ' gp-repolist__item--disabled' : '')
     const icon = choice.role === 'linked' ? h(WorktreeIcon, { size: 14 }) : h(RepoIcon, { size: 14 })
-    return h('li', { key: choice.path === '' ? '__root' : choice.path, className: 'gp-repolist__row' },
+    // The row's hover detail: branch and absolute root on their own lines (the
+    // column truncates both), with the disabled reason first when it applies.
+    // The handlers live on the row, not the button: a disabled button drops
+    // mouse events, and the row box equals the button box anyway.
+    const tipLines = repoRowTip(choice, knownBranch, { detached: t('pill.detached'), disabled: disabledKey === null ? null : t(disabledKey) })
+    return h('li', { key: choice.path === '' ? '__root' : choice.path, className: 'gp-repolist__row', ...tip.tipProps(repoTipContent(tipLines)) },
       h('button', {
         type: 'button',
         className: itemClass,
-        title: disabledKey !== null ? t(disabledKey) : choice.root === '' ? label : choice.root,
         // The list is a chooser, not a set of links: aria-current names the one
         // the panes act on, and picking it again is a no-op. A disabled row
         // states its reason and cannot be focused or clicked.
         'aria-current': active ? 'true' : undefined,
         disabled: disabledKey !== null,
-        onClick: () => { if (!active) onChoose(choice.path) },
+        onClick: () => { tip.hideTip(); if (!active) onChoose(choice.path) },
       }, [
         h('span', { key: 'icon', className: 'gp-repolist__icon' }, icon),
         h('span', { key: 'text', className: 'gp-repolist__text' }, [

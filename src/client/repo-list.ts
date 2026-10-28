@@ -121,6 +121,32 @@ export function repoDisabledKey(choice: RepoChoice): 'repos.disabled.outside' | 
   return null
 }
 
+/** One line of a row's hover tip; the kind decides the leading icon. */
+export interface RepoTipLine {
+  readonly kind: 'reason' | 'branch' | 'path'
+  readonly text: string
+}
+
+/**
+ * Hover tip of one row: the details a narrow row elides, one per line — the
+ * reason it cannot be chosen (disabled rows only), the branch the row reports
+ * (a detached HEAD prints its state, an unknown branch claims nothing), and
+ * the absolute root. The path line is always last; the renderer puts a
+ * hairline above it so the branch reads apart from the location.
+ */
+export function repoRowTip(
+  choice: RepoChoice,
+  branch: string | null | undefined,
+  labels: { readonly detached: string; readonly disabled: string | null },
+): readonly RepoTipLine[] {
+  const lines: RepoTipLine[] = []
+  if (labels.disabled !== null) lines.push({ kind: 'reason', text: labels.disabled })
+  if (branch === null) lines.push({ kind: 'branch', text: labels.detached })
+  else if (branch !== undefined && branch !== '') lines.push({ kind: 'branch', text: branch })
+  lines.push({ kind: 'path', text: choice.root === '' ? repoLabel(choice) : choice.root })
+  return lines
+}
+
 /** One candidate root of the browse-root dropdown (files-follow mode). */
 export interface FilesRootRow {
   /** '' = the project root, otherwise the repository selector tag. */

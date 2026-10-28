@@ -11,7 +11,9 @@ import { createElement as h } from 'react'
 import type { JSX } from 'react'
 import { BranchIcon, RepoIcon, WorktreeIcon } from './icons.js'
 import type { RepoChoice, RepoGroup } from './repo-list.js'
-import { repoDetail, repoDisabledKey, repoGroups, repoLabel } from './repo-list.js'
+import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from './repo-list.js'
+import { repoTipContent } from './repo-tip.js'
+import { useHoverTip } from './tip.js'
 import type { GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
 
@@ -31,6 +33,10 @@ export function ReposTab({ choices, current, snapshot, onChoose, t }: ReposTabPr
   const groups = repoGroups(choices)
   const grouped = groups.length > 1
   const groupTitle = (group: RepoGroup): string => (group.key === 'own' ? t('repos.group.own') : t('repos.group.foreign'))
+  // Hover detail of a card: branch and absolute root, one per line — handlers
+  // live on the row so a disabled card still explains itself (a disabled
+  // button drops the events).
+  const tip = useHoverTip({ placement: 'below' })
 
   const row = (choice: RepoChoice): JSX.Element => {
     const active = choice.path === current
@@ -49,16 +55,16 @@ export function ReposTab({ choices, current, snapshot, onChoose, t }: ReposTabPr
       + (active ? ' gp-repos__item--active' : '')
       + (disabledKey !== null ? ' gp-repos__item--disabled' : '')
     const icon = choice.role === 'linked' ? h(WorktreeIcon, { size: 15 }) : h(RepoIcon, { size: 15 })
-    return h('li', { key: choice.path === '' ? '__root' : choice.path, className: 'gp-repos__row' },
+    const tipLines = repoRowTip(choice, knownBranch, { detached: t('pill.detached'), disabled: disabledKey === null ? null : t(disabledKey) })
+    return h('li', { key: choice.path === '' ? '__root' : choice.path, className: 'gp-repos__row', ...tip.tipProps(repoTipContent(tipLines)) },
       h('button', {
         type: 'button',
         className: itemClass,
-        title: disabledKey !== null ? t(disabledKey) : choice.root === '' ? label : choice.root,
         // The list is a chooser, not a set of links: aria-current names the
         // one the panes act on, and picking it again is a no-op.
         'aria-current': active ? 'true' : undefined,
         disabled: disabledKey !== null,
-        onClick: () => { if (!active) onChoose(choice.path) },
+        onClick: () => { tip.hideTip(); if (!active) onChoose(choice.path) },
       }, [
         h('span', { key: 'icon', className: 'gp-repos__icon' }, icon),
         h('span', { key: 'text', className: 'gp-repos__text' }, [
@@ -75,9 +81,9 @@ export function ReposTab({ choices, current, snapshot, onChoose, t }: ReposTabPr
         // Branch and change count belong to the checked card: they come from
         // the one snapshot the panel keeps — except a worktree's branch, which
         // the repository list itself reports (and a detached HEAD is a report
-        // of null, not an absence).
+        // of null, not an absence). The full branch also rides the row's tip.
         knownBranch !== undefined && knownBranch !== null
-          ? h('span', { key: 'branch', className: 'gp-repos__branch', title: knownBranch }, [h(BranchIcon, { key: 'i', size: 12 }), knownBranch])
+          ? h('span', { key: 'branch', className: 'gp-repos__branch' }, [h(BranchIcon, { key: 'i', size: 12 }), knownBranch])
           : null,
         knownBranch === null
           ? h('span', { key: 'detached', className: 'gp-repos__branch gp-repos__branch--detached' }, t('pill.detached'))
@@ -120,5 +126,6 @@ export function ReposTab({ choices, current, snapshot, onChoose, t }: ReposTabPr
   return h('div', { className: 'gp-repos' }, [
     h('p', { key: 'hint', className: 'gp-repos__hint' }, t('repos.hint')),
     ...body,
+    tip.tipNode,
   ])
 }

@@ -120,11 +120,21 @@ export const CSS = `
  * soft radius, layered shadow, subtle border, portaled above the pill.
  * width:max-content is load-bearing: a fixed box with only left set would
  * shrink to the room on its right (a phone row icon left a 36px column). */
-.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;pointer-events:none}
+.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;white-space:pre-line;pointer-events:none}
 .gp-tip__path{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);word-break:break-all}
 .gp-tip__note{margin-top:4px;color:var(--dsw-alias-label-tertiary)}
 .gp-tip--sb{color:var(--dsw-alias-label-secondary);line-height:1.45}
 /* Compact panels put the control's centre in the left offset and shift by half
  * the bubble's own width, so it reads as centred on the row icon it explains. */
 .gp-tip--center{transform:translateX(-50%)}
+/* Structured tip content (repository rows): one icon-led line per detail with a
+ * hairline above the path, so the branch reads apart from the location. The
+ * icon rides the first line box while a long path wraps below it, hence top
+ * alignment plus the half-line offset. */
+.gp-tip__lines{display:flex;flex-direction:column}
+.gp-tip__line{display:flex;gap:6px;align-items:flex-start;min-width:0}
+.gp-tip__ic{flex:none;display:inline-flex;color:var(--dsw-alias-label-tertiary);margin-top:2.5px}
+.gp-tip__text{min-width:0}
+.gp-tip__line--path .gp-tip__text{word-break:break-all}
+.gp-tip__sep{height:1px;background:var(--dsw-alias-border-l2);margin:6px 0}
 `

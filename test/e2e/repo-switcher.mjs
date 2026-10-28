@@ -229,6 +229,8 @@ async function mount(repos, action, options = {}) {
         current: node.getAttribute('aria-current'),
         count: textOf(node, '.gp-repolist__count'),
         disabled: node.disabled === true,
+        // Rows carry no native title any more: the detail moved to the fast
+        // hover tip. The field stays to pin that absence.
         title: node.getAttribute('title') || '',
       }))
     const cardRows = () => [...document.querySelectorAll('.gp-panel .gp-repos__item')].map((node) => ({
@@ -237,6 +239,10 @@ async function mount(repos, action, options = {}) {
       active: node.classList.contains('gp-repos__item--active'),
       current: node.getAttribute('aria-current'),
       disabled: node.disabled === true,
+      title: node.getAttribute('title') || '',
+      // The branch chip dropped its native title too: the full branch rides
+      // the row's tip now.
+      branchTitle: node.querySelector('.gp-repos__branch')?.getAttribute('title') ?? '',
     }))
     // Group headers: they exist only when both checkout families do — a lone
     // family stays a flat list whose rows these helpers already read.
@@ -435,6 +441,9 @@ async function mount(repos, action, options = {}) {
       pickRow('.gp-repolist__item', 'fixture-repo')
       await wait(700)
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
+      // Every pick retired the block; the post-script hover probe needs rows
+      // on screen, so reopen it — state only, no assertions read it after.
+      await expandRepos()
       return { observed, calls }
     }
     if (action === 'compact-groups') {
@@ -728,8 +737,44 @@ async function mount(repos, action, options = {}) {
     }
     return { observed, calls }
   }, { snap: snapUsed, repos, action, snapshotFails, scene, probeToggle: options.probeToggle === true, taggedRoot: options.taggedRoot === true, followActive: options.follow === 'on' || options.follow === 'flip', followOn: options.follow === 'on' || options.follow === 'flip' })
+  // A row's hover tip needs a real pointer, so the probe runs after the page
+  // script finished and before the page goes away; failures stay out of the
+  // scene's own try/catch.
+  let hover = null
+  if (typeof options.hoverProbe === 'function') {
+    try { hover = await options.hoverProbe(page) } catch (error) { hover = { error: String(error) } }
+  }
   await page.close()
-  return { out, errors }
+  return { out, errors, hover }
+}
+
+/**
+ * Hover one repository row with a real pointer and read the fast tip it
+ * raises: the actual bubble text, its portal, and that leaving the row takes
+ * the bubble away. `exit` names a tip-free element to move onto next.
+ */
+async function hoverRowTip(page, rowSelector, nameSelector, name, exit) {
+  const row = page.locator(rowSelector + ':visible', { has: page.locator(nameSelector, { hasText: name }) })
+  await row.hover()
+  await page.waitForFunction(() => document.querySelector('.gp-tip') !== null)
+  // Structured rows tip: icon-led lines with a hairline above the path, so the
+  // probe reads the shape — plain textContent would concatenate the lines.
+  const shape = await page.locator('.gp-tip').evaluate((tip) => {
+    const lineInfo = [...tip.querySelectorAll('.gp-tip__line')].map((node) => ({
+      text: node.textContent,
+      kind: ['reason', 'branch', 'path'].find((key) => node.classList.contains('gp-tip__line--' + key)) ?? '',
+    }))
+    return {
+      lines: lineInfo.map((line) => line.text),
+      kinds: lineInfo.map((line) => line.kind),
+      icons: tip.querySelectorAll('.gp-tip__ic svg').length,
+      seps: tip.querySelectorAll('.gp-tip__sep').length,
+      onBody: tip.parentElement === document.body,
+    }
+  })
+  await page.locator(exit).hover()
+  await page.waitForFunction(() => document.querySelector('.gp-tip') === null)
+  return { ...shape, gone: true }
 }
 
 const failures = []
@@ -967,7 +1012,16 @@ const failures = []
 // row, disabled rows that say why — and are inert — and a worktree pick that
 // rides every repository-scoped request like any other checkout.
 {
-  const { out, errors } = await mount(MIXED_FAMILY, 'worktree', { scene: 'S7' })
+  const { out, errors, hover } = await mount(MIXED_FAMILY, 'worktree', {
+    scene: 'S7',
+    // Real pointer after the script finished: a worktree row tips branch over
+    // path; a disabled row leads with its reason — both replace the native
+    // title the rows used to carry.
+    hoverProbe: async (page) => ({
+      worktree: await hoverRowTip(page, '.gp-repolist__row', '.gp-repolist__name', 'sidebar', '.gp-tabbar'),
+      disabled: await hoverRowTip(page, '.gp-repolist__row', '.gp-repolist__name', 'gone', '.gp-tabbar'),
+    }),
+  })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
@@ -979,8 +1033,22 @@ const failures = []
     assert.deepEqual(seen.rows.map((row) => row.disabled), [false, false, true, true, false, false], 'outside and lost directories are visible but unchoosable')
     assert.equal(seen.rows.length, 6, 'four family rows and two foreign rows')
     assert.equal(seen.rows[0].meta, 'repos.mainTag', 'the main work tree declares itself with its badge')
-    assert.equal(seen.rows[2].title, 'repos.disabled.outside', 'and the reason is on the row itself')
-    assert.equal(seen.rows[3].title, 'repos.disabled.stale', 'a lost directory names its cleanup')
+    assert.equal(seen.rows[2].title, '', 'the reason left the native title: the row states it inline')
+    assert.equal(seen.rows[2].meta, 'repos.disabled.outside', 'an outside worktree names its reason on the row')
+    assert.equal(seen.rows[3].meta, 'repos.disabled.stale', 'a lost directory names its cleanup')
+    assert.ok(seen.rows.every((row) => row.title === ''), 'no row carries a native title any more: ' + JSON.stringify(seen.rows.map((row) => row.title)))
+    // The fast tip takes over where the native title stood: icon-led branch and
+    // absolute root with a hairline between them, portaled to the body, gone
+    // when the pointer leaves.
+    assert.equal(hover.error, undefined, 'the hover probe ran: ' + hover.error)
+    assert.deepEqual(hover.worktree, {
+      lines: ['feat/sidebar', 'fixture-repo/.agents/worktrees/feat/sidebar'],
+      kinds: ['branch', 'path'], icons: 2, seps: 1, onBody: true, gone: true,
+    }, 'hovering a worktree row tips an icon-led branch over the ruled path')
+    assert.deepEqual(hover.disabled, {
+      lines: ['repos.disabled.stale', 'old', 'fixture-repo/gone'],
+      kinds: ['reason', 'branch', 'path'], icons: 2, seps: 1, onBody: true, gone: true,
+    }, 'a disabled row leads with its reason (no icon), then branch, then the ruled path')
     // The disabled rows must be inert: no request, no switch, no movement.
     assert.equal(seen.disabledTap.switching, false, 'a disabled row never starts a switch')
     assert.deepEqual(seen.disabledTap.active, [true, false, false, false, false, false], 'the selection does not move')
@@ -1005,7 +1073,16 @@ const failures = []
 // the disabled cards greyed and their reason on the card — and a tap on one of
 // them must be as inert as in the overview.
 {
-  const { out, errors } = await mount(MIXED_FAMILY, 'compact-groups', { panelWidth: 360, viewportWidth: 360, scene: 'S8' })
+  const { out, errors, hover } = await mount(MIXED_FAMILY, 'compact-groups', {
+    panelWidth: 360, viewportWidth: 360, scene: 'S8',
+    // The script ends on the changes tab; the probe returns to the cards and
+    // hovers a disabled one — the card explains itself the same way a row does.
+    hoverProbe: async (page) => {
+      await page.locator('.gp-tabbar [role="tab"]', { hasText: 'tab.reposShort' }).click()
+      await page.waitForTimeout(300)
+      return { goneCard: await hoverRowTip(page, '.gp-repos__row', '.gp-repos__name', 'gone', '.gp-tabbar') }
+    },
+  })
   try {
     assert.equal(out.error, undefined, 'the panel mounted')
     const seen = out.observed
@@ -1017,6 +1094,13 @@ const failures = []
     assert.deepEqual(seen.cards.map((card) => card.disabled), [false, false, true, true, false, false], 'the two disabled worktrees stay visible but dead')
     assert.equal(seen.cards[2].path, 'repos.disabled.outside', 'an outside worktree states its reason on the card')
     assert.equal(seen.cards[3].path, 'repos.disabled.stale', 'and a lost one names its cleanup')
+    assert.ok(seen.cards.every((card) => card.title === ''), 'no card carries a native title: ' + JSON.stringify(seen.cards.map((card) => card.title)))
+    assert.ok(seen.cards.every((card) => card.branchTitle === ''), 'nor does any branch chip: ' + JSON.stringify(seen.cards.map((card) => card.branchTitle)))
+    assert.equal(hover.error, undefined, 'the hover probe ran: ' + hover.error)
+    assert.deepEqual(hover.goneCard, {
+      lines: ['repos.disabled.stale', 'old', 'fixture-repo/gone'],
+      kinds: ['reason', 'branch', 'path'], icons: 2, seps: 1, onBody: true, gone: true,
+    }, 'a disabled card tips reason, branch and ruled path — portaled, gone on leave')
     assert.deepEqual(seen.disabledTap.active, [true, false, false, false, false, false], 'a tap on a disabled card changes nothing')
     assert.deepEqual(seen.disabledTap.snapshots, [], 'and asks for nothing')
     assert.equal(seen.changesList, false, 'the compact changes pane docks no repository list — the cards page leads')

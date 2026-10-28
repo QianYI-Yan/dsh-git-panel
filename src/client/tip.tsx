@@ -35,18 +35,22 @@ import type { JSX } from 'react'
 const DEFAULT_DELAY_MS = 140
 const DEFAULT_MAX_W = 260
 
-interface TipState { text: string; left: number; top?: number; bottom?: number; center?: boolean; maxW: number }
+/** A tip is plain text (multi-line via `\n`, rendered pre-lined) or a
+ * structured block the caller composes (icon-led lines, hairlines). */
+export type TipContent = string | JSX.Element
+
+interface TipState { content: TipContent; left: number; top?: number; bottom?: number; center?: boolean; maxW: number }
 
 export interface HoverTip {
   /** Spread onto a control to give it the tooltip on hover/focus. */
-  readonly tipProps: (text: string) => Record<string, unknown>
+  readonly tipProps: (content: TipContent) => Record<string, unknown>
   /** The portaled tooltip element (or null); render it once in the tree. */
   readonly tipNode: JSX.Element | null
   /** Dismiss immediately (e.g. right after a click triggers an action). */
   readonly hideTip: () => void
-  /** Show `text` against `el` at once (no hover delay); the bubble is pinned
+  /** Show `content` against `el` at once (no hover delay); the bubble is pinned
    * until `hideTip` or a press outside it. */
-  readonly showTipNow: (el: HTMLElement, text: string) => void
+  readonly showTipNow: (el: HTMLElement, content: TipContent) => void
 }
 
 export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: number; maxWidth?: number }): HoverTip {
@@ -82,7 +86,7 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     setTip(null)
   }, [])
 
-  const placeTip = useCallback((el: HTMLElement, text: string) => {
+  const placeTip = useCallback((el: HTMLElement, content: TipContent) => {
     const r = el.getBoundingClientRect()
     // Compact (phone) panels centre the bubble on the control; the wide layout
     // keeps the left anchor it has always had.
@@ -95,23 +99,23 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     const maxW = Math.min(maxWidth, Math.max(80, window.innerWidth - 16))
     // Anchor below the control (near the top of the panel) or above it
     // (the left-column footer); the measured pass keeps it on screen.
-    if (placement === 'below') setTip({ text, left, center, maxW, top: r.bottom + 6 })
-    else setTip({ text, left, center, maxW, bottom: Math.max(8, window.innerHeight - r.top + 6) })
+    if (placement === 'below') setTip({ content, left, center, maxW, top: r.bottom + 6 })
+    else setTip({ content, left, center, maxW, bottom: Math.max(8, window.innerHeight - r.top + 6) })
   }, [placement, maxWidth])
 
-  const showTip = useCallback((el: HTMLElement, text: string) => {
+  const showTip = useCallback((el: HTMLElement, content: TipContent) => {
     // A pinned press hint owns the bubble until the next press outside it;
     // hovering another control must not replace the confirmation.
     if (pinnedRef.current) return
     if (timer.current !== undefined) clearTimeout(timer.current)
     pinnedRef.current = false
-    timer.current = setTimeout(() => placeTip(el, text), delayMs)
+    timer.current = setTimeout(() => placeTip(el, content), delayMs)
   }, [placeTip, delayMs])
 
-  const showTipNow = useCallback((el: HTMLElement, text: string) => {
+  const showTipNow = useCallback((el: HTMLElement, content: TipContent) => {
     if (timer.current !== undefined) { clearTimeout(timer.current); timer.current = undefined }
     pinnedRef.current = true
-    placeTip(el, text)
+    placeTip(el, content)
   }, [placeTip])
 
   // A bubble on a control near an edge would hang outside the viewport; measure
@@ -166,15 +170,15 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
     }
   }, [tip, hideTip])
 
-  const tipProps = useCallback((text: string): Record<string, unknown> => ({
+  const tipProps = useCallback((content: TipContent): Record<string, unknown> => ({
     // Pointer events, not mouse ones: they carry the pointer kind, so a touch
     // tap can be told apart from a mouse entering the control.
     onPointerEnter: (e: { pointerType: string; currentTarget: HTMLElement }) => {
-      if (e.pointerType === 'mouse') showTip(e.currentTarget, text)
+      if (e.pointerType === 'mouse') showTip(e.currentTarget, content)
     },
     // A pinned confirmation outlives the pointer; it stays until the next press.
     onPointerLeave: () => { if (!pinnedRef.current) hideTip() },
-    onFocus: (e: { currentTarget: HTMLElement }) => { if (!pressWasTouch.current) showTip(e.currentTarget, text) },
+    onFocus: (e: { currentTarget: HTMLElement }) => { if (!pressWasTouch.current) showTip(e.currentTarget, content) },
     onBlur: () => { if (!pinnedRef.current) hideTip() },
   }), [showTip, hideTip])
 
@@ -186,7 +190,7 @@ export function useHoverTip(opts?: { placement?: 'above' | 'below'; delayMs?: nu
       ref: tipRef,
       className: `gp-tip gp-tip--sb${tip.center === true ? ' gp-tip--center' : ''}`,
       style,
-    }, tip.text), document.body)
+    }, tip.content), document.body)
     : null
 
   return { tipProps, tipNode, hideTip, showTipNow }

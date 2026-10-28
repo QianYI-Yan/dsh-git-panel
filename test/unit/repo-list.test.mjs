@@ -14,7 +14,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, filesRootRows } from '../../lib/testkit.mjs'
+import { repoChoices, repoLabel, repoDetail, repoGroups, repoDisabledKey, repoRowTip, filesRootRows } from '../../lib/testkit.mjs'
 
 /** A scan entry; only the fields the list reads. */
 function entry(path, name, kind) {
@@ -136,4 +136,39 @@ test('the browse-root menu marks the manual pick and keeps disabled rows listed'
   assert.equal(project.length, 1, 'a workspace without checkouts still offers the project root')
   assert.equal(project[0].active, true, "'' is the project-root pick itself")
   assert.equal(project[0].root, '/p')
+})
+
+const tipText = (lines) => lines.map((line) => line.text).join('\n')
+const tipKinds = (lines) => lines.map((line) => line.kind)
+
+test('the row hover tip stacks branch over absolute root, one per line', () => {
+  const wt = repoChoices([{ path: 'wts/a', name: 'a', kind: 'nested', role: 'linked', branch: 'feat/x', root: '/r/wts/a' }])[0]
+  const lines = repoRowTip(wt, 'feat/x', { detached: 'HEAD is detached', disabled: null })
+  assert.equal(tipText(lines), 'feat/x\n/r/wts/a')
+  assert.deepEqual(tipKinds(lines), ['branch', 'path'], 'the path line is last so the renderer can rule above it')
+})
+
+test('the hover tip leads with the disabled reason when the row cannot be chosen', () => {
+  const gone = repoChoices([{ path: 'gone', name: 'gone', kind: 'nested', root: '/r/gone', disabled: 'stale' }])[0]
+  const lines = repoRowTip(gone, 'old', { detached: 'HEAD is detached', disabled: 'directory is gone' })
+  assert.equal(tipText(lines), 'directory is gone\nold\n/r/gone', 'reason, then branch, then path')
+  assert.deepEqual(tipKinds(lines), ['reason', 'branch', 'path'], 'the reason keeps its own kind: it earns no branch icon')
+})
+
+test('the hover tip states a detached HEAD as its own line and skips an unknown branch', () => {
+  const entry = { path: 'site', name: 'site', kind: 'nested', root: '/r/site' }
+  const detached = repoChoices([{ ...entry, branch: null }])[0]
+  const lines = repoRowTip(detached, null, { detached: 'HEAD is detached', disabled: null })
+  assert.equal(tipText(lines), 'HEAD is detached\n/r/site')
+  assert.deepEqual(tipKinds(lines), ['branch', 'path'], 'a detached HEAD is still the branch line')
+  const unsampled = repoChoices([entry])[0]
+  assert.equal(tipText(repoRowTip(unsampled, undefined, { detached: 'HEAD is detached', disabled: null })), '/r/site', 'a foreign row nobody sampled claims no branch')
+  assert.equal(tipText(repoRowTip(unsampled, '', { detached: 'HEAD is detached', disabled: null })), '/r/site', 'an empty branch is not a claim either')
+})
+
+test('the hover tip falls back to the label when the checkout reports no root', () => {
+  const ws = { path: '', name: 'ws', root: '', kind: 'workspace' }
+  const lines = repoRowTip(ws, 'main', { detached: 'HEAD is detached', disabled: null })
+  assert.equal(tipText(lines), 'main\nws')
+  assert.deepEqual(tipKinds(lines), ['branch', 'path'], 'the label sits on the path line')
 })
