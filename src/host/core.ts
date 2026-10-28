@@ -459,12 +459,14 @@ function bySelectabilityThenPath(a: WorktreeCheckout, b: WorktreeCheckout): numb
  * filesystem scan finds. The scan is filesystem-only — a '.git' entry is the
  * marker — so it still works when git cannot run at all. Both probes are off
  * with `detectCheckouts`: neither `git worktree list` nor the scan runs, and
- * the list is the cwd's own repository alone.
+ * the list is the cwd's own repository alone. `resultLimit` is the switcher's
+ * ceiling for scanned repositories (tests shrink it).
  */
 export async function listSessionRepos(
   deps: SnapshotDeps,
   sessionId: string,
   detectCheckouts: boolean,
+  resultLimit: number = REPO_RESULT_LIMIT,
 ): Promise<{ readonly ok: true; readonly value: GitRepoList } | { readonly ok: false; readonly error: { readonly code: GitErrorCode; readonly message?: string } }> {
   const resolved = await resolveSessionCwd(deps, sessionId)
   if (!resolved.ok) return { ok: false, error: mapWorkspaceFailure(resolved.failure) }
@@ -497,22 +499,29 @@ export async function listSessionRepos(
       ...(w.locked ? { locked: true } : {}),
     })
   }
-  // The union stays inside the switcher's result ceiling: every worktree row is
-  // authoritative, so the filesystem scan gives up that many slots.
-  const scanLimit = Math.max(0, REPO_RESULT_LIMIT - linked.length)
-  // A directory git already claimed as a worktree is that worktree's row, not a
-  // foreign repository — the scanner reads its `.git` file like any other.
+  // Every worktree row is authoritative and listed whole; the filesystem scan
+  // fills what is left of the ceiling. A directory git already claimed as a
+  // worktree is that worktree's row, not a foreign repository — the scanner
+  // reads its `.git` file like any other — so the scan runs with room for the
+  // claimed hits and the cap applies after they are dropped: a shallow worktree
+  // must not use up a slot a deeper repository needs.
+  const scanLimit = Math.max(0, resultLimit - linked.length)
   const claimed: readonly string[] = worktrees
     .filter((w) => w.path !== '' && w.disabled === undefined)
     .map((w) => w.root)
-  const scanned = detectCheckouts ? await scanRepos(deps.fs, cwd, { resultLimit: scanLimit }) : []
+  const scanned = detectCheckouts && scanLimit > 0
+    ? await scanRepos(deps.fs, cwd, { resultLimit: scanLimit + claimed.length + (workspace.ok ? 1 : 0) })
+    : []
+  let foreign = 0
   for (const found of scanned) {
+    if (foreign >= scanLimit) break
     // The scanner only descends into children, but a symlinked or
     // case-insensitive path can still alias the workspace root; identity is
     // the realpath.
     if (workspace.ok && samePath(found.root, workspace.root)) continue
     if (claimed.some((root) => samePath(found.root, root))) continue
     repos.push({ path: found.path, root: found.root, name: found.name, kind: 'nested', role: 'repo' })
+    foreign += 1
   }
   return { ok: true, value: { cwd, repos } }
 }

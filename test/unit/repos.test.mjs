@@ -369,3 +369,21 @@ test('a worktree path holding a newline is one row, not a phantom of its prefix'
     rmSync(join(wtRepo, 'docs'), { recursive: true, force: true })
   }
 })
+
+test('a shallow worktree does not use up the scan slot a deeper repository needs', async () => {
+  const repo = join(tmp, 'quota-repo')
+  mkdirSync(repo)
+  await runGit(repo, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['config', 'user.email', 't@t.co'])
+  await runGit(repo, ['config', 'user.name', 'Tester'])
+  await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
+  // BFS meets the worktree (depth 1) before the foreign repository (depth 2).
+  await runGit(repo, ['worktree', 'add', '-q', '-b', 'wt', join(repo, 'a-wt')])
+  mkdirSync(join(repo, 'z', 'lib', '.git'), { recursive: true })
+  const listed = await listSessionRepos(depsAt(repo), SID, true, 2)
+  assert.equal(listed.ok, true)
+  assert.deepEqual(listed.value.repos.map((r) => [r.path, r.role]), [['', 'main'], ['a-wt', 'linked'], ['z/lib', 'repo']],
+    'one worktree row plus one scanned repository fill a ceiling of two')
+  const tight = await listSessionRepos(depsAt(repo), SID, true, 1)
+  assert.deepEqual(tight.value.repos.map((r) => r.path), ['', 'a-wt'], 'the worktree rows alone may fill the ceiling')
+})
