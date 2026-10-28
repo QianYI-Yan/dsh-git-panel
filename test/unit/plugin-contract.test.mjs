@@ -177,3 +177,17 @@ test('package metadata ships every UI language and names its detail document', a
   assert.equal(en.detail, 'README.en.md', 'English names the English README')
 })
 
+test('the detail documents load their images from absolute URLs', () => {
+  // The plugin page renders README images from inside the package or from an
+  // http(s) URL only; docs/ does not ship, so a relative image never loads.
+  const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  for (const doc of ['README.md', 'README.en.md']) {
+    const text = readFileSync(new URL(`../../${doc}`, import.meta.url), 'utf8')
+    const images = [...text.matchAll(/!\[[^\]]*\]\(([^)\s]+)/g)].map((m) => m[1])
+    assert.ok(images.length > 0, `${doc} has images`)
+    for (const src of images) {
+      const shipped = pkg.files.some((entry) => src === entry || src.startsWith(entry.replace(/\/?$/, '/')))
+      assert.ok(/^https:\/\//.test(src) || shipped, `${doc}: ${src} must be an https URL or a shipped file`)
+    }
+  }
+})

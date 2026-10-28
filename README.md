@@ -1,8 +1,8 @@
 # dsh-git-panel
 
-[English](README.en.md) | 简体中文
+[English](https://github.com/xbzbing/dsh-git-panel/blob/main/README.en.md) | 简体中文
 
-![dsh-git-panel](docs/assets/banner-zh.png)
+![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner-zh.png)
 
 `dsh-git-panel` 是一个 DSH Web GUI 插件，在对话工作区里提供 IDE 风格的 Git 面板。它把分支列表、提交历史图、未提交变更的提交与 amend、语法高亮的差异对照集中到一个常驻标签页，并在输入框左侧放一个 zsh 风格的分支标记，让你在对话过程中随手查看仓库状态、提交改动，不必切到终端或另开 IDE。
 
@@ -53,11 +53,11 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 | Git 总览 | 文件差异 modal |
 | :---: | :---: |
-| ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的统一 / 并排对照、块间按需展开与词级高亮](docs/assets/screenshots/2-overview-tab.png) |
+| ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的统一 / 并排对照、块间按需展开与词级高亮](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/2-overview-tab.png) |
 | 变更记录 | 文件浏览 |
-| ![变更记录：统计条、未提交变更列表、提交框与差异对照](docs/assets/screenshots/3-changes.png) | ![文件浏览：懒加载目录树、官方类型图标、忽略项半透明与文件预览](docs/assets/screenshots/4-files.png) |
+| ![变更记录：统计条、未提交变更列表、提交框与差异对照](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/3-changes.png) | ![文件浏览：懒加载目录树、官方类型图标、忽略项半透明与文件预览](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/4-files.png) |
 | 窄面板 / 移动端 | 插件配置 |
-| ![窄面板 / 移动端：≤620px 单栏钻取布局，统计条、变更列表与提交框纵向排列](docs/assets/screenshots/5-mobile-panel.png) | ![插件配置：输入框标记开关、差异默认视图、提交图样式与 AI 生成设置](docs/assets/screenshots/6-plugin-config.png) |
+| ![窄面板 / 移动端：≤620px 单栏钻取布局，统计条、变更列表与提交框纵向排列](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/5-mobile-panel.png) | ![插件配置：输入框标记开关、差异默认视图、提交图样式与 AI 生成设置](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/6-plugin-config.png) |
 
 ## 架构
 
@@ -113,4 +113,4 @@ src/
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE)。
+本项目采用 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE)。

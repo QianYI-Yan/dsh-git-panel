@@ -1,8 +1,8 @@
 # dsh-git-panel
 
-English | [简体中文](README.md)
+English | [简体中文](https://github.com/xbzbing/dsh-git-panel/blob/main/README.md)
 
-![dsh-git-panel](docs/assets/banner.png)
+![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner.png)
 
 `dsh-git-panel` is a DSH Web GUI plugin that brings an IDE-style Git panel into the conversation workspace. It gathers the branch list, commit history graph, uncommitted-change commit & amend, and syntax-highlighted diffs into one resident tab, and puts a zsh-style branch marker at the left of the input bar — so you can check repo status and commit changes mid-conversation without switching to a terminal or a separate IDE.
 
@@ -53,11 +53,11 @@ The client bundle (`lib/client.js`) makes no network requests of its own — it 
 
 | Overview | File-diff modal |
 | :---: | :---: |
-| ![Overview: branches, commit graph, commit detail, hover card](docs/assets/screenshots/1-git-panel-overview.png) | ![File-diff modal: syntax-highlighted unified / split diff with on-demand gap expansion and word-level emphasis](docs/assets/screenshots/2-overview-tab.png) |
+| ![Overview: branches, commit graph, commit detail, hover card](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/1-git-panel-overview.png) | ![File-diff modal: syntax-highlighted unified / split diff with on-demand gap expansion and word-level emphasis](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/2-overview-tab.png) |
 | Changes | File browser |
-| ![Changes: stats bar, uncommitted list, commit box, diff](docs/assets/screenshots/3-changes.png) | ![File browser: lazy directory tree, official type icons, dimmed ignored entries, and file preview](docs/assets/screenshots/4-files.png) |
+| ![Changes: stats bar, uncommitted list, commit box, diff](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/3-changes.png) | ![File browser: lazy directory tree, official type icons, dimmed ignored entries, and file preview](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/4-files.png) |
 | Narrow / mobile | Plugin config |
-| ![Narrow / mobile: single-column drill-in layout with stats bar, change list, and commit box](docs/assets/screenshots/5-mobile-panel.png) | ![Plugin config: marker toggle, default diff view, graph style, and AI generation settings](docs/assets/screenshots/6-plugin-config.png) |
+| ![Narrow / mobile: single-column drill-in layout with stats bar, change list, and commit box](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/5-mobile-panel.png) | ![Plugin config: marker toggle, default diff view, graph style, and AI generation settings](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/6-plugin-config.png) |
 
 ## Architecture
 
@@ -113,4 +113,4 @@ Thanks to [@ivanant](https://github.com/ivanant) for the many optimization sugge
 
 ## License
 
-[MIT License](LICENSE).
+[MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE).
