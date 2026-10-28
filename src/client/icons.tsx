@@ -1,6 +1,6 @@
 /** Minimal inline SVG icons (currentColor) — plus the one full-paint glyph,
  * PluginIcon, which carries the package icon.svg artwork instead. */
-import { createElement as h } from 'react'
+import { createElement as h, useId } from 'react'
 import type { JSX } from 'react'
 
 /** Glyph props. `className` lets a host (e.g. the sidebar guide card) apply
@@ -273,25 +273,30 @@ export function BranchSyncIcon({ size, direction }: IconProps & { readonly direc
  * entry takes a component rather than a file. It paints itself (a teal→blue
  * branch, no background tile — the host supplies its own surface) instead of
  * following currentColor, and stays decorative — the capsule beside it carries
- * the label. The gradient id is namespaced so a second copy in the same
- * document shares one definition instead of clashing with a host gradient that
- * happens to be called `glyph`. */
+ * the label. The gradient id is per instance (`useId`): `url(#…)` resolves
+ * against the whole document, so every copy sharing one id resolves to the
+ * first copy's `<defs>` — when that copy unmounts, the visible copies lose
+ * their paint. The stroke's trailing colour is the paint fallback, so the
+ * glyph degrades to solid blue rather than disappearing if the paint server
+ * ever fails to resolve. */
 export function PluginIcon({ size = 16, className }: IconProps): JSX.Element {
+  const gradientId = useId()
+  const paint = `url("#${gradientId}") #4F7BFF`
   return h('svg', {
     width: size, height: size, viewBox: '0 0 128 128', fill: 'none',
     'aria-hidden': true,
     ...(className !== undefined ? { className } : {}),
   }, [
     h('defs', { key: 'd' }, h('linearGradient', {
-      id: 'gp-plugin-glyph', x1: 38, y1: 30, x2: 92, y2: 102, gradientUnits: 'userSpaceOnUse',
+      id: gradientId, x1: 38, y1: 30, x2: 92, y2: 102, gradientUnits: 'userSpaceOnUse',
     }, [h('stop', { key: 'a', offset: 0, stopColor: '#36C9B4' }), h('stop', { key: 'b', offset: 1, stopColor: '#4F7BFF' })])),
-    h('g', { key: 'lines', fill: 'none', stroke: 'url(#gp-plugin-glyph)', strokeWidth: 8, strokeLinecap: 'round' }, [
+    h('g', { key: 'lines', fill: 'none', stroke: paint, strokeWidth: 8, strokeLinecap: 'round' }, [
       // Endpoints sit inside each ring's stroke band (r 7, stroke 8 → band
       // 3..11): the round cap closes the seam without entering the hole.
       h('path', { key: 'a', d: 'M44 46V82' }),
       h('path', { key: 'b', d: 'M84 56c0 13-40 7-40 20' }),
     ]),
-    h('g', { key: 'nodes', fill: 'none', stroke: 'url(#gp-plugin-glyph)', strokeWidth: 8 }, [
+    h('g', { key: 'nodes', fill: 'none', stroke: paint, strokeWidth: 8 }, [
       h('circle', { key: 'a', cx: 44, cy: 34, r: 7 }),
       h('circle', { key: 'b', cx: 84, cy: 46, r: 7 }),
       h('circle', { key: 'c', cx: 44, cy: 94, r: 7 }),
