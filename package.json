@@ -27,6 +27,12 @@
     },
     "./locale/zh.json": "./locale/zh.json",
     "./locale/en.json": "./locale/en.json",
+    "./locale/ja.json": "./locale/ja.json",
+    "./locale/es.json": "./locale/es.json",
+    "./locale/fr.json": "./locale/fr.json",
+    "./locale/de.json": "./locale/de.json",
+    "./locale/ru.json": "./locale/ru.json",
+    "./locale/pt.json": "./locale/pt.json",
     "./package.json": "./package.json"
   },
   "files": [

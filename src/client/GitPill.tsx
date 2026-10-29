@@ -149,11 +149,11 @@ export function GitPill({ ctx, sessionId, t }: PillProps): JSX.Element | null {
       openSidebarTab(ctx)
       return
     }
-    if (isGitTabActive(label)) { returnToConversation(label); return }
+    if (isGitTabActive(label, wrap)) { returnToConversation(label, wrap); return }
     if (hasSession(sessionId)) {
       requestSubTab(sessionId, dirty ? 'changes' : 'overview')
     }
-    activateGitTab(label)
+    activateGitTab(label, wrap)
   }
 
   // The pill reads as a status marker, so a click that opens the sidebar

@@ -1,8 +1,8 @@
 # dsh-git-panel
 
-[English](README.en.md) | 简体中文
+[English](https://github.com/xbzbing/dsh-git-panel/blob/main/README.en.md) | 简体中文
 
-![dsh-git-panel](docs/assets/banner-zh.png)
+![dsh-git-panel](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/banner-zh.png)
 
 `dsh-git-panel` 是一个 DSH Web GUI 插件，在对话工作区里提供 IDE 风格的 Git 面板。它把分支列表、提交历史图、未提交变更的提交与 amend、语法高亮的差异对照集中到一个常驻标签页，并在输入框左侧放一个 zsh 风格的分支标记，让你在对话过程中随手查看仓库状态、提交改动，不必切到终端或另开 IDE。
 
@@ -22,7 +22,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 安装或更新后，工作区标签栏（「对话」「轨迹」之后）就会出现 **Git** 面板，无需重启服务、也无需刷新页面：dsh 的 hmr 监听 profile 的 `package.json` 与 patch 文件，插件装好即热挂载；client 半产物（`lib/client.js`）被替换后也会被秒级轮询拾取，经 `/plugins/events` 推给浏览器原地热替换（拆掉旧 fiber 重挂新代码），已打开的页面不刷新即可拿到更新。仅 host 半模块（`lib/host/*.js`，进程内已加载的旧代码会一直跑到重启为止）与 hmr 不可用时的 profile 变更仍需重启服务。面板内的配置项（详情页的输入框标记开关、差异默认视图）走配置热写，改动即时生效。
 
-> **兼容性**：已在 `dsh@0.2.1-rc.2` 上实测，安装、Git 面板、输入框标记与 host RPC 均可正常使用。
+> **兼容性**：已在 `dsh@0.2.1-rc.2` 与 `dsh@0.2.2-alpha.2` 上实测，安装、Git 面板、输入框标记、host RPC 与插件详情页均可正常使用。
 
 ## 功能
 
@@ -35,7 +35,7 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 - **差异与源码查看**：统一 / 对照 / 变更前 / 变更后四种视图，语法高亮、词级改动强调、块间隐藏上下文按需展开，<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>F</kbd> 就地查找；图片以光标为锚点缩放（10%–800%）、可拖拽平移与全屏。
 - **窄面板 / 移动端**：宽度 ≤620px 时自动切为单栏「钻取」布局（分支筛选改为底部弹层、提交行改两行式），变宽后自动恢复三栏。
 - **共享工作区护栏**：与 dsh 的 AI 共用同一仓库，写操作弹窗统一提示「可直接让 AI 执行 Git 操作」；撞上 `.git/index.lock` 会自动重试一次并提示「Git 正忙」。
-- UI 跟随 DSH 系统语言设置，支持简体中文和英文。
+- UI 跟随 DSH 系统语言设置，支持 DSH 提供的全部界面语言：简体中文、English、日本語、Español、Français、Deutsch、Русский、Português；其他语言（如后续语言包新增的）回落为英文。
 
 ## 权限与数据边界
 
@@ -53,11 +53,11 @@ dsh plugin --profile web add https://github.com/xbzbing/dsh-git-panel/releases/d
 
 | Git 总览 | 文件差异 modal |
 | :---: | :---: |
-| ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的统一 / 并排对照、块间按需展开与词级高亮](docs/assets/screenshots/2-overview-tab.png) |
+| ![Git 总览：分支、提交历史图、提交详情与 hover 卡片](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/1-git-panel-overview.png) | ![文件差异 modal：语法高亮的统一 / 并排对照、块间按需展开与词级高亮](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/2-overview-tab.png) |
 | 变更记录 | 文件浏览 |
-| ![变更记录：统计条、未提交变更列表、提交框与差异对照](docs/assets/screenshots/3-changes.png) | ![文件浏览：懒加载目录树、官方类型图标、忽略项半透明与文件预览](docs/assets/screenshots/4-files.png) |
+| ![变更记录：统计条、未提交变更列表、提交框与差异对照](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/3-changes.png) | ![文件浏览：懒加载目录树、官方类型图标、忽略项半透明与文件预览](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/4-files.png) |
 | 窄面板 / 移动端 | 插件配置 |
-| ![窄面板 / 移动端：≤620px 单栏钻取布局，统计条、变更列表与提交框纵向排列](docs/assets/screenshots/5-mobile-panel.png) | ![插件配置：输入框标记开关、差异默认视图、提交图样式与 AI 生成设置](docs/assets/screenshots/6-plugin-config.png) |
+| ![窄面板 / 移动端：≤620px 单栏钻取布局，统计条、变更列表与提交框纵向排列](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/5-mobile-panel.png) | ![插件配置：输入框标记开关、差异默认视图、提交图样式与 AI 生成设置](https://cdn.jsdelivr.net/gh/xbzbing/dsh-git-panel@main/docs/assets/screenshots/6-plugin-config.png) |
 
 ## 架构
 
@@ -113,4 +113,4 @@ src/
 
 ## 许可证
 
-本项目采用 [MIT License](LICENSE)。
+本项目采用 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE)。
