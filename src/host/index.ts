@@ -16,7 +16,8 @@ import { canOpenWithSystem, openWithSystem } from './open-file.js'
 import { runAction } from './actions.js'
 import { runQuery } from './queries.js'
 import { runSuggest } from './suggest.js'
-import type { AgentDefaultModelFace, LlmFace, SessionModelSelection } from './llm-face.js'
+import type { AgentDefaultModelFace, LlmFace } from './llm-face.js'
+import { sessionModelReader } from './session-model.js'
 import { checkLatestVersion, readVersionInfo } from './version.js'
 import type { GitActionRequest, GitActionResult, GitOpenFileRequest, GitOpenFileResult, GitQueryRequest, GitQueryResponse, GitSnapshotRequest, GitSnapshotResult, GitSuggestRequest, GitSuggestResult, GitVersionInfo, GitVersionRequest } from './types.js'
 
@@ -68,21 +69,6 @@ async function spawnDetached(subprocess: SubprocessLike, argv: readonly string[]
 /** Structural slice of the Cordis sessions store (live session objects). */
 interface SessionsService {
   get(id: string): { readonly header?: { readonly cwd?: string } } | undefined
-}
-
-/** Structural slice of sessionProjections: read the modelSelection wire view. */
-interface SessionProjectionsLike {
-  snapshot(session: unknown, keys?: readonly string[]): {
-    readonly values?: {
-      readonly modelSelection?: {
-        readonly next?: {
-          readonly provider?: unknown
-          readonly model?: unknown
-          readonly reasoningEffort?: unknown
-        } | null
-      } | null
-    }
-  }
 }
 
 /** Structural slice of the sessionPersistence service (persisted cwd). */
@@ -170,7 +156,6 @@ export class GitPanelService extends TypertRemoteService {
       : (argv) => spawnDetached(subprocess, argv)
     const sessions = get('sessions') as SessionsService | undefined
     const persistence = get('sessionPersistence') as SessionPersistenceLike | undefined
-    const projections = get('sessionProjections') as SessionProjectionsLike | undefined
     return {
       run,
       fs,
@@ -194,26 +179,10 @@ export class GitPanelService extends TypertRemoteService {
       // rather than failing activation (kept out of `static inject` on purpose).
       getLlm: () => get('llm') as LlmFace | undefined,
       getAgentDefaultModel: () => get('agentDefaultModel') as AgentDefaultModelFace | undefined,
-      // Session model selection: projection `next` is pending ?? lastUsed —
-      // the route the next prompt in this session would use.
-      getSessionModel: (sessionId: string): SessionModelSelection | undefined => {
-        const session = sessions?.get(sessionId)
-        if (session === undefined || projections === undefined) return undefined
-        try {
-          const next = projections.snapshot(session, ['modelSelection']).values?.modelSelection?.next
-          if (next == null || typeof next.provider !== 'string' || typeof next.model !== 'string') return undefined
-          if (next.provider === '' || next.model === '') return undefined
-          return {
-            provider: next.provider,
-            model: next.model,
-            ...(typeof next.reasoningEffort === 'string' && next.reasoningEffort !== ''
-              ? { reasoningEffort: next.reasoningEffort }
-              : {}),
-          }
-        } catch {
-          return undefined
-        }
-      },
+      // Session model selection, resolved per request like the services above:
+      // sessionProjections is not in `static inject`, so it may come up after
+      // activation or restart under a live plugin.
+      getSessionModel: sessionModelReader(get),
     }
   }
 

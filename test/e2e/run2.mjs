@@ -114,6 +114,64 @@ const out = await page.evaluate(async ({ snap, nonGitDir }) => {
   await new Promise((r) => setTimeout(r, 100))
   result.toggleBackToChat = chatTab.getAttribute('aria-selected') === 'true' && fakeTab.getAttribute('aria-selected') === 'false'
 
+  // A narrow conversation (a phone) folds every view but the conversation into
+  // the row's "more views" menu: the button sits beside the tablist and opens a
+  // portaled menu one render later, and the active folded view shows no state
+  // on screen — the shell just mounts it. The pill must reach Git through the
+  // menu and read the mounted panel to toggle back.
+  // The shell mounts the active view only; the earlier scenario's panel would
+  // read as "Git is open", so it goes first.
+  cleanPanelRoot.unmount()
+  cleanPanel.remove()
+  fakeTab.remove()
+  const more = document.createElement('button')
+  more.setAttribute('aria-haspopup', 'menu')
+  more.setAttribute('aria-expanded', 'false')
+  document.getElementById('tabbar').after(more)
+  const tabRow = document.createElement('div')
+  document.getElementById('tabbar').before(tabRow)
+  tabRow.append(document.getElementById('tabbar'), more)
+  let gitMount = null
+  const showGit = () => {
+    chatTab.setAttribute('aria-selected', 'false')
+    gitMount = document.createElement('div')
+    gitMount.className = 'gp-panel'
+    gitMount.setAttribute('data-gp-host', 'conversation')
+    tabRow.append(gitMount)
+  }
+  chatTab.addEventListener('click', () => { gitMount?.remove(); gitMount = null })
+  let menuOpens = 0
+  more.addEventListener('click', () => {
+    menuOpens += 1
+    more.setAttribute('aria-expanded', 'true')
+    setTimeout(() => {
+      const menu = document.createElement('div')
+      menu.setAttribute('role', 'menu')
+      for (const name of ['trajectory', 'panel.tab']) {
+        const item = document.createElement('button')
+        item.setAttribute('role', 'menuitem')
+        item.textContent = name
+        item.addEventListener('click', () => {
+          menu.remove(); more.setAttribute('aria-expanded', 'false')
+          if (name === 'panel.tab') showGit()
+        })
+        menu.append(item)
+      }
+      document.body.append(menu)
+    }, 30)
+  })
+  document.querySelector('.gp-pill').click()
+  await new Promise((r) => setTimeout(r, 300))
+  result.foldedOpensMenu = menuOpens === 1
+  result.foldedSelectsGit = gitMount !== null && chatTab.getAttribute('aria-selected') === 'false'
+  result.foldedMenuClosed = document.querySelector('[role="menu"]') === null
+  document.querySelector('.gp-pill').click()
+  await new Promise((r) => setTimeout(r, 100))
+  result.foldedToggleBack = gitMount === null && chatTab.getAttribute('aria-selected') === 'true' && menuOpens === 1
+  more.remove()
+  tabRow.replaceWith(document.getElementById('tabbar'))
+  document.getElementById('tabbar').appendChild(fakeTab)
+
   // Case 2: a non-git directory has no input marker but opens the Files view.
   const notGitConn = { rpc: { call: async (_c, ep) => ep === 'gitPanel/snapshot'
     ? { ok: true, value: { ok: false, error: { code: 'not-a-git-repo', cwd: nonGitDir } } }
@@ -199,6 +257,10 @@ try {
   assert.equal(out.jumpClicked, true, 'pill click activates the Git tab button')
   assert.equal(out.jumpSelectedGit, true, 'pill click selects the Git tab')
   assert.equal(out.toggleBackToChat, true, 'a second pill click while on Git returns to the conversation tab')
+  assert.equal(out.foldedOpensMenu, true, 'with Git folded into the more-views menu, the pill opens that menu')
+  assert.equal(out.foldedSelectsGit, true, 'and picks the Git entry once the menu renders')
+  assert.equal(out.foldedMenuClosed, true, 'leaving the menu closed behind it')
+  assert.equal(out.foldedToggleBack, true, 'a second click reads the mounted panel and returns to the conversation without the menu')
   assert.equal(out.notGitPillHidden, true, 'non-git directory hides the input marker')
   assert.equal(out.notGitFilesOnly, true, 'non-git panel defaults to Files only')
   assert.equal(out.notGitFileListed, true, 'non-git panel lists cwd files')

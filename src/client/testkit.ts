@@ -44,3 +44,4 @@ export type { RepoChoice, RepoGroup, RepoGroupKey, FilesRootRow, FilesRootMenu }
 export { rtlPathText } from './rtl-path.js'
 export { GitController } from './controller.js'
 export { createVisibilitySource } from './visibility.js'
+export { DICTIONARIES } from './locale-dicts.js'

@@ -73,44 +73,83 @@ export function recentSubTab(sessionId: string): SubTab | null {
 }
 
 /**
- * Activate the Git view tab by clicking its tab-bar button (the semantic
- * `button[role="tab"]` the conversation shell renders). Matches by the
- * localized label. Returns whether a matching tab was found.
+ * The shell's view tabs nearest to `from` (the pill's own conversation in a
+ * multi-pane shell; the document otherwise). A narrow conversation — a phone —
+ * shows only the leading tabs; the rest, Git included, sit behind the tab row's
+ * "more views" menu button, which lives beside the tablist rather than in it.
  */
-export function activateGitTab(label: string): boolean {
+function shellTabs(from?: Element | null): { readonly root: ParentNode; readonly tabs: HTMLButtonElement[]; readonly more: HTMLButtonElement | null } {
+  let root: ParentNode = document
+  for (let el = from ?? null; el !== null; el = el.parentElement) {
+    if (el.querySelector(SHELL_TABLIST_SELECTOR) !== null) { root = el; break }
+  }
+  const tablist = root.querySelector<HTMLElement>(SHELL_TABLIST_SELECTOR)
+  const tabs = [...root.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)]
+  const row = tablist?.parentElement ?? null
+  const more = row === null
+    ? null
+    : [...row.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]')].find((b) => !(tablist?.contains(b) ?? false)) ?? null
+  return { root, tabs, more }
+}
+
+const tabLabel = (el: Element): string => (el.textContent ?? '').trim()
+
+/** Pick `label` from the open "more views" menu; the menu renders into a
+ * portal after the trigger's click, so the item is polled for a few frames. */
+function pickFromMoreMenu(more: HTMLButtonElement, label: string): void {
+  if (more.getAttribute('aria-expanded') !== 'true') more.click()
+  let frames = 0
+  const pick = (): void => {
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((n) => tabLabel(n) === label)
+    if (item !== undefined) { item.click(); return }
+    if (++frames < 30) requestAnimationFrame(pick)
+  }
+  pick()
+}
+
+/**
+ * Activate the Git view tab by clicking its tab-bar button (the semantic
+ * `button[role="tab"]` the conversation shell renders), matched by the
+ * localized label; when the row has no room for it, through the "more views"
+ * menu. Returns whether a way to the Git view was found.
+ */
+export function activateGitTab(label: string, from?: Element | null): boolean {
   if (typeof document === 'undefined') return false
-  const tabs = document.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)
-  for (const tab of tabs) {
-    if ((tab.textContent ?? '').trim() !== label) continue
+  const { tabs, more } = shellTabs(from)
+  const tab = tabs.find((b) => tabLabel(b) === label)
+  if (tab !== undefined) {
     if (tab.getAttribute('aria-selected') !== 'true') tab.click()
     return true
   }
-  return false
+  if (more === null) return false
+  pickFromMoreMenu(more, label)
+  return true
 }
 
-/** Whether the Git view tab is the shell's currently selected tab. */
-export function isGitTabActive(label: string): boolean {
+/** Whether the Git view is the shell's current view. A Git tab in the row
+ * reports it directly; one folded into the "more views" menu has no state on
+ * screen, so the mounted conversation panel answers instead (the shell mounts
+ * the active view only). Without a tab row or menu there is no shell view to
+ * toggle, so the panel is never reported as the active one. */
+export function isGitTabActive(label: string, from?: Element | null): boolean {
   if (typeof document === 'undefined') return false
-  const tabs = document.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)
-  for (const tab of tabs) {
-    if ((tab.textContent ?? '').trim() !== label) continue
-    return tab.getAttribute('aria-selected') === 'true'
-  }
-  return false
+  const { root, tabs, more } = shellTabs(from)
+  const tab = tabs.find((b) => tabLabel(b) === label)
+  if (tab !== undefined) return tab.getAttribute('aria-selected') === 'true'
+  if (more === null) return false
+  return root.querySelector('.gp-panel[data-gp-host="conversation"]') !== null
 }
 
 /**
  * Leave the Git panel by selecting the first non-Git shell tab — the
- * conversation view, which the shell always keeps first (order 0). Returns
- * whether such a tab was found; a no-op when it is already selected.
+ * conversation view, which the shell always keeps first (order 0) and never
+ * folds into the menu. Returns whether such a tab was found; a no-op when it
+ * is already selected.
  */
-export function returnToConversation(label: string): boolean {
+export function returnToConversation(label: string, from?: Element | null): boolean {
   if (typeof document === 'undefined') return false
-  const tabs = document.querySelectorAll<HTMLButtonElement>(SHELL_TAB_SELECTOR)
-  for (const tab of tabs) {
-    if ((tab.textContent ?? '').trim() === label) continue
-    if (tab.getAttribute('aria-selected') !== 'true') tab.click()
-    return true
-  }
-  return false
+  const tab = shellTabs(from).tabs.find((b) => tabLabel(b) !== label)
+  if (tab === undefined) return false
+  if (tab.getAttribute('aria-selected') !== 'true') tab.click()
+  return true
 }

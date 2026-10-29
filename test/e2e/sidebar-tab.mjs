@@ -164,20 +164,37 @@ async function boot(page, opts = {}) {
   })
 }
 
-const mounts = (page) => page.evaluate(() => {
+const mounts = (page) => page.evaluate(async () => {
   const keys = Object.keys(window.__ctl.registered)
+  // The capsule's glyph, rendered through React in two copies: the plugin app
+  // icon is a 128-canvas artwork (the line glyphs are 16), and each copy must
+  // paint from its own gradient — `url(#…)` resolves against the whole
+  // document, so copies sharing one id all depend on the first copy's defs.
+  const guideIcons = await (async () => {
+    const entry = (window.__ctl.sidebarTypes[0]?.guide ?? [])[0]
+    if (entry?.icon == null) return null
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    try {
+      const j = window.React.createElement
+      window.ReactDOM.createRoot(host).render(j(window.React.Fragment, null, [
+        j(entry.icon, { key: 'a', size: 22 }),
+        j(entry.icon, { key: 'b', size: 22 }),
+      ]))
+      await new Promise((r) => setTimeout(r, 120))
+      return [...host.querySelectorAll('svg')].map((svg) => ({
+        viewBox: svg.getAttribute('viewBox'),
+        gradientId: svg.querySelector('linearGradient')?.getAttribute('id') ?? null,
+        strokes: [...svg.querySelectorAll('g[stroke]')].map((g) => g.getAttribute('stroke') ?? ''),
+      }))
+    } finally { host.remove() }
+  })()
   return {
     tab: keys.includes('conversation.view'),
     sidebarBody: keys.includes('sidebar.right.pane.tab::@xbzbing/dsh-git-panel'),
     sidebarTitle: keys.includes('sidebar.right.pane.tab.title::@xbzbing/dsh-git-panel'),
     types: window.__ctl.sidebarTypes.map((d) => ({ id: d.id, kind: d.kind, keepMounted: d.keepMounted, priority: d.priority, guide: (d.guide ?? []).map((g) => g.id) })),
-    // The capsule's glyph, rendered outside React to read its viewBox: the
-    // plugin app icon is a 128-canvas artwork, the line glyphs are 16.
-    guideIconViewBox: (() => {
-      const entry = (window.__ctl.sidebarTypes[0]?.guide ?? [])[0]
-      if (entry?.icon == null) return null
-      try { return entry.icon({ size: 22 }).props?.viewBox ?? null } catch { return null }
-    })(),
+    guideIcons,
   }
 })
 
@@ -195,7 +212,17 @@ try {
     assert.equal(m.types[0].id, '@xbzbing/dsh-git-panel', 'the implementation identity is the package name')
     assert.equal(m.types[0].keepMounted, true, 'a visited body stays mounted so unsaved work survives')
     assert.equal(m.types[0].guide.length, 1, 'the type contributes one guide entry')
-    assert.equal(m.guideIconViewBox, '0 0 128 128', 'the guide capsule draws the plugin app icon, not a line glyph')
+    assert.equal(m.guideIcons?.length, 2, 'the probe renders two glyph copies')
+    assert.equal(m.guideIcons[0].viewBox, '0 0 128 128', 'the guide capsule draws the plugin app icon, not a line glyph')
+    assert.ok(m.guideIcons[0].gradientId, 'the glyph defines a gradient')
+    assert.notEqual(m.guideIcons[0].gradientId, m.guideIcons[1].gradientId, 'each glyph copy owns its gradient id — a shared id ties every copy to the first one mounted')
+    for (const [i, copy] of m.guideIcons.entries()) {
+      assert.ok(copy.strokes.length > 0, `copy ${i} has stroked groups`)
+      for (const stroke of copy.strokes) {
+        assert.ok(stroke.includes(`url("#${copy.gradientId}")`), `copy ${i} stroke references its own gradient (${stroke})`)
+        assert.ok(/url\("[^"]+"\)\s+#[0-9A-Fa-f]{6}/.test(stroke), `copy ${i} stroke carries a fallback colour (${stroke})`)
+      }
+    }
 
     // The chip's title: the app glyph ahead of the label, matching what the
     // platform's own chips (files, guide) lead with. A text-only chip reads as
