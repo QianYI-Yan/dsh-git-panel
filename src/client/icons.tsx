@@ -315,11 +315,15 @@ export function PluginIcon({ size = 16, className }: IconProps): JSX.Element {
     h('defs', { key: 'd' }, h('linearGradient', {
       id: gradientId, x1: 38, y1: 30, x2: 92, y2: 102, gradientUnits: 'userSpaceOnUse',
     }, [h('stop', { key: 'a', offset: 0, stopColor: '#36C9B4' }), h('stop', { key: 'b', offset: 1, stopColor: '#4F7BFF' })])),
-    h('g', { key: 'lines', fill: 'none', stroke: paint, strokeWidth: 8, strokeLinecap: 'round' }, [
-      // Endpoints sit inside each ring's stroke band (r 7, stroke 8 → band
-      // 3..11): the round cap closes the seam without entering the hole.
-      h('path', { key: 'a', d: 'M44 46V82' }),
-      h('path', { key: 'b', d: 'M84 56c0 13-40 7-40 20' }),
+    h('g', { key: 'lines', fill: 'none', stroke: paint, strokeWidth: 8, strokeLinecap: 'butt' }, [
+      // Butt ends reach into each ring's stroke band (r 7, stroke 8 → band
+      // 3..11) and stop short of the hole (radius 3). The line's edges at
+      // |dx| = 4 meet the ring's outer edge directly, so the joint runs
+      // straight; a round cap would leave an inward notch there. The branch
+      // turns on radius-11 arcs (inner edge radius 7), so the stroke keeps its
+      // full width through each bend.
+      h('path', { key: 'a', d: 'M44 40V88' }),
+      h('path', { key: 'b', d: 'M84 52V56a11 11 0 0 1-11 11H55a11 11 0 0 0-11 11' }),
     ]),
     h('g', { key: 'nodes', fill: 'none', stroke: paint, strokeWidth: 8 }, [
       h('circle', { key: 'a', cx: 44, cy: 34, r: 7 }),
