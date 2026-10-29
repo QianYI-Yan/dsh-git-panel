@@ -11,7 +11,7 @@ import type { GitPanelRemote } from './rpc.js'
 import { queryAs } from './rpc.js'
 import type { DirEntry, GitSnapshot } from './types.js'
 import type { GitKey } from './locales.js'
-import { ArrowLeftIcon, CheckIcon, CloseIcon, CopyIcon, FullscreenIcon, InfoIcon, RefreshIcon, ScreenIcon, WrapIcon } from './icons.js'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CloseIcon, CopyIcon, FolderIcon, FullscreenIcon, InfoIcon, RefreshIcon, RepoIcon, ScreenIcon, SyncIcon, WrapIcon } from './icons.js'
 import { useResizableColumn, useStackedSplit } from './resizable.js'
 import { FileTypeIcon, IconFolderCloseRegular, IconFolderOpenRegular, MarkdownText, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { FilePropsModal, type FilePropsInput } from './FilePropsModal.js'
@@ -19,6 +19,7 @@ import { useDialogFocus } from './dialog-focus.js'
 import { canCopyContent } from './copy-content.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { useHoverTip } from './tip.js'
+import { rtlPathText } from './rtl-path.js'
 import { pathCopyButton } from './path-copy-button.js'
 import { createPathImages, type PathImages } from './path-images.js'
 import { splitMermaidSegments, markdownKbdToCode, type MermaidSegment } from './mermaid-blocks.js'
@@ -32,6 +33,8 @@ import { MermaidFigure } from './MermaidFigure.js'
 import { CodePreview, renderPreview, type FileState } from './files-preview.js'
 import { wrapCapOk } from './wrap-cap.js'
 import { isSvgPath } from './diff.js'
+import { screenFailKeyOf, SCREEN_TIMEOUT_MS } from './screen-full.js'
+import type { FilesRootMenu } from './repo-list.js'
 
 interface FilesTabProps {
   readonly remote: GitPanelRemote
@@ -45,8 +48,20 @@ interface FilesTabProps {
    * files under the root, so the preserved browser state and the per-directory
    * cache are stale and must be dropped. */
   readonly worktreeGen: number
-  /** Panel snapshot; null in the non-git degrade (properties then skip Git). */
+  /** The sample of the checkout the browser is rooted in; null when there is
+   * none (non-git degrade) or the browser shows another root than the panel
+   * follows — properties then skip the Git facts. */
   readonly snapshot: GitSnapshot | null
+  /** Absolute browse root Panel resolved for the browser's selector; null
+   * until the list (or the error's cwd) names it — the bar then shows only
+   * the refresh control. */
+  readonly browseRoot: string | null
+  /** Candidate roots for the address dropdown; null = not following (or no
+   * second root) and the address keeps its click-to-copy behaviour. */
+  readonly rootMenu?: FilesRootMenu | null
+  /** Root a picked selector ('' = the project root), or null to resume
+   * following the switched repository. */
+  readonly onPickRoot?: (selector: string | null) => void
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -104,7 +119,7 @@ function restoreFilesState(sessionId: string): FilesState | null {
   return entry.state
 }
 
-export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, t }: FilesTabProps): JSX.Element {
+export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, snapshot, browseRoot, rootMenu, onPickRoot, t }: FilesTabProps): JSX.Element {
   // Restore a recently-left state once (per mount); null when none/expired.
   const restored = useRef<FilesState | null | undefined>(undefined)
   if (restored.current === undefined) restored.current = restoreFilesState(sessionId)
@@ -122,6 +137,10 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // write for a file the user has left cannot repaint the next one.
   const pathCopy = useCopyFeedback(selected)
   const contentCopy = useCopyFeedback(selected)
+  // The status bar's copy target: the root Panel resolved for the browser's
+  // selector. Keyed on the path itself, so a switch repaints the bar without
+  // carrying the old root's ✓.
+  const rootCopy = useCopyFeedback(browseRoot)
   // The copy-content icon is label-free, so its hint rides the portaled tip
   // (fast + themed, like the toolbar controls) instead of a native title —
   // the two stacked when both were present.
@@ -137,16 +156,21 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   const [fullscreen, setFullscreen] = useState(false)
   // Browser fullscreen of the reader card, tracked from the browser's own state.
   const [screenFull, setScreenFull] = useState(false)
-  // Set when the browser refuses the request: the toggle then does nothing on
-  // its own, so the panel states it instead of leaving a dead control silent.
-  const [screenRefused, setScreenRefused] = useState(false)
+  // Set to the notice key naming why the request could not take effect
+  // (refused, policy-blocked, unsupported, or never answered): the toggle
+  // then does nothing on its own, so the panel states the reason instead of
+  // leaving a dead control silent.
+  const [screenFail, setScreenFail] = useState<GitKey | null>(null)
+  // Watchdog for a request the host never answers: cancelled when the
+  // promise settles, when full screen is entered, and on unmount.
+  const screenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fsCardRef = useRef<HTMLDivElement | null>(null)
   const fsCloseRef = useRef<HTMLButtonElement | null>(null)
   const fsTriggerRef = useRef<HTMLButtonElement | null>(null)
   // Compact drill-in: 'tree' lists the working tree, 'preview' shows the file.
   // Ignored by the wide layout (tree + preview side by side).
   const [pane, setPane] = useState<'tree' | 'preview'>(() => init?.pane ?? 'tree')
-  // Manual refresh from the tree's floating button: re-lists the open
+  // Manual refresh from the status bar's refresh button: re-lists the open
   // directories and re-reads the selected file. `refreshFlight` keeps one
   // refresh at a time (the button is disabled while it runs). `dirGen` drops
   // every listing a branch switch made stale; `dirSeq` keeps the newest request
@@ -202,27 +226,55 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       const own = document.fullscreenElement === fsCardRef.current
       setScreenFull(own)
       // A granted request (or any later state where the card owns the screen)
-      // retires the refusal notice.
-      if (own) setScreenRefused(false)
+      // retires the failure notice.
+      if (own) setScreenFail(null)
     }
     document.addEventListener('fullscreenchange', sync)
-    return () => document.removeEventListener('fullscreenchange', sync)
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      if (screenTimer.current !== null) { clearTimeout(screenTimer.current); screenTimer.current = null }
+    }
   }, [])
   const closeFullscreen = useCallback(() => {
     if (document.fullscreenElement !== null && document.fullscreenElement === fsCardRef.current) {
       void document.exitFullscreen().catch(() => undefined)
     }
-    setScreenRefused(false)
+    setScreenFail(null)
     setFullscreen(false)
   }, [])
   const toggleScreenFull = useCallback(() => {
     const card = fsCardRef.current
     if (card === null) return
     if (document.fullscreenElement === card) { void document.exitFullscreen().catch(() => undefined); return }
-    // A host that denies fullscreen (a Permissions-Policy on an embedded GUI)
-    // rejects here; the button follows the browser's state, so the request is
-    // reported through the notice bar below instead of the console.
-    void card.requestFullscreen().catch(() => { setScreenRefused(true) })
+    // Every way this request can fail must leave a visible reason instead of
+    // a dead control: a host that denies fullscreen rejects the promise
+    // (Chrome reports a Permissions-Policy lockout as a TypeError), an engine
+    // without the API throws synchronously, and a host that never settles
+    // the promise is caught by the watchdog below.
+    const clearTimer = (): void => {
+      if (screenTimer.current !== null) { clearTimeout(screenTimer.current); screenTimer.current = null }
+    }
+    clearTimer()
+    setScreenFail(null)
+    if (typeof card.requestFullscreen !== 'function') { setScreenFail('files.screenFullUnsupported'); return }
+    screenTimer.current = setTimeout(() => {
+      screenTimer.current = null
+      if (document.fullscreenElement !== card) setScreenFail('files.screenFullNoResponse')
+    }, SCREEN_TIMEOUT_MS)
+    try {
+      void card.requestFullscreen().then(() => {
+        clearTimer()
+        // The spec resolves only after fullscreenElement is set; a host that
+        // resolves without entering is reported like a silent one.
+        if (document.fullscreenElement !== card) setScreenFail('files.screenFullNoResponse')
+      }, (error: unknown) => {
+        clearTimer()
+        setScreenFail(screenFailKeyOf(error))
+      })
+    } catch {
+      clearTimer()
+      setScreenFail('files.screenFullUnsupported')
+    }
   }, [])
 
   const leftCol = useResizableColumn({ storageKey: 'gp.files.left', initial: 300, min: 180, reserve: 220, edge: 'end' })
@@ -420,16 +472,121 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
   // beside the card is made inert while it is open, so `aria-modal` is true.
   const fsActive = fullscreen && selected !== null && file.kind === 'text'
 
-  // The refresh control floats at the tree's top-right corner: it re-lists the
-  // expanded directories and re-reads the open file (see `refresh`) without a
-  // row of its own above the list, and it stays put while the entries scroll
-  // under it.
+  // The refresh control sits in the tree column's status bar, above the
+  // scrolling entries: same re-list/re-read behaviour, one refresh at a time
+  // via `refreshFlight`, busy state on the button itself.
   const refreshButton = h('button', {
     key: 'refresh', type: 'button', className: `gp-files__refresh${refreshing ? ' gp-files__refresh--busy' : ''}`,
     title: t('files.refresh'), 'aria-label': t('files.refresh'),
     'aria-busy': refreshing, disabled: refreshing,
     onClick: () => refresh(),
   }, h(RefreshIcon, { size: 14 }))
+
+  // A second candidate root gives the address a list instead of copy: it opens
+  // under the bar, closes on an outside press or Escape, and offers the
+  // follow state, the project root, every checkout, and a copy entry. The
+  // config default decides nothing here — the list is the session's override.
+  const [rootMenuOpen, setRootMenuOpen] = useState(false)
+  const rootMenuRef = useRef<HTMLDivElement | null>(null)
+  // The list does not need a resolved root: it is how the session gets one.
+  const menuable = rootMenu !== undefined && rootMenu !== null
+  useEffect(() => { if (!menuable) setRootMenuOpen(false) }, [menuable])
+  useEffect(() => {
+    if (!rootMenuOpen) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const el = rootMenuRef.current
+      if (el !== null && !el.contains(event.target as Node)) setRootMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => { if (event.key === 'Escape') setRootMenuOpen(false) }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [rootMenuOpen])
+
+  const rootMenuNode = !menuable || !rootMenuOpen || rootMenu === null || rootMenu === undefined
+    ? null
+    : h('div', { key: 'rootmenu', ref: rootMenuRef, className: 'gp-files__rootmenu', role: 'listbox', 'aria-label': t('files.rootMenuLabel') }, [
+      h('button', {
+        key: 'follow', type: 'button', role: 'option', 'aria-selected': rootMenu.followActive,
+        className: `gp-files__rootmenu__item${rootMenu.followActive ? ' gp-files__rootmenu__item--active' : ''}`,
+        onClick: () => { hideTip(); setRootMenuOpen(false); onPickRoot?.(null) },
+      }, [
+        h('span', { key: 'i', className: 'gp-files__rootmenu__icon' }, h(SyncIcon, { size: 13 })),
+        h('span', { key: 'n', className: 'gp-files__rootmenu__name' }, t('files.rootFollowGit')),
+      ]),
+      ...rootMenu.rows.map((row) => h('button', {
+        key: row.selector === '' ? 'project' : `repo:${row.selector}`,
+        type: 'button', role: 'option', 'aria-selected': row.active,
+        ...(row.disabled !== undefined ? { 'aria-disabled': true as const } : {}),
+        className: `gp-files__rootmenu__item${row.active ? ' gp-files__rootmenu__item--active' : ''}${row.disabled !== undefined ? ' gp-files__rootmenu__item--disabled' : ''}`,
+        onClick: () => {
+          if (row.disabled !== undefined) return
+          hideTip()
+          setRootMenuOpen(false)
+          onPickRoot?.(row.selector)
+        },
+      }, [
+        h('span', { key: 'i', className: 'gp-files__rootmenu__icon' }, row.kind === 'project' ? h(FolderIcon, { size: 13 }) : h(RepoIcon, { size: 13 })),
+        h('span', { key: 't', className: 'gp-files__rootmenu__text' }, [
+          h('span', { key: 'n', className: 'gp-files__rootmenu__name' }, row.kind === 'project' ? t('files.rootProject') : row.name),
+          h('span', {
+            key: 'p',
+            className: row.kind === 'project' ? 'gp-files__rootmenu__path gp-files__rootmenu__path--abs' : 'gp-files__rootmenu__path',
+          }, row.kind === 'project' ? rtlPathText(row.root) : row.path),
+        ]),
+      ])),
+      browseRoot === null ? null : h('button', {
+        key: 'copy', type: 'button', className: 'gp-files__rootmenu__item gp-files__rootmenu__copy',
+        onClick: () => { hideTip(); setRootMenuOpen(false); rootCopy.copy(browseRoot) },
+      }, [
+        rootCopy.feedback === 'copied' ? h(CheckIcon, { key: 'ok', size: 13 }) : h(CopyIcon, { key: 'i', size: 13 }),
+        h('span', { key: 'n', className: 'gp-files__rootmenu__name' },
+          rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRootMenu')),
+      ]),
+    ])
+
+  // The tree column's own header row: the absolute browse root on the left —
+  // click to copy, or (with a second candidate root) to open the candidate-root
+  // list — the refresh control on the right. It belongs to the directory tree
+  // column only and it is where the degrade (no snapshot at all) names where
+  // the browser is rooted. The tree wrap carries the reader's inert state.
+  const statusBar = h('div', {
+    key: 'status', className: 'gp-files__statusbar',
+  }, [
+    browseRoot === null && !menuable
+      ? null
+      : h('button', {
+        key: 'root', type: 'button',
+        className: `gp-files__status-path${rootCopy.feedback === 'copied' ? ' gp-files__status-path--copied' : ''}${menuable && rootMenuOpen ? ' gp-files__status-path--open' : ''}`,
+        ...(menuable
+          ? { 'aria-haspopup': 'listbox' as const, 'aria-expanded': rootMenuOpen, 'aria-label': t('files.chooseRoot') }
+          : { 'aria-label': rootCopy.feedback === 'copied' ? t('files.rootCopied') : t('files.copyRoot') }),
+        // The tip carries the full path (and the copy outcome while the ✓
+        // shows); the visible text elides from the left, slash included.
+        ...tipProps(rootCopy.feedback === 'copied' ? t('files.rootCopied') : browseRoot ?? t('files.chooseRoot')),
+        onClick: () => {
+          hideTip()
+          if (menuable) setRootMenuOpen((open) => !open)
+          else if (browseRoot !== null) rootCopy.copy(browseRoot)
+        },
+      }, [
+        h('code', { key: 'p', className: 'gp-files__status-code' }, [
+          h('span', { key: 'body', className: 'gp-files__status-body' }, browseRoot === null ? t('files.chooseRoot') : rtlPathText(browseRoot)),
+        ]),
+        menuable
+          ? h(ChevronIcon, { key: 'chev', size: 12, open: rootMenuOpen })
+          : rootCopy.feedback === 'copied'
+            ? h(CheckIcon, { key: 'ok', size: 12 })
+            : h(CopyIcon, { key: 'i', size: 12 }),
+        h('span', { key: 'live', className: 'gp-copy-live', 'aria-live': 'polite' },
+          rootCopy.feedback === 'copied' ? t('files.rootCopied') : ''),
+      ]),
+    rootMenuNode,
+    refreshButton,
+  ])
 
   const treeBlock = h('div', {
     key: 'left', className: 'gp-files__tree-wrap',
@@ -438,9 +595,9 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     style: stacked ? { flex: `0 0 ${split.pct}%` } : compact ? undefined : { flex: `0 0 ${leftCol.width}px` },
     ...inertAttr(fsActive),
   }, [
-    // The control leads in DOM order so keyboard users reach it before walking
-    // the entry rows; its absolute position puts it at the box's corner.
-    refreshButton,
+    // The header leads in DOM order (keyboard users reach it before the entry
+    // rows) and sits outside the scrolling child, so it stays put.
+    statusBar,
     h('div', { key: 'tree', className: 'gp-files__tree' }, treeRows),
   ])
 
@@ -641,13 +798,14 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
       : null,
     selected !== null && !fsActive ? (compact ? compactBar : wideBar) : null,
     heavyNotice,
-    // The browser-fullscreen toggle sits in this same card, so a refusal is
-    // reported where the user just clicked (the live region announces it).
-    screenRefused
+    // The browser-fullscreen toggle sits in this same card, so a failure is
+    // reported where the user just clicked, naming its reason (the live
+    // region announces it).
+    screenFail !== null
       ? h(NoticeBar, {
-        key: 'fs-refused', status: true,
-        text: t('files.screenFullRefused'), closeLabel: t('common.close'),
-        onClose: () => setScreenRefused(false),
+        key: 'fs-fail', status: true,
+        text: t(screenFail), closeLabel: t('common.close'),
+        onClose: () => setScreenFail(null),
       })
       : null,
     // Hover tip for the copy-content icon, next to the only bar that can raise
@@ -656,7 +814,7 @@ export function FilesTab({ remote, sessionId, compact, stacked, worktreeGen, sna
     tipNode,
     h('div', { key: 'content', className: 'gp-files__preview-content' }, previewContent),
     propsInput !== null && showProps
-      ? h(FilePropsModal, { key: 'props-modal', input: propsInput, snapshot, onClose: () => setShowProps(false), t })
+      ? h(FilePropsModal, { key: 'props-modal', input: propsInput, root: browseRoot, snapshot, onClose: () => setShowProps(false), t })
       : null,
   ])
 

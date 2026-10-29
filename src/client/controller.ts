@@ -9,6 +9,7 @@
 import type { GitPanelRemote } from './rpc.js'
 import type { GitSnapshot } from './types.js'
 import { pageVisibility, type VisibilitySource } from './visibility.js'
+import { selectedRepo } from './repo-select.js'
 
 export type GitView =
   | { readonly state: 'cold' }
@@ -45,12 +46,19 @@ export class GitController {
   // the maxChanges slice, so the polled list stays complete (a one-shot expand
   // would be re-truncated by the next poll and the selection pruned away).
   private fullChanges = false
+  // Which repository this controller samples: '' is the repository the session
+  // cwd belongs to (walk-up behavior), anything else is a nested repository's
+  // path relative to that cwd. Rides every snapshot request; the tabs get it
+  // through the remote face the panel hands them.
+  private repo: string
 
   constructor(
     private readonly remote: GitPanelRemote,
     private readonly sessionId: string,
     private readonly visibility: VisibilitySource = pageVisibility,
+    repo?: string,
   ) {
+    this.repo = repo ?? selectedRepo(sessionId)
     this.unsubscribeVisibility = visibility.subscribe(() => {
       if (this.disposed) return
       this.visibilityGeneration += 1
@@ -101,7 +109,11 @@ export class GitController {
     const generation = this.visibilityGeneration
     const requestGeneration = this.requestGeneration
     if (this.view.state === 'cold') this.setView({ state: 'loading' })
-    this.inflight = this.remote.snapshot({ sessionId: this.sessionId, ...(this.fullChanges ? { fullChanges: true } : {}) })
+    this.inflight = this.remote.snapshot({
+      sessionId: this.sessionId,
+      ...(this.fullChanges ? { fullChanges: true } : {}),
+      ...(this.repo !== '' ? { repo: this.repo } : {}),
+    })
       .then((result) => {
         if (this.disposed || requestGeneration !== this.requestGeneration) return
         if (result.ok) {
@@ -152,6 +164,24 @@ export class GitController {
   setFullChanges(full: boolean): Promise<void> {
     if (this.disposed) return Promise.resolve()
     this.fullChanges = full
+    this.requestGeneration += 1
+    return this.refresh()
+  }
+
+  /** The repository this controller follows ('' = the cwd's own). */
+  getRepo(): string {
+    return this.repo
+  }
+
+  /** Follow another repository and re-sample. The previous snapshot now
+   * describes a different work tree, but it stays published while the new
+   * sample is in flight: blanking the view here collapses the panel to a
+   * placeholder, so the tabs, the repository list and the branch tree all
+   * disappear and come back. The panel dims its body and shows a switching
+   * badge instead, and the new snapshot replaces the old one in one step. */
+  setRepo(repo: string): Promise<void> {
+    if (this.disposed || repo === this.repo) return Promise.resolve()
+    this.repo = repo
     this.requestGeneration += 1
     return this.refresh()
   }

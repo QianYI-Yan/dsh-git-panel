@@ -4,9 +4,9 @@
 
 ## 项目定位
 
-`dsh-git-panel` 是 DeepSeek Harness（dsh）的插件，在 Web GUI 里提供 Git 面板（许可：MIT）：工作区常驻面板 tab「Git」，含三个子 tab——**Git 总览**（分支树 / 提交历史图 / 提交详情与操作、分支切换与远程同步）、**变更记录**（暂存 / 放弃 / 提交 / 贮藏 / 文件差异）、**文件浏览**（目录树 + 预览）。功能细节见 README「功能」；非 Git 目录或系统未装 git 时只显示文件浏览，以 cwd 为根。
+`dsh-git-panel` 是 DeepSeek Harness（dsh）的插件，在 Web GUI 里提供 Git 面板（许可：MIT）：工作区常驻面板 tab「Git」，各档都是三个子 tab——**Git 总览**（分支树 / 提交历史图 / 提交详情与操作、分支切换与远程同步）、**变更记录**（暂存 / 放弃 / 提交 / 贮藏 / 文件差异）、**文件浏览**（目录树 + 预览，目录树列顶部一行状态栏显示浏览根的绝对路径与刷新按钮：候选根多于一个时点击开候选根下拉（跟随项 + 项目根 + 各仓库根 + 复制路径），否则点击复制）；仓库列表挂在分支树所在那一面的顶部（宽档 Git 总览左栏、stacked 上 band 左栏 / 紧档抽屉、compact 按分支筛选的抽屉（手机）或底部弹层）与变更记录列顶（compact 不挂，只留总览一处），**不另开页签**，默认收起、标题行显示当前选中的存储库，两处共享一个收起状态（**点击行切换仓库后区块自动收起**、把列还给分支树，再点 chevron 展开；选中的那份决定三个页签作用于哪个工作树）。文件浏览的根由配置 `filesFollowRepo` 定**各会话的默认值**（默认关 = 项目根 = cwd 所属工作树，开 = 随选中仓库换根），状态栏地址在候选根多于一个时**恒为下拉**（跟随项 + 项目根 + 各仓库根），每个会话都能当场覆盖默认（选「跟随 Git 切换」即跟随、选根即钉住），覆盖粘住直到改选或改配置——改配置把所有会话重置回新默认。**联动是单向的**：Git 跟随每一次目录切换——下拉里选中的根本身是可选仓库（含 cwd 自身是仓库时的项目根）时，Git 总览与变更记录同步切到它、文件页留在前台（`gitRepoForFilesRoot`）；反过来 Git 切换仓库时文件浏览是否换根只由上面的默认值 / 覆盖决定，「跟随 Git 切换」项只动文件侧。cwd 不是 git 仓库时文件浏览页**不铺横向卡片条**：该会话从未选过仓库时面板自动进入扫描到的第一个子仓库（之后总览照常有列表，只列真实检出、没有工作区根行），扫描不到仓库即纯文件浏览。切换仓库不清空视图：旧快照留在原位并整体压暗、标签栏显示「正在切换…」，新快照到达后一次性替换；**切换在途时 `.gp-body` 必须 inert**（旧快照上的行仍在屏，但请求已带新仓库的 `repo` 标签，点暂存 / 放弃会落到新工作树）。功能细节见 README「功能」；系统未装 git 时只显示文件浏览，以 cwd 为根。
 
-- 输入框左侧 zsh 风格标记 `<仓库名> (<分支>)`（绿=已同步、橙=有待提交，点击跳转面板）；插件详情页可隐藏标记，隐藏时改在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），**两者互斥**。详情页配置表单是 `PillConfig.tsx`，写入被接受后立即 `resyncAll()`。
+- 输入框左侧 zsh 风格标记 `<仓库名> (<分支>)`（绿=已同步、橙=有待提交，点击跳转面板）；插件详情页可隐藏标记，隐藏时改在「Git」标签旁显示同色状态圆点（`tab-dot.ts`），**两者互斥**。详情页配置表单是 `PillConfig.tsx`，按功能分四区（基础配置 / 界面显示 / AI 提交信息 / 存储库，仅基础配置默认展开，其余点击展开），写入被接受后立即 `resyncAll()`。「探测 worktree 和子仓库」= `detectCheckouts`（默认开）：关闭时 `listSessionRepos` 两个探测点（`git worktree list`、目录扫描）都不跑；该开关随快照下发并参与 `stateFingerprint`，`Panel` 的 repo-list effect 依赖它，翻转即重新拉取列表。「文件浏览跟随 Git 切换」= `filesFollowRepo`（默认关）：同样随快照下发（旧 host 缺失按关读），`Panel` 用它作为文件侧选择器的默认输入推导 `repo` 标签（`filesRemote`，与 Git 选中仓库解耦——会话有覆盖时覆盖优先，配置只在无覆盖时生效），并在翻转时清除所有会话覆盖（手动根选择与跟随 opt-in，回到新默认）。
 - 面板布局判据都在容器上量：`layout.ts` 测量、`panel-fit.ts` 出纯策略（`panelMode` → `wide | stacked | compact`，按宿主分支）。所有断点、档位与抽屉规则以 **ADR-0023** 和 `panel-fit.ts` 单测为准，本文件只记两条踩过的坑：**判手机必须同时要求 `(pointer: coarse)`**（`screen` 报 CSS px，1366×768@125% 的短边只有 614，只看屏宽会把缩放桌面读成手机）；**提交字段持有光标时不折叠编辑器**（手机输入法会把面板压进矮档，折叠=卸载正在输入的字段并连带关掉键盘），折叠只由显式操作触发且先 blur。**藏东西只认 `isCramped`（窄且矮）组合**，stacked 不藏。
 
 ## 架构总览
@@ -36,7 +36,8 @@ Host 半 (Cordis + typert, lib/host)
 - `index.ts`：`GitPanelService`，只做端点委托与生命周期接线。
 - `git.ts`：把 `subprocess` 适配成带超时的 `GitRunner`；每条命令注入 `GIT_TERMINAL_PROMPT=0`，网络命令遇凭据 / 主机密钥交互时快速失败而非挂到超时。
 - `fs-deps.ts`：`SnapshotDeps` fs 面的唯一来源（`createFsDeps()`），host 服务与 `host-integration` 单测共用，不得另写一份，否则测试不再是对生产的断言。
-- `core.ts`：仓库根解析（realpath）+ `snapshotForSession`；`resolveBrowseRoot` 在非 Git 目录回退到 cwd。
+- `core.ts`：仓库根解析（realpath）+ `snapshotForSession`；`resolveBrowseRoot` 在非 Git 目录回退到 cwd。多仓库：`resolveWorkspace(deps, sessionId, repo)` 按 (cwd, repo) 缓存，子目录仓库必须自己的 toplevel 恰好等于所选目录（否则 `invalid-repo`），`listSessionRepos` 汇总工作区主仓库与扫描结果。
+- `repos.ts`：工作区内嵌套仓库扫描（BFS 最多 3 层、跳过 `.git` 与 `node_modules`、命中 `.git` 即不再下钻），以及 `repoDirFor` 把相对仓库路径解析回受信任目录（`isSafePath` + realpath 包含检查、排除 cwd 与 `.git`）。
 - `snapshot-fingerprint.ts`：快照的 `stateFingerprint`（键排序后 SHA-256，排除 `checkedAt`）。
 - `actions.ts`：`GitAction` → git 命令序列，以及 git 输出 → 错误码映射（冲突、`index-busy`、`not-found`、`auth-failed`、`push-rejected`、`not-ff` 等，兜底 `git-error`）。
 - `queries.ts`：`query` 端点的各类按需查询（history / diff / file-lines / image-diff / dir-list / file-content / show / branches / tags / stash-list / authors / pull-preview / push-preview / model-catalog 等）。
@@ -49,9 +50,9 @@ Host 半 (Cordis + typert, lib/host)
 
 - 入口与通信：`index.ts`（注册三个 slot + i18n）、`rpc.ts`（`gitPanel/<method>` 的 client 面，异常降级为类型化 failure）。
 - 快照与刷新：`controller.ts`（`GitController`）、`registry.ts`（per-session 复用池，最后一份引用释放后 60s 回收）、`visibility.ts` / `use-page-visibility.ts`、`use-git-query-signal.ts`、`use-visible-request.ts`、`query-key.ts`。
-- 页面：`Panel.tsx`（子 tab 路由、字号、版本条）+ `OverviewTab` / `ChangesTab` / `FilesTab` 三个页签及其 `*-hooks`、工具栏与弹窗伴星文件——单个文件的职责看目录与文件头注释即可。
-- 纯算法（有单测，新增纯逻辑放这里、别塞进组件）：`branch-tree` / `git-graph` / `filtered-graph` / `file-tree` / `diff` / `code-spans` / `virtual-list` / `zoom` / `selection-keys` / `branch-options` / `push-policy` / `panel-fit`（三档判据，测量与策略分离才可单测）/ `path-images` / `mermaid-blocks`（kbd 只能在送入 MarkdownText **之前**文本替换，围栏与行内代码内不替换）/ `html-pack`（HTML 预览文档变换，ADR-0020）。
-- 样式表：`styles.ts` 只是装配入口（`ensureStyles` + `CSS_PARTS` 拼接），规则在 `css/` 下按功能域九个模块（base / overview / changes / diff / modal / actions / config / layout / stacked）。**`CSS_PARTS` 的数组顺序即层叠顺序**，写在后面的模块覆盖前面的——所以「写进对应功能域模块」还不够：要让一条新规则赢过某条既有规则，它必须落在**那条规则所在模块之后**（同模块内则在其后），否则会被静默覆盖；跨档覆盖（compact、触摸媒体查询）进 `layout.ts`，侧栏 stacked 覆盖进 `stacked.ts`。不要重排既有模块或改动 `CSS_PARTS` 的顺序，`test/unit/stylesheet.test.mjs` 会拦。
+- 页面：`Panel.tsx`（子 tab 路由、字号、版本条）+ `OverviewTab`（分支树所在那一面顶部内嵌 `ReposSection` 仓库列表）/ `ChangesTab` / `FilesTab`（含目录树列顶部的浏览根状态栏）三个页签及其 `*-hooks`、工具栏与弹窗伴星文件——单个文件的职责看目录与文件头注释即可。
+- 纯算法（有单测，新增纯逻辑放这里、别塞进组件）：`repo-select`（每会话记住所选仓库与文件浏览根选择器 + 给仓库相关请求打 `repo` 标签）/ `repo-list`（仓库列表的行模型与标签规则、浏览根下拉行模型）/ `branch-tree` / `git-graph` / `filtered-graph` / `file-tree` / `diff` / `code-spans` / `virtual-list` / `zoom` / `selection-keys` / `branch-options` / `push-policy` / `panel-fit`（三档判据，测量与策略分离才可单测）/ `path-images` / `mermaid-blocks`（kbd 只能在送入 MarkdownText **之前**文本替换，围栏与行内代码内不替换）/ `html-pack`（HTML 预览文档变换，ADR-0020）。
+- 样式表：`styles.ts` 只是装配入口（`ensureStyles` + `CSS_PARTS` 拼接），规则在 `css/` 下按功能域十个模块（base / overview / changes / diff / modal / actions / config / layout / repos / stacked）。**`CSS_PARTS` 的数组顺序即层叠顺序**，写在后面的模块覆盖前面的——所以「写进对应功能域模块」还不够：要让一条新规则赢过某条既有规则，它必须落在**那条规则所在模块之后**（同模块内则在其后），否则会被静默覆盖；跨档覆盖（compact、触摸媒体查询）进 `layout.ts`，侧栏 stacked 覆盖进 `stacked.ts`。不要重排既有模块或改动 `CSS_PARTS` 的顺序，`test/unit/stylesheet.test.mjs` 会拦。
 - 共享 UI 原语：`ops-modals.tsx`（弹窗外壳 / 确认框 / 错误码文案）、`dialog-focus.ts`（模态焦点生命周期）、`tip.tsx`、`notice.tsx`、`use-viewport.ts`、`highlight-cache.ts`、`ImageZoom.tsx`、`MermaidFigure.tsx`（懒加载 mermaid chunk 的唯一引用点，见「依赖策略」）。
 - 测试入口：`testkit.ts` / `hookkit.ts`（见「构建」）。
 
@@ -95,6 +96,7 @@ Host 半 (Cordis + typert, lib/host)
 - stacked 档（`[data-layout="stacked"]`）：三个子页签统一为上/下两 band + `.gp-resizer--row` 行分割线；拖拽比**一个值服务三面**（`gp.stacked.split`，模块级监听同步，改一处三面同动）。分隔条的每个状态必须声明完整盒子（`left/right/width/bottom` + `top/height/background`）——基础竖条的属性会按级联漏进 row 变体，只写一部分会塌成残根。
 - 弹窗复用 `ops-modals.tsx`（`renderModalShell` / `renderConfirmModal` / `renderModalFooter`）与 `dialog-focus.ts`（`useDialogFocus`），关闭与焦点契约单处收口，不各写一份；在途操作用 `confirmBusy` 禁用并抑制 Escape / backdrop。**每个浮层都要声明自己的叠层身份**：`useDialogFocus` 自动在根节点打 `data-gp-overlay`、`renderModalShell` 的 backdrop 自带——新增浮层漏了这一步，一次 Escape 会同时关掉上下两层。
 - 带 `aria-controls` 的 tab / segmented 控件必须渲染对应的 `role=tabpanel` 节点，保证引用恒可解析。
+- **切换存储库在途时（`repoSwitching`），页签的自动夹取与 files-only 回落都必须让路**：新仓库可能是仓库，夹取会把刚选中的「Git 总览」打回「文件浏览」（`src/client/Panel.tsx` 两处 effect 都判这个标志）。选中的页签同时要计入 `visited`，否则新总览判定为「从未打开」、只挂占位符，左栏的存储库列表跟着消失。
 - 长列表（变更列表、源码视图、DiffView）用 `virtual-list.ts` + `use-viewport.ts` 虚拟化；查找跳转到窗口外命中时窗口吸附到命中邻域，不挂载中间的连续区间。
 - `memo` 组件的 props 传普通值，不在渲染中新建对象字面量（会让浅比较失效、重跑整套高亮）；逐行高亮经 `highlight-cache.ts` 缓存。
 - 图片缩放：`.gp-zoom__img` 必须 `flex:none`（否则放大超过 100% 不生效）；拖拽的 pointer 事件挂 window 且不 `setPointerCapture`（会改写 click 目标）。

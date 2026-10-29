@@ -47,6 +47,7 @@ window.runPanelAriaScenarios = async ({ snap, nonGitDir }) => {
       case 'history': return okValue({ kind: 'history', total: 0, commits: [] })
       case 'dir-list': return okValue({ kind: 'dir-list', path: q.path ?? '', truncated: false, entries: [] })
       case 'stash-list': return okValue({ kind: 'stash-list', entries: [] })
+      case 'repo-list': return okValue({ kind: 'repo-list', cwd: '', repos: [] })
       default: return okValue({ kind: q.kind ?? 'branches' })
     }
   }

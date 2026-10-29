@@ -34,6 +34,11 @@ export function BranchIcon({ size }: IconProps): JSX.Element {
   return svg([h('circle', { key: 'a', cx: 4, cy: 3, r: 1.6 }), h('circle', { key: 'b', cx: 4, cy: 13, r: 1.6 }), h('circle', { key: 'c', cx: 12, cy: 5, r: 1.6 }), h('path', { key: 'd', d: 'M4 4.6v6.8' }), h('path', { key: 'e', d: 'M12 6.6c0 3-4 2.4-8 4' })], size)
 }
 
+/** One repository splitting into several checkouts — a linked worktree row. */
+export function WorktreeIcon({ size }: IconProps): JSX.Element {
+  return svg([h('circle', { key: 'a', cx: 8, cy: 2.6, r: 1.6 }), h('path', { key: 'b', d: 'M8 4.2v2.2' }), h('path', { key: 'c', d: 'M8 6.4L4.4 9.2' }), h('path', { key: 'd', d: 'M8 6.4l3.6 2.8' }), h('circle', { key: 'e', cx: 3.4, cy: 11.8, r: 1.6 }), h('circle', { key: 'f', cx: 12.6, cy: 11.8, r: 1.6 })], size)
+}
+
 function tagGlyph(size: number | undefined, hidden = false): JSX.Element {
   return svg([h('path', { key: 'a', d: TAG_PATH }), h('circle', { key: 'b', cx: 4.5, cy: 5.5, r: 0.8, fill: 'currentColor' })], size, hidden)
 }
@@ -153,6 +158,21 @@ export function SparkleIcon({ size }: IconProps): JSX.Element {
   ], size)
 }
 
+/** Three horizontal sliders — the general-settings mark. */
+export function SlidersIcon({ size }: IconProps): JSX.Element {
+  return svg([
+    h('line', { key: 'l1a', x1: 2, y1: 4.5, x2: 3.4, y2: 4.5 }),
+    h('circle', { key: 'k1', cx: 6, cy: 4.5, r: 1.7 }),
+    h('line', { key: 'l1b', x1: 8.6, y1: 4.5, x2: 14, y2: 4.5 }),
+    h('line', { key: 'l2a', x1: 2, y1: 8, x2: 7.4, y2: 8 }),
+    h('circle', { key: 'k2', cx: 10, cy: 8, r: 1.7 }),
+    h('line', { key: 'l2b', x1: 12.6, y1: 8, x2: 14, y2: 8 }),
+    h('line', { key: 'l3a', x1: 2, y1: 11.5, x2: 4.4, y2: 11.5 }),
+    h('circle', { key: 'k3', cx: 7, cy: 11.5, r: 1.7 }),
+    h('line', { key: 'l3b', x1: 9.6, y1: 11.5, x2: 14, y2: 11.5 }),
+  ], size)
+}
+
 export function FileIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M4 2h5l3 3v9H4z' }), h('path', { key: 'b', d: 'M9 2v3h3' })], size)
 }
@@ -195,6 +215,11 @@ export function ResetIcon({ size }: IconProps): JSX.Element {
 
 export function FilesIcon({ size }: IconProps): JSX.Element {
   return svg([h('path', { key: 'a', d: 'M5 2.5h4l2.5 2.5v7.5h-6.5z' }), h('path', { key: 'b', d: 'M9 2.5V5h2.5' }), h('path', { key: 'c', d: 'M11 12.5v1.5h-6.5V6' })], size)
+}
+
+/** Source-control repository: a crate outline, the repository list's mark. */
+export function RepoIcon({ size }: IconProps): JSX.Element {
+  return svg([h('path', { key: 'a', d: 'M3 3h10v10.5H3z' }), h('path', { key: 'b', d: 'M3 6.2h10' }), h('path', { key: 'c', d: 'M6.2 6.2v7.3M9.8 6.2v7.3' })], size)
 }
 
 /** GitHub mark (filled, currentColor). */

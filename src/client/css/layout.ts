@@ -26,10 +26,16 @@ export const CSS = `
  * short labels get more of the row width. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs{flex:1 1 auto;padding:2px;border-radius:8px}
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs--single{flex:0 0 auto}
+/* The switch badge keeps its dot only: the compact bar has no room for a label
+ * beside the tabs (base.ts paints the full badge). */
+.gp-panel[data-layout="compact"] .gp-tabbar__switching-label{display:none}
 /* Indicator width is an inline calc((100% - 8px) / n) from the primitive.
  * Platform DOM contract pinned here: the indicator is a DIRECT span child with
  * aria-hidden and that inline width — if the primitive wraps it or changes the
- * width formula, compact indicator geometry breaks silently (watch the e2e). */
+ * width formula, compact indicator geometry breaks silently (watch the e2e).
+ * The compact override has to restate the divisor. Compact shows three panes,
+ * or one alone when a cwd without a checkout collapses the bar to the browser
+ * — those are the only counts it can carry. */
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs>span[aria-hidden="true"]{inset:2px auto 2px 2px;width:calc((100% - 4px) / 3) !important}
 .gp-panel[data-layout="compact"] .gp-tabbar__tabs--single>span[aria-hidden="true"]{width:calc(100% - 4px) !important}
 /* Slightly shorter cells + less side padding so "Overview" fits on a phone. */

@@ -58,6 +58,9 @@ export const FULL_CHANGES_MAX = 10_000
 export interface GitSnapshotRequest {
   readonly sessionId: string
   readonly fullChanges?: boolean
+  /** Which repository to sample (GitRepoEntry.path); absent = the default one,
+   * i.e. what the cwd's own `git rev-parse` resolves. */
+  readonly repo?: string
 }
 
 export type GitSnapshotResult =
@@ -67,6 +70,10 @@ export type GitSnapshotResult =
 export type GitFailure =
   | { readonly code: 'cwd-unavailable'; readonly sessionId: string }
   | { readonly code: 'not-a-git-repo'; readonly cwd?: string; readonly showInputPill?: boolean }
+  // A repository selector (GitRepoEntry.path) that no longer resolves: outside
+  // the cwd, deleted, not a work-tree top, or bare. The client re-lists the
+  // repositories and falls back to the workspace one.
+  | { readonly code: 'invalid-repo'; readonly cwd?: string }
   // git not installed / not on PATH: the spawn itself failed, so neither the
   // work-tree root nor repo membership can be learned from git. `cwd` carries
   // the session directory (so the browser can still file-browse it); `isGitRepo`
@@ -143,6 +150,12 @@ export interface GitSnapshot {
   readonly fontDelta: FontDelta
   /** Whether the commit box shows the AI-suggest button (user preference). */
   readonly suggestEnabled: boolean
+  /** Whether the repository list probes worktrees and nested repositories
+   * (user preference). Absent on older hosts. */
+  readonly detectCheckouts?: boolean
+  /** Whether the file browser follows repository switches (user preference);
+   * absent on older hosts → off, the browser stays at the project root. */
+  readonly filesFollowRepo?: boolean
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
   readonly stateFingerprint?: string
@@ -304,6 +317,11 @@ export type GitErrorCode =
   // The requested working-tree file (or its directory) is gone: deleted or
   // moved between the directory listing and the read.
   | 'file-not-found'
+  // The repo selector named a directory this session may not use: outside the
+  // cwd, not a work-tree top (a plain subdirectory of a repository), a bare
+  // repository, or gone between the repository listing and the request. The
+  // client re-lists repositories and falls back to the default one.
+  | 'invalid-repo'
   // The target branch is checked out in another worktree of the same repo, so
   // git refuses to switch to it here.
   | 'branch-in-use'
@@ -341,6 +359,8 @@ export type GitActionResult =
 export interface GitActionRequest {
   readonly sessionId: string
   readonly action: GitAction
+  /** Repository the action runs in (GitRepoEntry.path); absent = the default. */
+  readonly repo?: string
 }
 
 // ── queries (read-only endpoint) ──────────────────────────────────────────
@@ -358,6 +378,47 @@ export function isHistoryHashSearch(search: string): boolean {
 export function isHistoryFiltered(query: Pick<Extract<GitQuery, { kind: 'history' }>, 'search' | 'author' | 'since'>): boolean {
   const search = query.search?.trim() ?? ''
   return !isHistoryHashSearch(search) && (search !== '' || (query.author ?? '') !== '' || (query.since ?? '') !== '')
+}
+
+/**
+ * One repository a session's cwd offers.
+ *
+ * The wire addresses a repository by 'path', a path *relative to the session
+ * cwd* (POSIX separators, '' = the repository the cwd itself belongs to) —
+ * never an absolute path: the cwd is the only directory the browser may reach,
+ * so a relative path plus the host's containment check is the whole trust
+ * boundary (issue #83).
+ */
+export interface GitRepoEntry {
+  /** cwd-relative path; '' when the cwd belongs to a repository. */
+  readonly path: string
+  /** Absolute realpath of the work-tree top (display only). */
+  readonly root: string
+  /** Display name: the work-tree top's basename. */
+  readonly name: string
+  /** 'workspace' = the cwd's own (or enclosing) repository; 'nested' = a
+   * repository found inside the cwd. */
+  readonly kind: 'workspace' | 'nested'
+  /** Which checkout this row is inside a repository family: `main` = the
+   * primary work tree, `linked` = a worktree of a repository, `repo` = a
+   * repository of its own. Absent on hosts that predate the field. */
+  readonly role?: 'main' | 'linked' | 'repo'
+  /** HEAD branch of this checkout from `git worktree list`; null = detached.
+   * Absent = unknown (an older host, or a repository with no worktree data). */
+  readonly branch?: string | null
+  /** Why the row cannot be chosen: `outside` = the directory sits outside the
+   * session cwd subtree, `stale` = its directory is gone. Absent = selectable. */
+  readonly disabled?: 'outside' | 'stale'
+  /** git's `locked` flag on this worktree (display only). */
+  readonly locked?: boolean
+}
+
+/** Repositories a session's cwd offers, ordered for the switcher. */
+export interface GitRepoList {
+  readonly cwd: string
+  /** The workspace repository first (when the cwd is inside one), then nested
+   * ones by path. Empty outside any repository with no nested repositories. */
+  readonly repos: readonly GitRepoEntry[]
 }
 
 export type GitQuery =
@@ -408,6 +469,10 @@ export type GitQuery =
   | { readonly kind: 'push-preview' }
   // Model catalog for the config form. No workspace required — reads ctx.llm only.
   | { readonly kind: 'model-catalog' }
+  // Nested-repository discovery for the panel's repository switcher. Does not
+  // take a repo (it is what populates the selector), and works outside a
+  // repository too: a workspace that holds several projects is the whole point.
+  | { readonly kind: 'repo-list' }
 
 /** One entry in a `dir-list` result. */
 export interface DirEntry {
@@ -590,6 +655,8 @@ export type GitQueryResult =
     readonly groups: readonly ModelCatalogGroup[]
     readonly failures: readonly ModelCatalogFailure[]
   }
+  // Repository discovery (see GitRepoList).
+  | { readonly kind: 'repo-list'; readonly cwd: string; readonly repos: readonly GitRepoEntry[] }
   // File-browser directory listing (one level). `truncated` is set when the
   // entry count was capped.
   | { readonly kind: 'dir-list'; readonly path: string; readonly entries: readonly DirEntry[]; readonly truncated: boolean }
@@ -654,6 +721,9 @@ export type GitQueryResponse =
 export interface GitQueryRequest {
   readonly sessionId: string
   readonly query: GitQuery
+  /** Repository the query reads (GitRepoEntry.path); absent = the default.
+   * Ignored by `repo-list`, which discovers repositories instead. */
+  readonly repo?: string
 }
 
 // ── AI commit-message suggestion ─────────────────────────────────────────
@@ -697,6 +767,8 @@ export type ResolvedLanguage = Exclude<SuggestLanguage, 'auto'>
 export interface GitSuggestRequest {
   readonly sessionId: string
   readonly paths?: readonly string[]
+  /** Repository whose uncommitted changes feed the model (GitRepoEntry.path). */
+  readonly repo?: string
 }
 
 export type GitSuggestResult =
@@ -745,6 +817,8 @@ export interface GitOpenFileRequest {
   readonly sessionId: string
   /** Browse-root-relative path of the file to open. */
   readonly path: string
+  /** Repository whose browse root contains the file (GitRepoEntry.path). */
+  readonly repo?: string
 }
 
 export type GitOpenFileResult =

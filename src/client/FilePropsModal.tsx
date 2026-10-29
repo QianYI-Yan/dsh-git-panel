@@ -108,8 +108,12 @@ function statusText(status: GitChange['status'], t: OpT): string {
   }
 }
 
-export function FilePropsModal({ input, snapshot, onClose, t }: {
+export function FilePropsModal({ input, root, snapshot, onClose, t }: {
   readonly input: FilePropsInput
+  /** The browse root the relative path hangs off; null = not resolved. */
+  readonly root: string | null
+  /** The sample of the checkout the browser is rooted in; null = no Git facts
+   * for these files (no checkout, or the browser shows another root). */
   readonly snapshot: GitSnapshot | null
   readonly onClose: () => void
   readonly t: OpT
@@ -140,8 +144,8 @@ export function FilePropsModal({ input, snapshot, onClose, t }: {
     row(t('files.propsType'), propsTypeLabel(input, t), 'type'),
     row(t('files.propsRelPath'), copyButton(input.path, t('files.propsCopyHint'), () => copyPath(input.path)), 'rel'),
   ]
-  if (snapshot !== null) {
-    const abs = `${snapshot.root}/${input.path}`
+  if (root !== null) {
+    const abs = `${root.replace(/\/+$/, '')}/${input.path}`
     basic.push(row(t('files.propsAbsPath'), copyButton(abs, t('files.propsCopyHint'), () => copyPath(abs)), 'abs'))
   }
 
