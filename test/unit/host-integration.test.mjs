@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { spawn as nodeSpawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { readFile, stat } from 'node:fs/promises'
 import { snapshotForSession, runAction, runQuery, createGitRunner, planAction, DEFAULT_CONFIG, normalizeConfig } from '../../lib/host/index.js'
 import { createFsDeps } from '../../lib/host/fs-deps.js'
@@ -1807,7 +1807,7 @@ test('a repository appearing after the batch pre-flight is caught by the per-pat
     const realStat = deps.fs.stat
     let probes = 0
     deps.fs.stat = async (p) => {
-      if (p.endsWith('/morph/.git')) {
+      if (p.endsWith(`${sep}morph${sep}.git`)) {
         probes += 1
         if (probes === 1) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; throw e }
       }
@@ -1848,7 +1848,7 @@ test('a mid-batch repository refusal says earlier paths were already deleted', a
     const realStat = deps.fs.stat
     let probes = 0
     deps.fs.stat = async (p) => {
-      if (p.endsWith('/morph/.git')) {
+      if (p.endsWith(`${sep}morph${sep}.git`)) {
         probes += 1
         if (probes === 1) { const e = new Error(`ENOENT: ${p}`); e.code = 'ENOENT'; throw e }
       }
