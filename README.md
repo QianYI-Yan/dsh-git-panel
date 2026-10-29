@@ -113,6 +113,8 @@ src/
 
 感谢 [@ivanant](https://github.com/ivanant) 为项目提出的各种优化建议和迭代需求。移动端布局、变更记录的批量选择、AI 生成提交信息、提交图与图标的细节打磨、没有远程分支时的推送（publish）等改进，大多来自他持续反馈的真实使用场景；这些反馈把面板从「能用」推到了现在的形态。
 
+感谢 [@QianYI-Yan](https://github.com/QianYI-Yan) 为工作区多仓库支持打下的基础（#83）：扫描工作区子目录里的独立仓库、RPC 请求带可选 `repo` 字段切换工作树、切换仓库时旧内容压暗等第一批实现都来自他的 PR（#85）；本版的 worktree 识别与文件浏览根都构建在这之上。
+
 ## 许可证
 
 本项目采用 [MIT License](https://github.com/xbzbing/dsh-git-panel/blob/main/LICENSE)。
