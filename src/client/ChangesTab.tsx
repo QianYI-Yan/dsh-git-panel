@@ -31,6 +31,7 @@ import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
 import { ChangesDiffPane } from './ChangesDiffPane.js'
 import { DiffCardBackdrop, useDiffCard } from './diff-card.js'
+import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 
 interface ChangesTabProps {
   readonly remote: GitPanelRemote
@@ -53,6 +54,9 @@ interface ChangesTabProps {
    * squeezed by a sidebar, a large phone) is not cramped and keeps both.
    */
   readonly cramped: boolean
+  /** Docked repository list above the change list; the panel withholds it in
+   * the compact layout, which keeps the list in the overview's branch filter. */
+  readonly repositories?: RepositoriesHost
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -73,7 +77,7 @@ type ListItem =
   | { readonly kind: 'head'; readonly g: { key: GroupKey; labelKey: GitKey; count: number; collapsible: boolean }; readonly items: readonly GitChange[] }
   | { readonly kind: 'row'; readonly c: GitChange }
 
-export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, stacked, cramped, t }: ChangesTabProps): JSX.Element {
+export function ChangesTab({ remote, sessionId, visible = true, snapshot, onAction, onRefresh, onSetFullChanges, compact, stacked, cramped, repositories, t }: ChangesTabProps): JSX.Element {
   const { queryVisible, queryKey } = useGitQuerySignal(sessionId, visible, snapshot.root)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [message, setMessage] = useState('')
@@ -575,6 +579,9 @@ export function ChangesTab({ remote, sessionId, visible = true, snapshot, onActi
   )
 
   const leftChildren = [
+    // The same docked list the overview shows (one shared collapse state), so
+    // switching repositories is one click away from this pane too.
+    repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, t }),
     h(ChangeStats, { key: 'stats', stats: snapshot.stats, compact, showTimes: !cramped, t }),
     h(ChangesToolbar, {
       key: 'toolbar', snapshot, busy, hasDiscardTargets: discardTargets.paths.length > 0,

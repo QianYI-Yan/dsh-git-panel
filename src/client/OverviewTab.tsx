@@ -14,7 +14,6 @@ import { selectTrigger } from './select-trigger.js'
 import { OVERLAY_ATTR, hasOverlay } from './dialog-focus.js'
 import { renderBranchDrawer } from './overview-drawer.js'
 import type { GitAction, GitBranch, GitDiffPayload, GitSnapshot, GraphCommit, ResetMode, DiffViewMode } from './types.js'
-import type { RepoChoice } from './repo-list.js'
 import type { GitKey } from './locales.js'
 import { ArrowLeftIcon, BranchIcon, BranchCurrentIcon, BranchPrimaryIcon, BranchSyncIcon, ChevronIcon, CloseIcon, ExpandAllIcon, CommitIcon, FileIcon, FilterIcon, FolderIcon, RefreshIcon, ResetIcon, RevertIcon, TagIcon } from './icons.js'
 import { layoutGraph, graphWidth, type GraphRow } from './git-graph.js'
@@ -36,9 +35,10 @@ import { renderResetModal, renderTagCreateModal } from './overview-modals.js'
 import { renderBranchSwitchConfirm } from './branch-switch.js'
 import { buildBranchOptions, isSelectable, type BranchOption } from './branch-options.js'
 import { pullScopeNode, renderStatusBar } from './overview-statusbar.js'
+import { RepoBar } from './overview-repobar.js'
 import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
-import { ReposSection } from './ReposSection.js'
+import { ReposSection, type RepositoriesHost } from './ReposSection.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
@@ -89,14 +89,10 @@ interface OverviewProps {
    * filter is the same left drawer the tight stacked sidebar uses, not the
    * bottom sheet a squeezed desktop column pops. */
   readonly phone?: boolean
-  /** Repository list for the left column. The overview hosts it — rather than a
-   * page of its own — so a pick never hides the branches or the commit list. */
-  readonly repositories?: {
-    readonly choices: readonly RepoChoice[]
-    /** Request tag of the checkout the panes act on ('' = cwd). */
-    readonly current: string
-    readonly onChoose: (path: string) => void
-  }
+  /** Repository list leading the branch tree's surface (left column, stacked
+   * band or drawer, compact drawer or sheet), so a pick never hides the
+   * branches or the commit list. */
+  readonly repositories?: RepositoriesHost
   readonly t: (key: GitKey, params?: Record<string, string | number>) => string
 }
 
@@ -706,6 +702,10 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ]
 
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
+    // Tight stacked only: the left column — repo list plus branch tree — names
+    // the checkout whenever it stays in the band, so the bar would only repeat
+    // it; the tier that moves the column behind the drawer needs this line.
+    stacked && tight ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
     h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
       commits.length === 0
@@ -793,6 +793,13 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // Tight (≤ STACKED_TIGHT_BP): the branch column leaves the flex flow for a
   // drawer over the history — collapsed by default, so the history gets the
   // whole band until the toggle, the backdrop or Escape brings the column back.
+  // The repository list leads whichever surface carries the branch tree — the
+  // wide left column, the stacked band (or its drawer), the compact drawer or
+  // sheet — so every layout switches checkouts from the same place.
+  const reposBlock = repositories === undefined
+    ? null
+    : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, t })
+
   if (stacked) {
     const branchList = h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
       onFilter: (ref) => setRef(ref),
@@ -804,7 +811,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     }, branchTrees))
     const status = renderStatusBar(snapshot, statusCbs)
     const leftChildren: JSX.Element[] = [
-      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, t }),
+      reposBlock,
       branchList,
       status,
     ].filter((node): node is JSX.Element => node !== null)
@@ -849,6 +856,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         rootRef: drawerRootRef, closeRef: drawerCloseRef, toggleRef: drawerToggleRef,
         onClose: () => setDrawerOpen(false),
         children: [
+          ...(reposBlock === null ? [] : [reposBlock]),
           h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
             onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
             switchOptions,
@@ -883,7 +891,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
         t,
-      }, branchTrees) : null,
+      }, branchTrees, reposBlock) : null,
     ])
   }
 
@@ -893,7 +901,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     ...opModals,
     // left: branches (scroll) + a fixed status bar footer (repo link + sync)
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, [
-      repositories === undefined ? null : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, t }),
+      reposBlock,
       h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
         onFilter: (ref) => setRef(ref),
         switchOptions,
@@ -1066,9 +1074,10 @@ interface BranchSheetCbs extends BranchCbs {
 }
 
 /** Compact branch/ref filter: a bottom sheet carrying the same branch list,
- * portaled over the panel. Selecting a ref applies the filter and closes it;
- * the backdrop and the close button dismiss it. */
-function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchSheetCbs, trees: BranchTrees): JSX.Element | null {
+ * portaled over the panel, led by the repository list when there is one.
+ * Selecting a ref applies the filter and closes it; the backdrop and the close
+ * button dismiss it. */
+function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchSheetCbs, trees: BranchTrees, lead: JSX.Element | null): JSX.Element | null {
   if (typeof document === 'undefined') return null
   const sheet = h('div', {
     className: 'gp-sheet-backdrop',
@@ -1078,8 +1087,10 @@ function renderBranchSheet(tree: BranchTree | null, treeError: boolean, activeRe
       h('span', { key: 'title', className: 'gp-sheet__title' }, cb.t('overview.filterBranch')),
       h('button', { key: 'close', type: 'button', className: 'gp-icon-btn gp-sheet__close', title: cb.t('common.close'), 'aria-label': cb.t('common.close'), onClick: cb.onClose }, h(CloseIcon, { size: 15 })),
     ]),
-    h('div', { key: 'body', className: 'gp-sheet__body' },
-      renderBranchList(tree, treeError, activeRef, closed, cb, trees)),
+    h('div', { key: 'body', className: 'gp-sheet__body' }, [
+      lead,
+      h('div', { key: 'branches' }, renderBranchList(tree, treeError, activeRef, closed, cb, trees)),
+    ]),
   ]))
   return createPortal(sheet, document.body, 'branch-filter-sheet')
 }

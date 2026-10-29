@@ -27,6 +27,9 @@ const RUNNERS = [
   'overview-detail-scroll',
   'changes-discard', 'changes-toolbar', 'changes-diff-modal', 'commit-fold-review', 'publish-branch',
   'sidebar-tab',
+  // The plugin detail page's config form: section / field hierarchy and the
+  // collapse contract.
+  'config-sections',
   // The tab bar's repository switcher: a workspace with nested checkouts must
   // route every request through the picked one (issue #83).
   'repo-switcher',
@@ -34,6 +37,10 @@ const RUNNERS = [
   // Tight stacked (≤ STACKED_TIGHT_BP): the top-band branch column as a drawer
   // over the history — collapsed by default; toggle / blank band / Escape close.
   'stacked-branch-drawer',
+  // Stacked tiers (desktop sidebar seat): the repository list in the top band
+  // under its 34% cap, and inside the tight drawer — which must stay open
+  // across a switch made from within it.
+  'stacked-repos',
   // Served over http://127.0.0.1 so the loopback (local instance) branch of the
   // heavy-preview dialog is exercised; the file:// runners only see the remote one.
   'local-open',

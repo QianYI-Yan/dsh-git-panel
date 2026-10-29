@@ -48,6 +48,12 @@ export const CSS = `
    clips its title. */
 .gp-sidebar-title-icon{flex:none}
 .gp-tab__label{white-space:nowrap}
+/* The primitive sizes every cell to the widest label's max-content, and the
+ * selected label turns bold — so without a reserve the whole track widens
+ * when a long label (Overview) is the selected one. A zero-height bold copy
+ * holds each label at its bold width whatever the selection. */
+.gp-tab__label{display:inline-flex;flex-direction:column;align-items:center}
+.gp-tab__label::after{content:attr(data-label);height:0;overflow:hidden;visibility:hidden;font-weight:600;pointer-events:none;user-select:none}
 /* Trailing cluster (font stepper + version bar). display:contents makes it
  * transparent to the tab-bar flex in the wide layout — font sits after the
  * tabs, version bar floats right via its own margin-left:auto — identical to a

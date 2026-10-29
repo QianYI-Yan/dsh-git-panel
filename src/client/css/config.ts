@@ -32,10 +32,54 @@ export const CSS = `
 .gp-pill--compact .gp-pill__dot{display:block}
 .gp-pill--compact .gp-pill__repo,.gp-pill--compact .gp-pill__git{display:none}
 
-/* plugin detail config form (plugins.bundle.config slot body) — font sizes
- * follow the shell settings page: 15px section titles, 14px labels, 13px hints. */
-.gp-cfg{display:flex;flex-direction:column;gap:12px;padding:16px 20px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
-.gp-cfg__title{margin:0;font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary)}
+/* plugin detail config form (plugins.bundle.config slot body) — three tiers:
+ * 16px/600 section titles, 14px/500 field titles over 14px labels, 13px hints.
+ * The form carries no card of its own: it sits on the detail page like the
+ * host's own sections, separated only by the host's hairline divider. */
+.gp-cfg{display:flex;flex-direction:column;gap:0}
+.gp-cfg__title{margin:0;font-size:14px;font-weight:500;color:var(--dsw-alias-label-primary)}
+/* Collapsible sections: a header button collapses its body (aria-controls stays
+ * resolvable, so the body is hidden, not unmounted); only the first boots open.
+ * The header fills only on hover — bg-layer-1/2 both resolve to the page's own
+ * white in the light theme, so a layer token would leave the hover invisible;
+ * the solid interactive surface is the one fill that reads there. The -8px
+ * bleed lets the hover pill overhang the text column on both sides. */
+.gp-cfg__section{display:flex;flex-direction:column;gap:10px;padding:14px 0}
+.gp-cfg__section:first-child{padding-top:0}
+.gp-cfg__section:last-child{padding-bottom:0}
+.gp-cfg__section+.gp-cfg__section{border-top:.5px solid var(--dsw-alias-border-l2)}
+.gp-cfg__section-hd{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 -8px;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:16px;font-weight:600;text-align:left;cursor:pointer}
+.gp-cfg__section-hd:hover{background:var(--dsw-alias-interactive-bg-hover-solid);color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__section-hd:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:2px}
+.gp-cfg__section-hd svg{flex:none;color:var(--dsw-alias-label-tertiary)}
+/* Section mark chip: identity at a glance while the body is collapsed. The
+ * glyph carries its own colour — the header's svg rule above would pin it.
+ * The chip fill is the solid interactive surface: bg-layer-1 resolves to the
+ * page's own white in the light theme, which would make the neutral chip
+ * disappear. */
+.gp-cfg__section-left{display:flex;align-items:center;gap:8px;min-width:0}
+.gp-cfg__section-ic{display:flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover-solid)}
+.gp-cfg__section-ic svg{color:var(--dsw-alias-label-secondary)}
+/* Three semantic hues keep each menu row recognisable at a glance; the repos
+ * section stays neutral so its colour cannot read as a warning. Tints too. */
+.gp-cfg__section-ic--business{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
+.gp-cfg__section-ic--business svg{color:var(--dsw-alias-state-business-primary)}
+.gp-cfg__section-ic--success{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
+.gp-cfg__section-ic--success svg{color:var(--dsw-alias-state-success-primary)}
+.gp-cfg__section-ic--warn{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 14%,transparent)}
+.gp-cfg__section-ic--warn svg{color:var(--dsw-alias-state-warn-primary)}
+/* The open body hangs off a 2px guide rule centred under the 24px chip (the
+ * header's -8px bleed puts the chip at x=0), tinted with the section's tone, so
+ * every field reads as belonging to the title above it. Fields sit 20px apart,
+ * their own title / control / hint 8px apart. */
+.gp-cfg__section-body{display:flex;flex-direction:column;gap:20px;margin-left:11px;padding:4px 0 4px 20px;border-left:2px solid var(--gp-cfg-tone)}
+.gp-cfg__section--business{--gp-cfg-tone:color-mix(in srgb,var(--dsw-alias-state-business-primary) 35%,transparent)}
+.gp-cfg__section--success{--gp-cfg-tone:color-mix(in srgb,var(--dsw-alias-state-success-primary) 35%,transparent)}
+.gp-cfg__section--warn{--gp-cfg-tone:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 35%,transparent)}
+.gp-cfg__section--neutral{--gp-cfg-tone:var(--dsw-alias-border-l2)}
+.gp-cfg__field{display:flex;flex-direction:column;gap:8px;min-width:0}
+/* An author display rule beats the UA's [hidden]{display:none} — restate it. */
+.gp-cfg__section-body[hidden]{display:none}
 .gp-cfg__row{display:inline-flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
 /* 开关清零 border/padding：::after 按 padding box 定位，UA 默认 1px 边框会把定位框上下各缩 1px，滑块上缘就多出 1px 空隙。 */
 .gp-cfg__switch{appearance:none;-webkit-appearance:none;flex:none;width:36px;height:20px;margin:0;padding:0;border:0;border-radius:999px;background:var(--dsw-alias-border-l2);position:relative;transition:background .15s ease;cursor:pointer}
@@ -56,7 +100,7 @@ export const CSS = `
 .gp-cfg__numinput:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
 .gp-cfg__numinput:disabled{opacity:.5;cursor:default}
 .gp-cfg__numunit{flex:none;width:44px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
-.gp-cfg__rangehint{margin:-4px 0 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
+.gp-cfg__rangehint{margin:0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}
 /* Cascading model selects use the platform Menu; the row is label + trigger. */
 .gp-cfg__menur{display:flex;align-items:center;gap:8px}
 .gp-cfg__menulabel{flex:1;min-width:0;font-size:14px;color:var(--dsw-alias-label-primary)}
@@ -75,11 +119,21 @@ export const CSS = `
  * soft radius, layered shadow, subtle border, portaled above the pill.
  * width:max-content is load-bearing: a fixed box with only left set would
  * shrink to the room on its right (a phone row icon left a 36px column). */
-.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;pointer-events:none}
+.gp-tip{position:fixed;z-index:60;width:max-content;box-sizing:border-box;max-width:520px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l1,var(--dsw-alias-border-l2));border-radius:12px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));box-shadow:0 6px 24px rgba(0,0,0,.18),0 1px 3px rgba(0,0,0,.12);font-size:12px;line-height:1.5;white-space:pre-line;pointer-events:none}
 .gp-tip__path{color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-mono,ui-monospace,monospace);word-break:break-all}
 .gp-tip__note{margin-top:4px;color:var(--dsw-alias-label-tertiary)}
 .gp-tip--sb{color:var(--dsw-alias-label-secondary);line-height:1.45}
 /* Compact panels put the control's centre in the left offset and shift by half
  * the bubble's own width, so it reads as centred on the row icon it explains. */
 .gp-tip--center{transform:translateX(-50%)}
+/* Structured tip content (repository rows): one icon-led line per detail with a
+ * hairline above the path, so the branch reads apart from the location. The
+ * icon rides the first line box while a long path wraps below it, hence top
+ * alignment plus the half-line offset. */
+.gp-tip__lines{display:flex;flex-direction:column}
+.gp-tip__line{display:flex;gap:6px;align-items:flex-start;min-width:0}
+.gp-tip__ic{flex:none;display:inline-flex;color:var(--dsw-alias-label-tertiary);margin-top:2.5px}
+.gp-tip__text{min-width:0}
+.gp-tip__line--path .gp-tip__text{word-break:break-all}
+.gp-tip__sep{height:1px;background:var(--dsw-alias-border-l2);margin:6px 0}
 `

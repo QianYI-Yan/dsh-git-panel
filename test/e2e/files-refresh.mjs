@@ -1,9 +1,10 @@
 /**
- * Files-tab floating refresh.
+ * Files-tab refresh, in the top status bar.
  *
  * Locks the parts of the control that the happy-path runner cannot see:
- *  - it floats over the tree at the box's top-right corner (no header row of
- *    its own, does not move when the entries scroll);
+ *  - it sits in the status bar above the tree (beside the absolute browse
+ *    root), outside the scrolling column: it never covers a file row and does
+ *    not move when the entries scroll;
  *  - one refresh re-lists every open directory and re-reads the selected file
  *    exactly once, keeps the old rows/content on screen while it is in flight,
  *    and shows the busy state on the button;
@@ -148,7 +149,7 @@ const watch = (page) => {
   page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message))
 }
 
-// ── Floating layout, scroll behaviour, in-flight state ─────────────────────
+// ── Status-bar layout, scroll behaviour, in-flight state ──────────────────
 const page = await browser.newPage({ viewport: { width: 1000, height: 720 } })
 watch(page)
 await boot(page)
@@ -157,29 +158,38 @@ await expandDocsAndSelect(page)
 
 const layout = await page.evaluate(() => {
   const btn = document.querySelector('.gp-files__refresh')
+  const bar = document.querySelector('.gp-files__statusbar')
   const wrap = document.querySelector('.gp-files__tree-wrap')
   const tree = document.querySelector('.gp-files__tree')
   const first = tree?.querySelector('.gp-tree-row')
   const b = btn?.getBoundingClientRect()
-  const w = wrap?.getBoundingClientRect()
   const f = first?.getBoundingClientRect()
   return {
     position: btn ? getComputedStyle(btn).position : null,
-    rightInset: b && w ? Math.round(w.right - b.right) : null,
-    topInset: b && w ? Math.round(b.top - w.top) : null,
-    firstRowOffset: w && f ? Math.round(f.top - w.top) : null,
+    inBar: !!(bar && btn && bar.contains(btn)),
+    // The bar is the tree column's own header — inside the column, not a
+    // full-width row on top of the page.
+    barInTree: !!(bar && wrap && wrap.contains(bar)),
+    // DOCUMENT_POSITION_FOLLOWING (4): the bar stands above the scrolling rows.
+    precedesRows: !!(bar && tree && (bar.compareDocumentPosition(tree) & 4) !== 0),
+    pathShown: (bar?.querySelector('.gp-files__status-code')?.textContent ?? '') !== '',
+    paddingRight: bar === null ? null : getComputedStyle(bar).paddingRight,
+    // direction:rtl is what makes the path elide from the left (tail kept).
+    pathDirection: bar === null || bar.querySelector('.gp-files__status-body') === null
+      ? null
+      : getComputedStyle(bar.querySelector('.gp-files__status-body')).direction,
     overlapsFirstRow: !!(b && f && b.left < f.right && b.right > f.left && b.top < f.bottom && b.bottom > f.top),
     scrollable: tree ? tree.scrollHeight > tree.clientHeight : false,
   }
 })
-assert.equal(layout.position, 'absolute', 'the refresh control floats instead of taking a row of its own')
-// The top inset matches the tree's own 4px padding; the right inset is wider
-// to clear the tree's scrollbar.
-assert.ok(layout.topInset !== null && Math.abs(layout.topInset - 5) <= 1, `control sits 5px below the tree's top edge (inset ${layout.topInset})`)
-assert.ok(layout.rightInset !== null && Math.abs(layout.rightInset - 10) <= 1, `control sits 10px inside the tree's right edge, clear of the scrollbar (inset ${layout.rightInset})`)
-// A header row of its own would push the first entry down; the wrap's padding is 4px.
-assert.ok(layout.firstRowOffset !== null && layout.firstRowOffset <= 8, `no header row above the entries (offset ${layout.firstRowOffset})`)
-assert.equal(layout.overlapsFirstRow, true, 'the floating control overlays the entries')
+assert.equal(layout.position, 'static', 'the refresh control sits in the status bar instead of floating over the entries')
+assert.equal(layout.inBar, true, 'it lives in the status bar')
+assert.equal(layout.paddingRight, '5px', 'the bar gives the refresh control 5px of right padding')
+assert.equal(layout.pathDirection, 'rtl', 'the path elides from the left so its tail stays on screen')
+assert.equal(layout.barInTree, true, 'the status bar is the tree column header, not a full-width row on top of the page')
+assert.equal(layout.precedesRows, true, 'the status bar stands above the scrolling entries')
+assert.equal(layout.pathShown, true, 'the bar also names the absolute browse root')
+assert.equal(layout.overlapsFirstRow, false, 'the first file row is no longer covered by the control')
 assert.equal(layout.scrollable, true, 'fixture tree is tall enough to scroll')
 
 const scroll = await page.evaluate(() => {

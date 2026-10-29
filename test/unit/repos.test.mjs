@@ -61,6 +61,7 @@ const SID = 'test-session'
 let tmp
 let ws
 let outer
+let wtRepo
 
 before(async () => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'gp-repos-')))
@@ -79,6 +80,19 @@ before(async () => {
   await runGit(outer, ['commit', '--allow-empty', '-qm', 'init'])
   mkdirSync(join(outer, 'sub'))
   await runGit(join(outer, 'sub'), ['init', '-q'])
+
+  // Scenario B: a repository that owns the cwd and has more checkouts — one
+  // inside the cwd (selectable), one outside it (visible but disabled), plus an
+  // unrelated repository nested below for the mixed case.
+  wtRepo = join(tmp, 'wt-repo')
+  mkdirSync(join(wtRepo, '.agents', 'worktrees'), { recursive: true })
+  await runGit(wtRepo, ['init', '-q', '-b', 'main'])
+  await runGit(wtRepo, ['config', 'user.email', 't@t.co'])
+  await runGit(wtRepo, ['config', 'user.name', 'Tester'])
+  await runGit(wtRepo, ['commit', '--allow-empty', '-qm', 'init'])
+  mkdirSync(join(wtRepo, 'vendor', 'lib', '.git'), { recursive: true })
+  await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'wt-a', join(wtRepo, '.agents', 'worktrees', 'feat-a')])
+  await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'wt-out', join(tmp, 'wt-outside')])
 })
 
 after(() => {
@@ -115,7 +129,7 @@ test('repoDirFor accepts safe cwd-relative paths only', async () => {
 })
 
 test('listSessionRepos reports the workspace repository plus nested ones', async () => {
-  const listed = await listSessionRepos(depsAt(outer), SID)
+  const listed = await listSessionRepos(depsAt(outer), SID, true)
   assert.equal(listed.ok, true)
   assert.equal(listed.value.cwd, realpathSync(outer))
   const entries = listed.value.repos.map((r) => [r.path, r.kind, r.name])
@@ -126,9 +140,35 @@ test('listSessionRepos reports the workspace repository plus nested ones', async
 })
 
 test('a cwd outside any repository reports only nested repositories', async () => {
-  const listed = await listSessionRepos(depsAt(ws), SID)
+  const listed = await listSessionRepos(depsAt(ws), SID, true)
   assert.equal(listed.ok, true)
   assert.deepEqual(listed.value.repos.map((r) => r.kind), ['nested', 'nested', 'nested'])
+})
+
+test('detectCheckouts off skips both probes: the list is the cwd repository alone', async () => {
+  const deps = depsAt(wtRepo)
+  const runs = []
+  const inner = deps.run.run.bind(deps.run)
+  deps.run = { run: async (argv, opts) => { runs.push([...argv]); return inner(argv, opts) } }
+  const listed = await listSessionRepos(deps, SID, false)
+  assert.equal(listed.ok, true)
+  assert.deepEqual(listed.value.repos.map((r) => [r.path, r.kind]), [['', 'workspace']])
+  assert.equal(runs.some((argv) => argv.includes('worktree')), false, 'git worktree list never runs')
+})
+
+test('detectCheckouts off in a plain workspace lists no repositories at all', async () => {
+  const listed = await listSessionRepos(depsAt(ws), SID, false)
+  assert.equal(listed.ok, true)
+  assert.deepEqual(listed.value.repos, [], 'the filesystem scan is off, so nothing is offered')
+})
+
+test('the repo-list endpoint obeys the probe switch', async () => {
+  const off = await runQuery(depsAt(wtRepo), { ...DEFAULT_CONFIG, detectCheckouts: false }, {
+    sessionId: SID,
+    query: { kind: 'repo-list' },
+  })
+  assert.equal(off.ok, true)
+  assert.deepEqual(off.value.repos.map((r) => r.path), [''])
 })
 
 test('repo-list is served by the query endpoint', async () => {
@@ -220,4 +260,130 @@ test('a symlink escaping the workspace cannot become a repository', async (t) =>
   } finally {
     rmSync(link, { recursive: true, force: true })
   }
+})
+
+test('a repository lists its family: workspace, worktrees inside, worktrees outside, foreign repos', async () => {
+  const listed = await listSessionRepos(depsAt(wtRepo), SID, true)
+  assert.equal(listed.ok, true)
+  const rows = listed.value.repos
+  assert.deepEqual(rows.map((r) => r.path), ['', '.agents/worktrees/feat-a', '../wt-outside', 'vendor/lib'])
+
+  // The workspace row carries the family identity git reported for it.
+  assert.equal(rows[0].kind, 'workspace')
+  assert.equal(rows[0].role, 'main')
+  assert.equal(rows[0].branch, 'main')
+
+  // Inside the cwd: selectable, with the branch for free — the reason scenario
+  // B does not depend on the filesystem scan's depth ceiling.
+  assert.equal(rows[1].kind, 'nested')
+  assert.equal(rows[1].role, 'linked')
+  assert.equal(rows[1].branch, 'wt-a')
+  assert.equal(rows[1].disabled, undefined)
+
+  // Outside the cwd subtree: visible so the user can see it exists, disabled so
+  // its selector (a ../ path) can never be sent, with the branch still shown.
+  assert.equal(rows[2].disabled, 'outside')
+  assert.equal(rows[2].role, 'linked')
+  assert.equal(rows[2].branch, 'wt-out')
+  assert.equal(rows[2].path, '../wt-outside')
+
+  // An unrelated repository below the cwd keeps the old behavior: kind nested,
+  // no branch claim (nobody sampled it).
+  assert.equal(rows[3].kind, 'nested')
+  assert.equal(rows[3].role, 'repo')
+  assert.equal(rows[3].branch, undefined)
+})
+
+test('a worktree directory is claimed once, never re-listed as a nested repository', async () => {
+  const listed = await listSessionRepos(depsAt(wtRepo), SID, true)
+  assert.equal(listed.ok, true)
+  const same = listed.value.repos.filter((r) => r.path === '.agents/worktrees/feat-a')
+  assert.equal(same.length, 1, 'the scanner reads a worktree .git file, but git already owns that row')
+})
+
+test('when git worktree list fails, discovery degrades to the plain scan', async () => {
+  // An old git, a broken worktree admin dir or any other refusal must cost
+  // exactly the worktree data — never the list itself (PR #85 behavior).
+  const deps = depsAt(wtRepo)
+  const inner = deps.run.run.bind(deps.run)
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv.includes('worktree')) throw new Error('git worktree is unsupported here')
+      return inner(argv, opts)
+    },
+  }
+  const listed = await listSessionRepos(deps, SID, true)
+  assert.equal(listed.ok, true)
+  const rows = listed.value.repos
+  const workspace = rows.find((r) => r.path === '')
+  assert.equal(workspace.kind, 'workspace')
+  assert.equal(workspace.role, undefined, 'no worktree data means no identity claim')
+  assert.equal(workspace.branch, undefined)
+  // The worktree directory falls back to what the scan sees — a nested row with
+  // a .git file, selectable but carrying no family information.
+  const degraded = rows.find((r) => r.path === '.agents/worktrees/feat-a')
+  assert.equal(degraded.kind, 'nested')
+  assert.equal(degraded.role, 'repo')
+})
+
+test('a git that refuses -z still reports its worktrees through the newline form', async () => {
+  const deps = depsAt(wtRepo)
+  const inner = deps.run.run.bind(deps.run)
+  const seen = []
+  deps.run = {
+    run: async (argv, opts) => {
+      if (argv.includes('worktree')) seen.push(argv.join(' '))
+      if (argv.includes('worktree') && argv.includes('-z')) {
+        return { exitCode: 129, stdout: '', stderr: 'error: unknown switch `z\'', timedOut: false, cancelled: false, stdoutLossy: false }
+      }
+      return inner(argv, opts)
+    },
+  }
+  const listed = await listSessionRepos(deps, SID, true)
+  assert.equal(listed.ok, true)
+  assert.deepEqual(seen, ['git worktree list --porcelain -z', 'git worktree list --porcelain'], 'the NUL form first, the newline form as the fallback')
+  const linked = listed.value.repos.find((r) => r.path === '.agents/worktrees/feat-a')
+  assert.equal(linked.role, 'linked', 'the fallback keeps the family identity')
+  assert.equal(linked.branch, 'wt-a')
+})
+
+test('a worktree path holding a newline is one row, not a phantom of its prefix', async (t) => {
+  const odd = join(wtRepo, 'docs\nevil')
+  try {
+    await runGit(wtRepo, ['worktree', 'add', '-q', '-b', 'nl-b', odd])
+  } catch {
+    t.skip('this filesystem refuses a newline in a directory name')
+    return
+  }
+  mkdirSync(join(wtRepo, 'docs'), { recursive: true })
+  try {
+    const listed = await listSessionRepos(depsAt(wtRepo), SID, true)
+    assert.equal(listed.ok, true)
+    const rows = listed.value.repos
+    assert.equal(rows.some((r) => r.path === 'docs'), false, 'the plain docs directory is no worktree')
+    const nl = rows.find((r) => r.path === 'docs\nevil')
+    assert.equal(nl?.role, 'linked', 'the real worktree keeps its identity')
+    assert.equal(nl?.branch, 'nl-b')
+  } finally {
+    await runGit(wtRepo, ['worktree', 'remove', '--force', odd])
+    rmSync(join(wtRepo, 'docs'), { recursive: true, force: true })
+  }
+})
+
+test('a shallow worktree does not use up the scan slot a deeper repository needs', async () => {
+  const repo = join(tmp, 'quota-repo')
+  mkdirSync(repo)
+  await runGit(repo, ['init', '-q', '-b', 'main'])
+  await runGit(repo, ['config', 'user.email', 't@t.co'])
+  await runGit(repo, ['config', 'user.name', 'Tester'])
+  await runGit(repo, ['commit', '--allow-empty', '-qm', 'init'])
+  // BFS meets the worktree (depth 1) before the foreign repository (depth 2).
+  await runGit(repo, ['worktree', 'add', '-q', '-b', 'wt', join(repo, 'a-wt')])
+  mkdirSync(join(repo, 'z', 'lib', '.git'), { recursive: true })
+  const listed = await listSessionRepos(depsAt(repo), SID, true, 2)
+  assert.equal(listed.ok, true)
+  assert.deepEqual(listed.value.repos.map((r) => [r.path, r.role]), [['', 'main'], ['a-wt', 'linked'], ['z/lib', 'repo']],
+    'one worktree row plus one scanned repository fill a ceiling of two')
+  const tight = await listSessionRepos(depsAt(repo), SID, true, 1)
+  assert.deepEqual(tight.value.repos.map((r) => r.path), ['', 'a-wt'], 'the worktree rows alone may fill the ceiling')
 })

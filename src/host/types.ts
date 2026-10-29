@@ -150,6 +150,12 @@ export interface GitSnapshot {
   readonly fontDelta: FontDelta
   /** Whether the commit box shows the AI-suggest button (user preference). */
   readonly suggestEnabled: boolean
+  /** Whether the repository list probes worktrees and nested repositories
+   * (user preference). Absent on older hosts. */
+  readonly detectCheckouts?: boolean
+  /** Whether the file browser follows repository switches (user preference);
+   * absent on older hosts → off, the browser stays at the project root. */
+  readonly filesFollowRepo?: boolean
   /** SHA-256 of the final business snapshot, excluding checkedAt and itself.
    * Optional for compatibility with hosts that do not provide fingerprints. */
   readonly stateFingerprint?: string
@@ -393,6 +399,18 @@ export interface GitRepoEntry {
   /** 'workspace' = the cwd's own (or enclosing) repository; 'nested' = a
    * repository found inside the cwd. */
   readonly kind: 'workspace' | 'nested'
+  /** Which checkout this row is inside a repository family: `main` = the
+   * primary work tree, `linked` = a worktree of a repository, `repo` = a
+   * repository of its own. Absent on hosts that predate the field. */
+  readonly role?: 'main' | 'linked' | 'repo'
+  /** HEAD branch of this checkout from `git worktree list`; null = detached.
+   * Absent = unknown (an older host, or a repository with no worktree data). */
+  readonly branch?: string | null
+  /** Why the row cannot be chosen: `outside` = the directory sits outside the
+   * session cwd subtree, `stale` = its directory is gone. Absent = selectable. */
+  readonly disabled?: 'outside' | 'stale'
+  /** git's `locked` flag on this worktree (display only). */
+  readonly locked?: boolean
 }
 
 /** Repositories a session's cwd offers, ordered for the switcher. */

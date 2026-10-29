@@ -51,10 +51,11 @@ export async function runQuery(
     }
   }
   // Repository discovery needs no work tree: it reports the cwd's own
-  // repository (when it has one) plus the nested ones below it, which is what
-  // lets the panel offer a repository picker before anything is selected.
+  // repository (when it has one) plus, when `detectCheckouts` is on, the
+  // worktrees and nested repositories below it — which is what lets the panel
+  // offer a repository picker before anything is selected.
   if (q.kind === 'repo-list') {
-    const listed = await listSessionRepos(deps, request.sessionId)
+    const listed = await listSessionRepos(deps, request.sessionId, config.detectCheckouts)
     if (!listed.ok) return { ok: false, error: listed.error }
     return { ok: true, value: { kind: 'repo-list', cwd: listed.value.cwd, repos: listed.value.repos } }
   }
