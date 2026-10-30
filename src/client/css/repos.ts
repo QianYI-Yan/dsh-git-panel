@@ -28,7 +28,7 @@ export const CSS = `
 .gp-repolist__badge{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box}
 /* The scroll container also anchors the travelling fill, so the slider scrolls
  * with the rows instead of floating over them. */
-.gp-repolist__list{position:relative;list-style:none;margin:0;padding:0;min-height:0;overflow:auto}
+.gp-repolist__list{position:relative;flex:1 1 auto;list-style:none;margin:0;padding:0;min-height:0;overflow:auto}
 /* The block folds by animating its track size, not by hiding the rows: a
  * [hidden] toggle snapped the height in one frame, and every remount (each
  * pane renders its own copy of the block) replayed the fold-in, which read as
@@ -38,7 +38,11 @@ export const CSS = `
  * — so the folded body also leaves the tab order and the accessibility tree. */
 .gp-repolist__body{display:grid;grid-template-rows:1fr;min-height:0;transition:grid-template-rows .2s ease,visibility 0s}
 .gp-repolist__body[data-collapsed="true"]{grid-template-rows:0fr;visibility:hidden;transition:grid-template-rows .2s ease,visibility 0s linear .2s}
-.gp-repolist__fold{min-height:0;overflow:hidden}
+/* The fold clips the track; the list inside it owns the scrollbar. A grid item
+ * does not shrink its children on its own, so the fold lays out as a column and
+ * the list takes the leftover height — without this the list grew to its
+ * content size, the fold clipped it, and no scrollbar was ever reachable. */
+.gp-repolist__fold{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .gp-repolist__row{margin:0;min-width:0}
 .gp-repolist__item{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:5px 10px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .gp-repolist__item:hover:not(.gp-repolist__item--active){background:var(--dsw-alias-interactive-bg-hover)}
@@ -88,7 +92,7 @@ export const CSS = `
 /* The block's path line: the absolute root of the checkout the panes act on,
  * monospace, ellipsized, click-to-copy (the hover tip carries the whole
  * path). Sits between the head line and the rows. */
-.gp-repolist__root{display:flex;align-items:center;gap:6px;width:100%;min-width:0;padding:2px 10px 5px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;text-align:left;cursor:pointer;border-radius:6px}
+.gp-repolist__root{display:flex;align-items:center;gap:6px;flex:none;width:100%;min-width:0;padding:2px 10px 5px;border:0;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;text-align:left;cursor:pointer;border-radius:6px}
 /* An author display rule beats the UA's [hidden]{display:none} — restate it. */
 .gp-repolist__root[hidden]{display:none}
 .gp-repolist__root:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}

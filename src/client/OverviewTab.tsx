@@ -1002,12 +1002,14 @@ interface BranchScrollProps {
 }
 
 /** The branch tree's scroller, with the panel's travelling fill behind the
- * active row (see row-slider.tsx): picking another ref slides the highlight
- * instead of repainting two rows in a single frame. Folding a section moves
- * the rows below it, so the fold set is part of what the fill is measured
- * from. */
+ * checked-out branch (see row-slider.tsx): picking another ref slides the
+ * highlight instead of repainting two rows in a single frame. The fill follows
+ * --current, not --active: the checked-out branch is always marked, while
+ * --active is the history filter row, which may be empty. Folding a section
+ * moves the rows below it, so the fold set is part of what the fill is
+ * measured from. */
 function BranchScroll({ tree, treeError, activeRef, closed, cbs, trees }: BranchScrollProps): JSX.Element {
-  const slider = useRowSlider({ activeSelector: '.gp-branch-row--active', deps: [activeRef, tree, trees, closed] })
+  const slider = useRowSlider({ activeSelector: '.gp-branch-row--current', deps: [activeRef, tree, trees, closed] })
   return h('div', { className: 'gp-col-left__scroll', ref: slider.ref }, [
     slider.slider,
     renderBranchList(tree, treeError, activeRef, closed, cbs, trees),
