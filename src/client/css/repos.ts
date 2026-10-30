@@ -12,13 +12,25 @@ export const CSS = `
  * It caps its own height so a workspace with many checkouts still leaves the
  * branch tree most of the column; the list itself scrolls. */
 .gp-repolist{flex:0 0 auto;display:flex;flex-direction:column;min-height:0;max-height:38%;padding:6px 0 4px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.gp-repolist__head{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:none;padding:0 10px 4px;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary)}
+/* The head line toggles the block: the whole line is the target, not the 18px
+ * chevron (a touch panel cannot hit that reliably). Collapsing stays explicit —
+ * a pick never folds the list the user is switching in. */
+.gp-repolist__head{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:none;margin:0 4px;padding:2px 6px;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:1.4;text-align:left;cursor:pointer}
+.gp-repolist__head:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.gp-repolist__head:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* A head that is not a toggle (the docked copy without a collapse control). */
+.gp-repolist__head--static{cursor:default}
+.gp-repolist__head--static:hover{background:transparent;color:var(--dsw-alias-label-tertiary)}
 .gp-repolist__label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Collapsed head: the label is a repository mark, not text — the selected
  * chip takes the width the words used to hold. */
 .gp-repolist__label--ic{display:flex;align-items:center}
 .gp-repolist__badge{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box}
 .gp-repolist__list{list-style:none;margin:0;padding:0;min-height:0;overflow:auto}
+/* Unfolding the block fades its rows in: a [hidden] toggle otherwise snaps the
+ * height in one frame and reads as a jump cut. */
+.gp-repolist__list:not([hidden]){animation:gp-repolist-in .18s ease}
+@keyframes gp-repolist-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
 .gp-repolist__row{margin:0;min-width:0}
 .gp-repolist__item{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:5px 10px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .gp-repolist__item:hover:not(.gp-repolist__item--active){background:var(--dsw-alias-interactive-bg-hover)}
@@ -39,8 +51,10 @@ export const CSS = `
  * little more of it before the branch tree starts scrolling. */
 .gp-panel[data-layout="stacked"] .gp-repolist{max-height:34%}
 /* A switch keeps the previous sample on screen: dim the body so the stale panes
- * read as "being replaced" rather than as the new checkout's state. */
-.gp-panel[data-repo-switching="true"] .gp-body{opacity:.55;transition:opacity .12s ease}
+ * read as "being replaced" rather than as the new checkout's state. The fade
+ * lives on the body itself so the new sample fades back in instead of snapping. */
+.gp-body{transition:opacity .18s ease}
+.gp-panel[data-repo-switching="true"] .gp-body{opacity:.55}
 /* Row line 1: name, then the row's own branch chip and change count. The name
  * takes what is left and ellipsizes; the chips never squeeze it to "dsh-…". */
 .gp-repolist__line{display:flex;align-items:center;gap:6px;min-width:0}
@@ -78,8 +92,7 @@ export const CSS = `
 .gp-repolist__root-body{flex:0 1 auto;min-width:0;direction:rtl;unicode-bidi:isolate;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Head line while collapsed: the checkout the panes act on. */
 .gp-repolist__selected{flex:1 1 auto;min-width:0;margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);text-align:right}
-/* Head collapse control: an icon-sized button in the head line. */
-.gp-repolist__collapse{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
-.gp-repolist__collapse:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.gp-repolist__collapse:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
+/* Head collapse indicator: a chevron inside the head button, with no hit area
+ * or focus ring of its own. */
+.gp-repolist__collapse{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;color:var(--dsw-alias-label-tertiary)}
 `;

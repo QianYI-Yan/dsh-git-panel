@@ -257,6 +257,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!hasSession(sessionId) || next === repo) return false
     selectRepo(sessionId, next)
     setRepoState({ session: sessionId, path: next })
+    // A checkout read before turns the page on the spot: its sample republishes
+    // before this render commits, so dimming the body here would be a flicker
+    // rather than feedback on a wait.
+    if (controllerFor(sessionId).hasSample(next)) return true
     switchBase.current = view
     const active = document.activeElement
     switchFocus.current = active instanceof HTMLElement && active !== document.body ? active : null
@@ -266,11 +270,10 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   const chooseRepo = (next: string): void => {
     if (!hasSession(sessionId) || !switchRepo(next)) return
-    // A pick retires the block: the switch hands the column back to the branch
-    // tree (both docked copies share this state), and reopening is one click
-    // when another pick is wanted. A repeat pick of the current checkout
-    // returns above and leaves the block alone.
-    setReposCollapsed(true)
+    // A pick leaves the block open: the rows stay where the pointer left them,
+    // so switching again is one click and the list never folds away between two
+    // picks. Collapsing stays the user's own toggle (both docked copies share
+    // that state).
     // The pick comes from the list on the page in front — the overview's
     // branch surface (column, band, drawer or sheet) or the changes column — so
     // that page stays put; an entry that no longer resolves is the fall-through

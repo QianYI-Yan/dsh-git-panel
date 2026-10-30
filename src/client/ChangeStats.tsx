@@ -34,9 +34,20 @@ export function ChangeStats({ stats, compact = false, showTimes = true, t }: Sta
       h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${stats.deletions}`),
     ]),
   ]
-  if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item' }, t('stats.staged', { n: stats.staged })))
-  if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item' }, t('stats.modified', { n: stats.modified })))
-  if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item' }, t('stats.untracked', { n: stats.untracked })))
+  // Each count leads with the git mark the file rows use (S / M / U) and takes
+  // that mark's colour, so the bar reads at a glance instead of parsing labels.
+  if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item gp-stats__item--staged' }, [
+    h('span', { key: 'm', className: 'gp-status-badge gp-stats__badge gp-status--staged', 'aria-hidden': 'true' }, 'S'),
+    t('stats.staged', { n: stats.staged }),
+  ]))
+  if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item gp-stats__item--modified' }, [
+    h('span', { key: 'm', className: 'gp-status-badge gp-stats__badge gp-status--modified', 'aria-hidden': 'true' }, 'M'),
+    t('stats.modified', { n: stats.modified }),
+  ]))
+  if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item gp-stats__item--untracked' }, [
+    h('span', { key: 'm', className: 'gp-status-badge gp-stats__badge gp-status--added', 'aria-hidden': 'true' }, 'U'),
+    t('stats.untracked', { n: stats.untracked }),
+  ]))
   // On a very large change set the host skips the per-file line/mtime fan-outs
   // (issue #16); flag that the "+/-" count omits untracked lines so it isn't
   // read as exact. The hint rides the shared fast tip, not a native title.

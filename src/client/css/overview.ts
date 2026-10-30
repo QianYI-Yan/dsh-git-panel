@@ -142,5 +142,6 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-status--modified{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-status--deleted{color:var(--dsw-alias-state-error-primary)}
 .gp-status--untracked{color:var(--dsw-alias-label-tertiary)}
+.gp-status--staged{color:var(--dsw-alias-state-business-primary)}
 .gp-status--renamed{color:var(--dsw-alias-state-business-primary)}
 `

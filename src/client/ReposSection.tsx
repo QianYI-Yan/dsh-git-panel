@@ -164,36 +164,49 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   const selectedLabel = currentChoice === undefined ? null : repoLabel(currentChoice)
   const selectedTitle = currentChoice === undefined || currentChoice.root === '' ? selectedLabel : currentChoice.root
 
+  // The whole head line is the toggle: an 18px chevron is a poor hit target on
+  // a touch panel, and the line already belongs to this block. The chevron is
+  // an indicator now. Collapsing stays explicit — a pick never folds the list
+  // the user is switching in.
+  const toggleLabel = collapsed ? t('repos.expand') : t('repos.collapse')
+  // While collapsed the head carries the checkout's absolute path as its hint;
+  // expanded, the path line below states it outright and needs no tip.
+  const headTip = collapsed && selectedTitle !== null ? tip.tipProps(selectedTitle) : undefined
+  const headChildren: (JSX.Element | null)[] = [
+    h('span', {
+      key: 'label',
+      className: collapsed ? 'gp-repolist__label gp-repolist__label--ic' : 'gp-repolist__label',
+      ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
+    }, collapsed ? h(RepoIcon, { size: 14 }) : t('tab.repos')),
+    h('span', {
+      key: 'n',
+      className: 'gp-repolist__badge',
+      ...(disabledCount > 0 ? { role: 'img', 'aria-label': t('repos.countAria', { n: choices.length - disabledCount, m: choices.length }) } : {}),
+    }, disabledCount > 0 ? `${choices.length - disabledCount}/${choices.length}` : String(choices.length)),
+    collapsed && selectedLabel !== null && selectedLabel !== ''
+      ? h('span', { key: 'sel', className: 'gp-repolist__selected' }, selectedLabel)
+      : null,
+    // The block collapses to its head line: a permanent worktree family would
+    // otherwise hold a third of the left column forever.
+    onToggleCollapse === undefined
+      ? null
+      : h('span', { key: 'chevron', className: 'gp-repolist__collapse' }, h(ChevronIcon, { size: 14, open: !collapsed })),
+  ]
+  const head = onToggleCollapse === undefined
+    ? h('div', { key: 'head', className: 'gp-repolist__head gp-repolist__head--static', ...headTip }, headChildren)
+    : h('button', {
+      key: 'head',
+      type: 'button',
+      className: 'gp-repolist__head',
+      'aria-expanded': collapsed ? 'false' : 'true',
+      'aria-controls': listId,
+      'aria-label': toggleLabel,
+      ...headTip,
+      onClick: onToggleCollapse,
+    }, headChildren)
+
   return h('div', { className: 'gp-repolist' }, [
-    h('div', { key: 'head', className: 'gp-repolist__head' }, [
-      h('span', {
-        key: 'label',
-        className: collapsed ? 'gp-repolist__label gp-repolist__label--ic' : 'gp-repolist__label',
-        ...(collapsed ? { role: 'img', 'aria-label': t('tab.repos') } : {}),
-      }, collapsed ? h(RepoIcon, { size: 14 }) : t('tab.repos')),
-      h('span', {
-        key: 'n',
-        className: 'gp-repolist__badge',
-        ...(disabledCount > 0 ? { role: 'img', 'aria-label': t('repos.countAria', { n: choices.length - disabledCount, m: choices.length }) } : {}),
-      }, disabledCount > 0 ? `${choices.length - disabledCount}/${choices.length}` : String(choices.length)),
-      collapsed && selectedLabel !== null && selectedLabel !== ''
-        ? h('span', { key: 'sel', className: 'gp-repolist__selected', ...tip.tipProps(selectedTitle ?? '') }, selectedLabel)
-        : null,
-      // The block collapses to its head line: a permanent worktree family
-      // would otherwise hold a third of the left column forever.
-      onToggleCollapse !== undefined
-        ? h('button', {
-          key: 'collapse',
-          type: 'button',
-          className: 'gp-repolist__collapse',
-          'aria-expanded': collapsed ? 'false' : 'true',
-          'aria-controls': listId,
-          'aria-label': collapsed ? t('repos.expand') : t('repos.collapse'),
-          title: collapsed ? t('repos.expand') : t('repos.collapse'),
-          onClick: onToggleCollapse,
-        }, h(ChevronIcon, { size: 14, open: !collapsed }))
-        : null,
-    ]),
+    head,
     // The current checkout's absolute path, click-to-copy with ✓ for 1.6 s.
     // Hidden while collapsed. The body elides from the left (direction:rtl
     // keeps the tail); an invisible LRM anchors the leading '/' so the

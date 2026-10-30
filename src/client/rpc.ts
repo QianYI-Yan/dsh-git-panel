@@ -141,7 +141,11 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
       const result = await caller(`${NS}/${method}`, { args: { request } }, signal)
       return unwrap<T>(result)
     } catch (error) {
-      return { ok: false, error: { code: 'git-unavailable', message: error instanceof Error ? error.message : String(error) } }
+      // An aborted call is a cancellation the caller asked for, not a broken
+      // git: the controller keeps the current view instead of reporting a
+      // failure the user never caused.
+      const aborted = signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
+      return { ok: false, error: { code: aborted ? 'cancelled' : 'git-unavailable', message: error instanceof Error ? error.message : String(error) } }
     }
   }
   const remote: GitPanelRemote = {
