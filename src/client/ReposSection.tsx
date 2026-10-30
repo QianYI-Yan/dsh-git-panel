@@ -186,6 +186,13 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // an indicator now. Collapsing stays explicit — a pick never folds the list
   // the user is switching in.
   const toggleLabel = collapsed ? t('repos.expand') : t('repos.collapse')
+  // A label that only names the action hides the block's own words (its name,
+  // the count, and the collapsed checkout chip) from a screen reader. Composed
+  // from keys that are already translated instead of a new string that would
+  // need all eight locales for one sentence.
+  const headLabel = selectedLabel === null || selectedLabel === ''
+    ? toggleLabel
+    : `${toggleLabel}: ${t('tab.repos')} ${selectedLabel}`
   // While collapsed the head carries the checkout's absolute path as its hint;
   // expanded, the path line below states it outright and needs no tip.
   const headTip = collapsed && selectedTitle !== null ? tip.tipProps(selectedTitle) : undefined
@@ -217,7 +224,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       className: 'gp-repolist__head',
       'aria-expanded': collapsed ? 'false' : 'true',
       'aria-controls': listId,
-      'aria-label': toggleLabel,
+      'aria-label': headLabel,
       ...headTip,
       onClick: onToggleCollapse,
     }, headChildren)

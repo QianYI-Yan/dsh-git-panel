@@ -190,7 +190,7 @@ export const CSS = `
 .gp-files__code--wrap .gp-files__row .gp-diff-cell{white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible}
 .gp-files__image{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;display:flex;align-items:flex-start;justify-content:flex-start;padding:16px;background-color:var(--dsw-alias-bg-layer-1);background-image:linear-gradient(45deg,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 25%,transparent 25%,transparent 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 50%,color-mix(in srgb,var(--dsw-alias-label-primary) 5%,transparent) 75%,transparent 75%);background-size:16px 16px}
 .gp-files__image img{max-width:100%;max-height:100%;object-fit:contain}
-.gp-changes__list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
+.gp-changes__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px 0}
 /* Virtualized change list: a fixed-height relative spacer owns the scrollbar;
  * each mounted row/head is absolutely positioned at its offset and pinned to
  * the fixed height the window math assumes (VROW_H / VHEAD_H). */
@@ -228,9 +228,13 @@ export const CSS = `
 /* stats bar */
 .gp-stats{display:flex;align-items:center;gap:6px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
 .gp-stats__item{display:inline-flex;align-items:center;gap:5px}
-/* The count leads with the same one-letter mark the file rows carry; the mark
- * and the label share the status colour so the bar reads as status, not text. */
-.gp-stats__badge{width:12px;font-size:10px}
+/* The count leads with the same one-letter mark the file rows carry, and the
+ * mark takes the item's status colour (below), so the bar reads as status, not
+ * text. The mark is a complete box of its own rather than a narrower
+ * .gp-status-badge: the two live in different CSS_PARTS modules, so borrowing
+ * flex/text-align/weight from the badge rule would make this line depend on
+ * module order. */
+.gp-stats__badge{flex:none;width:12px;text-align:center;font-size:10px;font-weight:600}
 .gp-stats__item--staged{color:var(--dsw-alias-state-business-primary)}
 .gp-stats__item--modified{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-stats__item--untracked{color:var(--dsw-alias-state-success-primary)}

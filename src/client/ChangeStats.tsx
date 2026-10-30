@@ -37,15 +37,15 @@ export function ChangeStats({ stats, compact = false, showTimes = true, t }: Sta
   // Each count leads with the git mark the file rows use (S / M / U) and takes
   // that mark's colour, so the bar reads at a glance instead of parsing labels.
   if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item gp-stats__chip gp-stats__item--staged' }, [
-    h('span', { key: 'm', className: 'gp-status-badge gp-stats__badge gp-status--staged', 'aria-hidden': 'true' }, 'S'),
+    h('span', { key: 'm', className: 'gp-stats__badge', 'aria-hidden': 'true' }, 'S'),
     t('stats.staged', { n: stats.staged }),
   ]))
   if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item gp-stats__chip gp-stats__item--modified' }, [
-    h('span', { key: 'm', className: 'gp-status-badge gp-stats__badge gp-status--modified', 'aria-hidden': 'true' }, 'M'),
+    h('span', { key: 'm', className: 'gp-stats__badge', 'aria-hidden': 'true' }, 'M'),
     t('stats.modified', { n: stats.modified }),
   ]))
   if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item gp-stats__chip gp-stats__item--untracked' }, [
-    h('span', { key: 'm', className: 'gp-status-badge gp-stats__badge gp-status--added', 'aria-hidden': 'true' }, 'U'),
+    h('span', { key: 'm', className: 'gp-stats__badge', 'aria-hidden': 'true' }, 'U'),
     t('stats.untracked', { n: stats.untracked }),
   ]))
   // On a very large change set the host skips the per-file line/mtime fan-outs
@@ -61,7 +61,8 @@ export function ChangeStats({ stats, compact = false, showTimes = true, t }: Sta
   // line instead of the last-commit time dropping to its own row. Each is a chip
   // holding its own label and a nested time pill, in its own status colour, so
   // the two rows of the bar never read as one run-on sentence. Absolute times
-  // are secondary detail on hover — the native title delay is fine here.
+  // are secondary detail on hover — the native title delay is fine here, and a
+  // touch panel shows neither surface, so the fast tip would gain nothing.
   const timeChip = (key: string, cls: string, at: number | string, label: GitKey): JSX.Element =>
     h('span', { key, className: `gp-stats__item gp-stats__chip ${cls}`, title: absoluteTime(at) }, [
       h('span', { key: 'k', className: 'gp-stats__chip-label' }, t(label)),

@@ -266,10 +266,16 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     if (!hasSession(sessionId) || next === repo) return false
     selectRepo(sessionId, next)
     setRepoState({ session: sessionId, path: next })
+    // Hand the controller the new checkout in this same event rather than from
+    // an effect: effects run after paint, and the first paint after the pick
+    // already shows the next repository's name in the tab bar, so a write
+    // dispatched from it would still be tagged with the previous one.
+    const controller = controllerFor(sessionId)
+    void controller.setRepo(next)
     // A checkout read before turns the page on the spot: its sample republishes
-    // before this render commits, so dimming the body here would be a flicker
-    // rather than feedback on a wait.
-    if (controllerFor(sessionId).hasSample(next)) return true
+    // during the call above, so dimming the body here would be a flicker rather
+    // than feedback on a wait.
+    if (controller.hasSample(next)) return true
     switchBase.current = view
     const active = document.activeElement
     switchFocus.current = active instanceof HTMLElement && active !== document.body ? active : null

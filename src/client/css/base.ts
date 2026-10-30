@@ -17,7 +17,11 @@ export const CSS = `
  * block, drawn once and moved, so a switch reads as the highlight travelling
  * instead of two rows swapping colours in a single frame. Each list supplies
  * the coordinates; the row keeps no background of its own. It sits behind the
- * rows (first child, no z-index) and scrolls with them. */
+ * rows (first child, no z-index) and scrolls with them.
+ *
+ * --gp-rowslider-inset is the fill's horizontal inset on each side: 4px by
+ * default, because most lists pad their rows; a list whose rows are flush with
+ * the scroller sets it to 0 so the fill is the same width as the row it marks. */
 .gp-rowslider{position:absolute;left:var(--gp-rowslider-inset,4px);right:var(--gp-rowslider-inset,4px);top:0;border-radius:6px;background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);pointer-events:none}
 .gp-rowslider--settled{transition:transform .22s cubic-bezier(.2,.7,.3,1),height .22s cubic-bezier(.2,.7,.3,1)}
 .gp-rowslider--off{opacity:0}

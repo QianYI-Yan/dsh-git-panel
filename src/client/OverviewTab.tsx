@@ -150,6 +150,17 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   /** Rows whose open state differs from its default (sections and top-level ref
    * dirs open, deeper dirs closed); `onToggle` flips membership. */
   const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set(['tags', 'remote']))
+  // One toggle for every surface that lists branches (left column, stacked band,
+  // compact drawer, bottom sheet): a section opens or closes the same way no
+  // matter where it is drawn, so the four call sites share one stable function.
+  const toggleSection = useCallback((section: string): void => {
+    setClosedSections((prev) => {
+      const next = new Set(prev)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      return next
+    })
+  }, [])
   // Tag write ops (create/delete) don't change the work tree, so they never bump
   // the business snapshot; a local counter folds into the query key so the
   // history graph and branch/tag list pick up the new ref set.
@@ -823,7 +834,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       onFilter: (ref) => setRef(ref),
       switchOptions,
       onSwitch: openSwitch,
-      onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+      onToggle: toggleSection,
       onRetry: reloadTree,
       t,
     }, trees: branchTrees })
@@ -879,7 +890,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
             onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
             switchOptions,
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
-            onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+            onToggle: toggleSection,
             onRetry: reloadTree,
             t,
           }, trees: branchTrees }),
@@ -905,7 +916,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onFilter: (ref) => { setRef(ref); setSheetOpen(false) },
         switchOptions,
         onSwitch: (option) => { setSheetOpen(false); openSwitch(option) },
-        onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+        onToggle: toggleSection,
         onRetry: reloadTree,
         onClose: () => setSheetOpen(false),
         t,
@@ -924,7 +935,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onFilter: (ref) => setRef(ref),
         switchOptions,
         onSwitch: openSwitch,
-        onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
+        onToggle: toggleSection,
         onRetry: reloadTree,
         t,
       }, trees: branchTrees }),

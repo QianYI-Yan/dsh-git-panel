@@ -194,10 +194,20 @@ export class GitController {
     return this.repo
   }
 
-  /** Whether switching to this checkout can republish a sample on the spot
-   * (it was read before and is still cached). */
+  /** The remembered sample of this checkout, if it is still worth publishing:
+   * one poll interval old at most. Older than that and the next refresh would
+   * contradict it on arrival, so a switch pays the read instead of flashing a
+   * change list that is no longer true. */
+  private fresh(repo: string): GitSnapshot | undefined {
+    if (this.disposed) return undefined
+    const cached = this.samples.get(repo)
+    if (cached === undefined) return undefined
+    return Date.now() - cached.checkedAt <= this.pollMs ? cached : undefined
+  }
+
+  /** Whether switching to this checkout can republish a sample on the spot. */
   hasSample(repo: string): boolean {
-    return !this.disposed && this.samples.has(repo)
+    return this.fresh(repo) !== undefined
   }
 
   /** Follow another repository and re-sample. The previous snapshot now
@@ -222,7 +232,7 @@ export class GitController {
     this.pendingRefresh = false
     // A checkout read before opens on its own last sample, so going back is a
     // page turn; the refresh below calibrates it with the current state.
-    const cached = this.samples.get(repo)
+    const cached = this.fresh(repo)
     if (cached !== undefined) this.publishSnapshot(cached, this.visibilityGeneration, true)
     return this.refresh()
   }

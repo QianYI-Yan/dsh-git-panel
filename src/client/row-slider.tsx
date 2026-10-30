@@ -9,8 +9,14 @@
  * it (a switch, a reorder, a fold) and never while the list is folded: a folded
  * list reports zero boxes, so the last position is kept and remeasured on the
  * way out. The slider is a child of the scrolling element itself, which is why
- * it scrolls with the rows and needs no scroll listener; only a resize can
- * change a row's height, hence the observer.
+ * it scrolls with the rows and needs no scroll listener.
+ *
+ * Resizing is watched at two levels: the scroller (it changes size when the
+ * panel is resized) and the active row itself (its height can change on its own
+ * — a zoom step, a theme with taller rows — while the scroller keeps its box).
+ * Callers put every value that reorders rows into `deps`; that array is
+ * rebuilt on each render of the caller, so measuring is cheap by design (one
+ * querySelector and two rects), not something the deps array spares us.
  *
  * Transitions stay off for the first frame after mount: a list is remounted
  * whenever its pane is rebuilt, and gliding the fill in from a stale position
@@ -52,10 +58,21 @@ export function useRowSlider({ activeSelector, deps, collapsed = false, host: sh
   const [box, setBox] = useState<{ readonly top: number; readonly height: number } | null>(null)
   const [settled, setSettled] = useState(false)
 
+  const observed = useRef<Element | null>(null)
+  const observerRef = useRef<ResizeObserver | null>(null)
+
   const measure = useCallback((): void => {
     const host = ref.current
+    const active = host === null ? null : host.querySelector(activeSelector)
+    // Follow the row the fill currently sits behind: its own box can change
+    // while the scroller keeps its size, and the fill would keep the old height.
+    const observer = observerRef.current
+    if (observer !== null && observed.current !== active) {
+      if (observed.current !== null) observer.unobserve(observed.current)
+      if (active !== null) observer.observe(active)
+      observed.current = active
+    }
     if (host === null || collapsed) return
-    const active = host.querySelector(activeSelector)
     if (active === null) { setBox(null); return }
     const base = host.getBoundingClientRect()
     const rect = active.getBoundingClientRect()
@@ -81,8 +98,18 @@ export function useRowSlider({ activeSelector, deps, collapsed = false, host: sh
     if (host === null || typeof ResizeObserver === 'undefined') return undefined
     const observer = new ResizeObserver(() => measure())
     observer.observe(host)
-    return () => observer.disconnect()
-  }, [measure, ref])
+    const active = host.querySelector(activeSelector)
+    if (active !== null) {
+      observer.observe(active)
+      observed.current = active
+    }
+    observerRef.current = observer
+    return () => {
+      observer.disconnect()
+      observerRef.current = null
+      observed.current = null
+    }
+  }, [activeSelector, measure, ref])
 
   const slider = h('span', {
     className: 'gp-rowslider'
