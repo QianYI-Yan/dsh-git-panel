@@ -751,7 +751,7 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // The changed-file rows travel between files like the other lists (see
   // row-slider.tsx); folding a directory moves them, so the tree is a dep.
   const detailSlider = useRowSlider({
-    activeSelector: '.gp-files__entry.gp-tree-row--active',
+    activeSelector: '.gp-tree-row--active',
     deps: [detail.fileDiff, fileTree],
   })
   const detailBody: JSX.Element[] = selected === null

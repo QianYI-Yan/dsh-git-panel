@@ -135,6 +135,9 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-files__tree .gp-files__entry--dir .gp-tree-name{font-weight:500}
 .gp-files__entry:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 .gp-files__entry.gp-tree-row--active,.gp-files__entry.gp-tree-row--active:hover{background:transparent}
+/* The detail pane's tree rows carry only gp-tree-row, so they need the same
+ * treatment: the travelling fill draws the selection, the row stays clear. */
+.gp-detail__files .gp-tree-row--active,.gp-detail__files .gp-tree-row--active:hover{background:transparent}
 .gp-files__entry.gp-tree-row--active .gp-tree-name{font-weight:600}
 .gp-tree-row--ignored{opacity:.5}
 .gp-tree-row--ignored:hover,.gp-tree-row--ignored:focus-visible{opacity:.85}
