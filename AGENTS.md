@@ -99,6 +99,7 @@ Host 半 (Cordis + typert, lib/host)
 - **切换存储库在途时（`repoSwitching`），页签的自动夹取与 files-only 回落都必须让路**：新仓库可能是仓库，夹取会把刚选中的「Git 总览」打回「文件浏览」（`src/client/Panel.tsx` 两处 effect 都判这个标志）。选中的页签同时要计入 `visited`，否则新总览判定为「从未打开」、只挂占位符，左栏的存储库列表跟着消失。
 - 长列表（变更列表、源码视图、DiffView）用 `virtual-list.ts` + `use-viewport.ts` 虚拟化；查找跳转到窗口外命中时窗口吸附到命中邻域，不挂载中间的连续区间。
 - `memo` 组件的 props 传普通值，不在渲染中新建对象字面量（会让浅比较失效、重跑整套高亮）；逐行高亮经 `highlight-cache.ts` 缓存。
+- **列表选中底色只画一次**：`row-slider.tsx` 的 `useRowSlider` 在滚动容器里放一个绝对定位块表示「当前选中行」，行自己的 `--active` 类**只许改文字色、不许再上底**（`background:transparent`，不再写 `--gp-select-bg` / `--gp-select-bar`），否则滑块与行底色叠成双倍浓度。滚动容器必须 `position:relative`；虚拟列表要把挂载窗口（`first`/`last`）放进 hook 的 `deps`，否则窗口滑动后不重测。列表已有自己的 ref 时传 `host` 或调用 `attach`，别让一个节点挂两个 ref。
 - 图片缩放：`.gp-zoom__img` 必须 `flex:none`（否则放大超过 100% 不生效）；拖拽的 pointer 事件挂 window 且不 `setPointerCapture`（会改写 click 目标）。
 - **加载指示一律用平台 `StateDot`（`state="ongoing"`，尺寸按场景传 `size`）**，不自绘边框圈：`border` + `border-top-color` 拼出来的圆环在 13–26px 下看着不是正圆，且与平台的加载标记不同源，会随改版漂移。动画由平台样式表提供，所以遮罩进 ready 后要显式让透明层上的动画停下（`.gp-files__html-mask-spin *{animation:none}`）。
 - **悬停提示只认 hover 与键盘焦点，不认触摸**（`tip.tsx` 的 `tipProps` 与 `GitPill` 的提示面板两条实现都要守）：tap 合成 `mouseenter` 却永远没有 `mouseleave`，按下时升起的提示牌会永久挂在界面上（机理注释在 `tip.tsx`）。按下来自手指一律不升起提示；按下驱动的确认（两步放弃的 `showTipNow`）不受影响，鼠标 / 键盘按下会把焦点这一半重新放开。

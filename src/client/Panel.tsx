@@ -60,7 +60,14 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   // Monotonic token for the latest font write: a slow host set for an older
   // click must not clear (or race) a newer pending step.
   const fontWriteGen = useRef(0)
-  const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(null)
+  // The leaving sub-tab is restored in the initializer, not in an effect: an
+  // effect lands after the first paint, so a return to the panel showed
+  // `tabs[0]` for one frame before jumping to the page the user left.
+  const [selection, setSelection] = useState<{ sessionId: string; tab: SubTab } | null>(() => {
+    if (sessionId === undefined) return null
+    const recent = recentSubTab(sessionId)
+    return recent === null ? null : { sessionId, tab: recent }
+  })
   const [rootEl, setRootEl] = useState<HTMLElement | null>(null)
   // Compact layout kicks in on a narrow panel (phone / squeezed split): the
   // three-column tabs collapse to single-column drill-in. Width-driven, so it
@@ -127,9 +134,11 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
       setSelection({ sessionId, tab: 'files' })
       return
     }
-    if (selection?.sessionId === sessionId) return
+    // A pending pill jump outranks both the restored pick and the stored
+    // selection: it is an explicit request, consumed once per mount.
     const pending = takeSubTab(sessionId)
     if (pending !== null) { setSelection({ sessionId, tab: pending }); return }
+    if (selection?.sessionId === sessionId) return
     // A quick return (within the sticky window) restores the last sub-tab
     // instead of recomputing the default entry; an explicit pill jump above
     // still wins.

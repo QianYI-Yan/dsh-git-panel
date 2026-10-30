@@ -39,6 +39,7 @@ import { RepoBar } from './overview-repobar.js'
 import { PushModal } from './PushModal.js'
 import { PublishModal } from './PublishModal.js'
 import { ReposSection, type RepositoriesHost } from './ReposSection.js'
+import { useRowSlider } from './row-slider.js'
 import { canPush } from './push-policy.js'
 import { useGitQuerySignal } from './registry.js'
 import type { QueryKey } from './query-key.js'
@@ -358,11 +359,11 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
 
   // Left branch column + right detail column are drag-resizable; the middle
   // history column takes the remaining space. Widths persist per column.
-  const leftCol = useResizableColumn({ storageKey: 'gp.overview.left', initial: 200, min: 130, reserve: 360, edge: 'end' })
-  const rightCol = useResizableColumn({ storageKey: 'gp.overview.right', initial: 340, min: 190, reserve: 360, edge: 'start' })
+  const leftCol = useResizableColumn({ storageKey: 'gp.overview.left', initial: 200, min: 130, reserve: 360, edge: 'end', resetTitle: t('resizer.resetWidth') })
+  const rightCol = useResizableColumn({ storageKey: 'gp.overview.right', initial: 340, min: 190, reserve: 360, edge: 'start', resetTitle: t('resizer.resetWidth') })
   // Stacked only reads it here (hooks run unconditionally); the wide layout
   // ignores the value. The split is shared across the three stacked surfaces.
-  const split = useStackedSplit()
+  const split = useStackedSplit(t('resizer.resetHeight'))
 
   const setRef = (ref: string | null): void => setFilter((prev) => ({ ...prev, ref }))
 
@@ -701,15 +702,23 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
       ...secondaryFilters,
     ]
 
+  // The history list shares its scroller with paging, so the fill borrows the
+  // ref the list already owns instead of nesting another node (see row-slider.tsx).
+  const commitSlider = useRowSlider({
+    activeSelector: '.gp-commit-row--active',
+    deps: [selected?.hash ?? null, commits, compact, stacked],
+    host: listRef,
+  })
   const historyCol = h('div', { key: 'mid', className: 'gp-col gp-col--mid gp-history' }, [
     // Tight stacked only: the left column — repo list plus branch tree — names
     // the checkout whenever it stays in the band, so the bar would only repeat
     // it; the tier that moves the column behind the drawer needs this line.
     stacked && tight ? h(RepoBar, { key: 'repobar', snapshot, t }) : null,
     h('div', { key: 'tb', className: `gp-toolbar${stacked ? ' gp-toolbar--stacked' : ''}${tight ? ' gp-toolbar--drawer' : ''}`, ref: setSearchEl }, toolbarChildren),
-    h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll },
+    h('div', { key: 'list', className: 'gp-history__list', ref: listRef, onScroll }, [
+      commitSlider.slider,
       commits.length === 0
-        ? h('div', { className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
+        ? h('div', { key: 'empty', className: 'gp-empty' }, loading ? t('common.loading') : listError ? t('overview.loadFailed') : t('overview.noResults'))
         : rows.map((row) => renderCommitRow(row, {
           selected: selected?.hash === row.commit.hash,
           // snapshot.head is Git's unique abbreviation; history uses full hashes.
@@ -718,7 +727,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
           onSelect: () => selectCommit(row.commit),
           onHoverEnter: detail.onHoverEnter, onHoverLeave: detail.onHoverLeave,
           t,
-        }))),
+        })),
+    ]),
   ])
 
   // Changed-file summary (file count + colored +/- counts). Wide puts it above
@@ -738,12 +748,19 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
   // The right detail column body (changed files + message, or a placeholder) as
   // a keyed child array. Shared by the wide right column and the compact detail
   // pane. The container (.gp-detail) is supplied by each caller.
+  // The changed-file rows travel between files like the other lists (see
+  // row-slider.tsx); folding a directory moves them, so the tree is a dep.
+  const detailSlider = useRowSlider({
+    activeSelector: '.gp-files__entry.gp-tree-row--active',
+    deps: [detail.fileDiff, fileTree],
+  })
   const detailBody: JSX.Element[] = selected === null
     ? [h('div', { key: 'empty', className: 'gp-empty' }, [h(CommitIcon, { key: 'i', size: 20 }), t('overview.selectCommit')])]
     : [
-      h('div', { key: 'files', className: 'gp-detail__files' },
+      h('div', { key: 'files', className: 'gp-detail__files', ref: detailSlider.ref }, [
+        detailSlider.slider,
         detail.detail === null
-          ? h('div', { className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
+          ? h('div', { key: 'empty', className: 'gp-empty' }, detail.detailError ? t('overview.detailFailed') : t('common.loading'))
           : [
             compact ? null : renderDetailSummary('gp-detail__summary'),
             renderFileTree(fileTree, {
@@ -755,7 +772,8 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
               expandLabel: t('overview.expandDir'),
               collapseLabel: t('overview.collapseDir'),
             }),
-          ]),
+          ],
+      ]),
       h('div', { key: 'msg', className: 'gp-detail__msg' }, [
         h('div', { key: 'subj', className: 'gp-detail__subject' }, selected.subject),
         h('div', { key: 'meta', className: 'gp-detail__meta' }, [
@@ -801,14 +819,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     : h(ReposSection, { key: 'repos', choices: repositories.choices, current: repositories.current, snapshot, onChoose: repositories.onChoose, collapsed: repositories.collapsed ?? false, onToggleCollapse: repositories.onToggleCollapse, t })
 
   if (stacked) {
-    const branchList = h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+    const branchList = h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
       onFilter: (ref) => setRef(ref),
       switchOptions,
       onSwitch: openSwitch,
       onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
       onRetry: reloadTree,
       t,
-    }, branchTrees))
+    }, trees: branchTrees })
     const status = renderStatusBar(snapshot, statusCbs)
     const leftChildren: JSX.Element[] = [
       reposBlock,
@@ -857,14 +875,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
         onClose: () => setDrawerOpen(false),
         children: [
           ...(reposBlock === null ? [] : [reposBlock]),
-          h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+          h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
             onFilter: (ref) => { setRef(ref); setDrawerOpen(false) },
             switchOptions,
             onSwitch: (option) => { setDrawerOpen(false); openSwitch(option) },
             onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
             onRetry: reloadTree,
             t,
-          }, branchTrees)),
+          }, trees: branchTrees }),
         ],
         t,
       })
@@ -902,14 +920,14 @@ export function OverviewTab({ remote, sessionId, visible = true, defaultDiffView
     // left: branches (scroll) + a fixed status bar footer (repo link + sync)
     h('div', { key: 'left', className: 'gp-col gp-col--left', style: { flex: `0 0 ${leftCol.width}px` } }, [
       reposBlock,
-      h('div', { key: 'scroll', className: 'gp-col-left__scroll' }, renderBranchList(tree, treeError, filter.ref, closedSections, {
+      h(BranchScroll, { key: 'scroll', tree, treeError, activeRef: filter.ref, closed: closedSections, cbs: {
         onFilter: (ref) => setRef(ref),
         switchOptions,
         onSwitch: openSwitch,
         onToggle: (section) => setClosedSections((prev) => { const n = new Set(prev); if (n.has(section)) n.delete(section); else n.add(section); return n }),
         onRetry: reloadTree,
         t,
-      }, branchTrees)),
+      }, trees: branchTrees }),
       renderStatusBar(snapshot, statusCbs),
     ]),
     leftCol.divider,
@@ -972,6 +990,28 @@ interface BranchTrees {
   readonly remotePrimary: string | null
   readonly remote: readonly BranchTreeNode[]
   readonly tags: readonly BranchTreeNode[]
+}
+
+interface BranchScrollProps {
+  readonly tree: BranchTree | null
+  readonly treeError: boolean
+  readonly activeRef: string | null
+  readonly closed: ReadonlySet<string>
+  readonly cbs: BranchCbs
+  readonly trees: BranchTrees
+}
+
+/** The branch tree's scroller, with the panel's travelling fill behind the
+ * active row (see row-slider.tsx): picking another ref slides the highlight
+ * instead of repainting two rows in a single frame. Folding a section moves
+ * the rows below it, so the fold set is part of what the fill is measured
+ * from. */
+function BranchScroll({ tree, treeError, activeRef, closed, cbs, trees }: BranchScrollProps): JSX.Element {
+  const slider = useRowSlider({ activeSelector: '.gp-branch-row--active', deps: [activeRef, tree, trees, closed] })
+  return h('div', { className: 'gp-col-left__scroll', ref: slider.ref }, [
+    slider.slider,
+    renderBranchList(tree, treeError, activeRef, closed, cbs, trees),
+  ])
 }
 
 function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef: string | null, closed: ReadonlySet<string>, cb: BranchCbs, trees: BranchTrees): JSX.Element {

@@ -1,0 +1,95 @@
+/**
+ * The travelling fill behind a list's active row.
+ *
+ * A list that paints the active row's background repaints two rows on every
+ * switch. Drawing that fill once, behind the rows, and moving it turns the
+ * repaint into a movement — the highlight travels to the row that was picked.
+ *
+ * The block is measured from the active row after every render that can move
+ * it (a switch, a reorder, a fold) and never while the list is folded: a folded
+ * list reports zero boxes, so the last position is kept and remeasured on the
+ * way out. The slider is a child of the scrolling element itself, which is why
+ * it scrolls with the rows and needs no scroll listener; only a resize can
+ * change a row's height, hence the observer.
+ *
+ * Transitions stay off for the first frame after mount: a list is remounted
+ * whenever its pane is rebuilt, and gliding the fill in from a stale position
+ * would read as a glitch, not as a movement.
+ */
+import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { JSX, RefObject } from 'react'
+
+interface RowSliderOptions {
+  /** Selector of the active row, searched inside the scrolled node. */
+  readonly activeSelector: string
+  /** Values the active row's position depends on: a switch, a reorder, a fold. */
+  readonly deps: readonly unknown[]
+  /** Folded lists report zero boxes; the last position is kept until they unfold. */
+  readonly collapsed?: boolean
+  /** The scrolled node, when the caller already owns a ref to it (the history
+   * list needs its own for paging). Omitted, the hook creates one. */
+  readonly host?: RefObject<HTMLDivElement | null>
+}
+
+export interface RowSliderHandle {
+  /** Attach to the scrolling element; it must be positioned (static is fine:
+   * the slider is measured from its border box). */
+  readonly ref: RefObject<HTMLDivElement | null>
+  /** Ref callback for the same node, for lists that already own a ref of their
+   * own: call this alongside theirs instead of passing `ref`. */
+  readonly attach: (node: HTMLDivElement | null) => void
+  readonly slider: JSX.Element
+}
+
+export function useRowSlider({ activeSelector, deps, collapsed = false, host: shared }: RowSliderOptions): RowSliderHandle {
+  const own = useRef<HTMLDivElement | null>(null)
+  const ref = shared ?? own
+  // Ref types hand `current` out as readonly; the node this ref points at is
+  // the hook's own, so it writes through a mutable view of it.
+  const attach = useCallback((node: HTMLDivElement | null): void => {
+    (ref as { current: HTMLDivElement | null }).current = node
+  }, [ref])
+  const [box, setBox] = useState<{ readonly top: number; readonly height: number } | null>(null)
+  const [settled, setSettled] = useState(false)
+
+  const measure = useCallback((): void => {
+    const host = ref.current
+    if (host === null || collapsed) return
+    const active = host.querySelector(activeSelector)
+    if (active === null) { setBox(null); return }
+    const base = host.getBoundingClientRect()
+    const rect = active.getBoundingClientRect()
+    // Rects are viewport-relative; the slider lives in the scrolled content, so
+    // add back what the container has scrolled away above it.
+    const top = rect.top - base.top - host.clientTop + host.scrollTop
+    const height = rect.height
+    setBox((prev) => (prev !== null && prev.top === top && prev.height === height ? prev : { top, height }))
+  }, [activeSelector, collapsed, ref])
+
+  // The dependency list is the caller's, by design: only the caller knows which
+  // values move the active row.
+  useLayoutEffect(measure, [...deps, measure])
+
+  useEffect(() => {
+    if (settled) return undefined
+    const frame = requestAnimationFrame(() => setSettled(true))
+    return () => cancelAnimationFrame(frame)
+  }, [settled])
+
+  useEffect(() => {
+    const host = ref.current
+    if (host === null || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(() => measure())
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [measure, ref])
+
+  const slider = h('span', {
+    className: 'gp-rowslider'
+      + (box === null ? ' gp-rowslider--off' : '')
+      + (settled ? ' gp-rowslider--settled' : ''),
+    style: box === null ? undefined : { transform: `translateY(${box.top}px)`, height: `${box.height}px` },
+    'aria-hidden': 'true',
+  })
+  return { ref, attach, slider }
+}

@@ -26,18 +26,29 @@ export const CSS = `
  * chip takes the width the words used to hold. */
 .gp-repolist__label--ic{display:flex;align-items:center}
 .gp-repolist__badge{flex:none;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);font-size:10px;line-height:16px;text-align:center;box-sizing:border-box}
-.gp-repolist__list{list-style:none;margin:0;padding:0;min-height:0;overflow:auto}
-/* Unfolding the block fades its rows in: a [hidden] toggle otherwise snaps the
- * height in one frame and reads as a jump cut. */
-.gp-repolist__list:not([hidden]){animation:gp-repolist-in .18s ease}
-@keyframes gp-repolist-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+/* The scroll container also anchors the travelling fill, so the slider scrolls
+ * with the rows instead of floating over them. */
+.gp-repolist__list{position:relative;list-style:none;margin:0;padding:0;min-height:0;overflow:auto}
+/* The block folds by animating its track size, not by hiding the rows: a
+ * [hidden] toggle snapped the height in one frame, and every remount (each
+ * pane renders its own copy of the block) replayed the fold-in, which read as
+ * the list blinking whenever the user changed tabs. Unfolding grows downwards
+ * and folding shrinks upwards, because the track always clips at its bottom.
+ * The rows stay mounted while folded — the transition needs their real height
+ * — so the folded body also leaves the tab order and the accessibility tree. */
+.gp-repolist__body{display:grid;grid-template-rows:1fr;min-height:0;transition:grid-template-rows .2s ease,visibility 0s}
+.gp-repolist__body[data-collapsed="true"]{grid-template-rows:0fr;visibility:hidden;transition:grid-template-rows .2s ease,visibility 0s linear .2s}
+.gp-repolist__fold{min-height:0;overflow:hidden}
 .gp-repolist__row{margin:0;min-width:0}
 .gp-repolist__item{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:5px 10px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .gp-repolist__item:hover:not(.gp-repolist__item--active){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-repolist__item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
 /* The checked row keeps its fill while hovered, like the branch / commit /
  * change rows; it is also the row a click does nothing on. */
-.gp-repolist__item--active{background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);cursor:default}
+/* The fill is drawn by .gp-repolist__slider behind the rows (it cannot be a
+ * row background: then a switch would repaint two rows instead of moving one
+ * block). */
+.gp-repolist__item--active{background:transparent;box-shadow:none;cursor:default}
 .gp-repolist__icon{display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-repolist__item--active .gp-repolist__icon{color:var(--dsw-alias-state-business-primary)}
 .gp-repolist__text{display:flex;flex-direction:column;gap:1px;flex:1 1 auto;min-width:0}
@@ -68,6 +79,7 @@ export const CSS = `
 .gp-repolist__item--disabled:hover:not(.gp-repolist__item--active){background:transparent}
 /* Group headers appear only when both families are present; one line each, so
  * they stay cheap inside the block's height budget. */
+.gp-repolist__groups{display:flex;flex-direction:column;min-width:0}
 .gp-repolist__group{display:flex;flex-direction:column;min-width:0}
 .gp-repolist__grouphd{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 10px 2px;font-size:11px;line-height:1.4;color:var(--dsw-alias-label-tertiary)}
 .gp-repolist__grouptitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
