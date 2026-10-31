@@ -34,20 +34,11 @@ export function ChangeStats({ stats, compact = false, showTimes = true, t }: Sta
       h('span', { key: 'd', className: 'gp-stats__del' }, `\u2212${stats.deletions}`),
     ]),
   ]
-  // Each count leads with the git mark the file rows use (S / M / U) and takes
-  // that mark's colour, so the bar reads at a glance instead of parsing labels.
-  if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item gp-stats__chip gp-stats__item--staged' }, [
-    h('span', { key: 'm', className: 'gp-stats__badge', 'aria-hidden': 'true' }, 'S'),
-    t('stats.staged', { n: stats.staged }),
-  ]))
-  if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item gp-stats__chip gp-stats__item--modified' }, [
-    h('span', { key: 'm', className: 'gp-stats__badge', 'aria-hidden': 'true' }, 'M'),
-    t('stats.modified', { n: stats.modified }),
-  ]))
-  if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item gp-stats__chip gp-stats__item--untracked' }, [
-    h('span', { key: 'm', className: 'gp-stats__badge', 'aria-hidden': 'true' }, 'U'),
-    t('stats.untracked', { n: stats.untracked }),
-  ]))
+  // Each state count is a chip tinted with that state's colour, so the bar
+  // reads at a glance instead of parsing labels.
+  if (stats.staged > 0) items.push(h('span', { key: 'st', className: 'gp-stats__item gp-stats__chip gp-stats__item--staged' }, t('stats.staged', { n: stats.staged })))
+  if (stats.modified > 0) items.push(h('span', { key: 'mo', className: 'gp-stats__item gp-stats__chip gp-stats__item--modified' }, t('stats.modified', { n: stats.modified })))
+  if (stats.untracked > 0) items.push(h('span', { key: 'un', className: 'gp-stats__item gp-stats__chip gp-stats__item--untracked' }, t('stats.untracked', { n: stats.untracked })))
   // On a very large change set the host skips the per-file line/mtime fan-outs
   // (issue #16); flag that the "+/-" count omits untracked lines so it isn't
   // read as exact. The hint rides the shared fast tip, not a native title.
@@ -58,19 +49,16 @@ export function ChangeStats({ stats, compact = false, showTimes = true, t }: Sta
   }, t('stats.partial')))
 
   // The two timestamps live in one wrap-together group so they always share a
-  // line instead of the last-commit time dropping to its own row. Each is a chip
-  // holding its own label and a nested time pill, in its own status colour, so
-  // the two rows of the bar never read as one run-on sentence. Absolute times
-  // are secondary detail on hover — the native title delay is fine here, and a
-  // touch panel shows neither surface, so the fast tip would gain nothing.
-  const timeChip = (key: string, cls: string, at: number | string, label: GitKey): JSX.Element =>
-    h('span', { key, className: `gp-stats__item gp-stats__chip ${cls}`, title: absoluteTime(at) }, [
-      h('span', { key: 'k', className: 'gp-stats__chip-label' }, t(label)),
-      h('span', { key: 'v', className: 'gp-stats__chip-value' }, timeAgo(at, now, t)),
-    ])
+  // line instead of the last-commit time dropping to its own row. They stay
+  // plain text, apart from the count chips. Absolute times are secondary detail
+  // on hover — the native title delay is fine here.
   const times: JSX.Element[] = []
-  if (stats.lastChangeAt !== null) times.push(timeChip('lc', 'gp-stats__chip--change', stats.lastChangeAt, 'stats.lastChangeLabel'))
-  if (stats.headCommittedAt !== null) times.push(timeChip('hc', 'gp-stats__chip--commit', stats.headCommittedAt, 'stats.lastCommitLabel'))
+  if (stats.lastChangeAt !== null) {
+    times.push(h('span', { key: 'lc', className: 'gp-stats__item', title: absoluteTime(stats.lastChangeAt) }, t('stats.lastChange', { time: timeAgo(stats.lastChangeAt, now, t) })))
+  }
+  if (stats.headCommittedAt !== null) {
+    times.push(h('span', { key: 'hc', className: 'gp-stats__item', title: absoluteTime(stats.headCommittedAt) }, t('stats.lastCommit', { time: timeAgo(stats.headCommittedAt, now, t) })))
+  }
   const timesBlock = times.length > 0
     ? h('span', { key: 'times', className: 'gp-stats__times' }, times)
     : null

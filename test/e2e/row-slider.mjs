@@ -9,17 +9,30 @@
  * present and still lose the cascade — so every host is driven through a real
  * click here and the geometry is measured against its active row.
  *
- * Expected deltas: top and height are exact; the width is the host's horizontal
- * inset on both sides (4px by default, 0 for the history list, whose rows are
- * already inset).
+ * Expected deltas: top, height and width are exact (the fill is flush with
+ * every scroller), and the fill's left corners are square so the select bar
+ * stays a straight vertical line in every list.
+ *
+ * The run repeats at each font step: the panel applies it as CSS `zoom`, which
+ * puts rects in visual pixels while the fill is laid out in CSS pixels, so a
+ * missed conversion shows up as an offset that grows with the row's distance
+ * from the top (hence the 20th commit, not the 2nd).
  */
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright-core'
 import { fileURLToPath } from 'node:url'
 
+const PICKED_COMMIT = 19
+
 const browser = await chromium.launch()
 try {
-  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } })
+  for (const fontDelta of [0, 1, -1]) await run(fontDelta)
+} finally {
+  await browser.close()
+}
+
+async function run(fontDelta) {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1100 } })
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto(new URL('./harness.html', import.meta.url).href)
@@ -27,12 +40,13 @@ try {
     await page.addScriptTag({ path: fileURLToPath(new URL(file, import.meta.url)) })
   }
 
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async ({ fontDelta, picked }) => {
     const now = new Date().toISOString()
-    const commits = [
-      { hash: 'd196623aaa', shortHash: 'd196623', subject: 'feat: add c', author: 'Tester', dateIso: now, parents: ['de54fc0bbb'], refs: [] },
-      { hash: 'de54fc0bbb', shortHash: 'de54fc0', subject: 'init: first commit', author: 'Tester', dateIso: now, parents: [], refs: [] },
-    ]
+    const hashOf = (i) => (String(i).padStart(4, '0') + 'abcdef0123').slice(0, 10)
+    const commits = Array.from({ length: 30 }, (_, i) => ({
+      hash: hashOf(i), shortHash: hashOf(i).slice(0, 7), subject: 'commit ' + i, author: 'Tester', dateIso: now,
+      parents: i === 29 ? [] : [hashOf(i + 1)], refs: [],
+    }))
     const snap = {
       root: '/mock', branch: 'main', head: 'd196623', dirty: true,
       unborn: false, staged: 0, modified: 2, untracked: 0, ahead: 0, behind: 0,
@@ -41,7 +55,7 @@ try {
         { path: 'b.txt', status: 'modified', staged: false, isDirectory: false },
       ],
       stats: { fileCount: 2, staged: 0, modified: 2, untracked: 0, insertions: 3, deletions: 1, lastChangeAt: null, headCommittedAt: null },
-      remote: null, refreshIntervalMs: 0, checkedAt: Date.now(),
+      remote: null, refreshIntervalMs: 0, checkedAt: Date.now(), fontDelta,
     }
     const { fixture, connection } = window.createGitPanelMock(snap)
     // Two checkouts, so the repository list has a row to pick: a switch is the
@@ -117,6 +131,7 @@ try {
         width: Math.round(fill.width - row.width),
         on: !slider.classList.contains('gp-rowslider--off'),
         anchored: slider.offsetParent === host,
+        leftRadius: getComputedStyle(slider).borderTopLeftRadius + ' ' + getComputedStyle(slider).borderBottomLeftRadius,
       }
     }
 
@@ -127,14 +142,46 @@ try {
     await waitFor(() => document.querySelector('.gp-panel .gp-commit-row'), 'the history rows')
     await wait(300)
 
-    // 1. The branch tree: its current branch is the active row from the start.
+    // 1. The branch tree: the fill marks the history filter row, so there is
+    // none until a branch is picked; the checked-out branch carries its own
+    // HEAD chip instead.
     await waitFor(() => document.querySelector('.gp-panel .gp-branch-row--current'), 'the current branch row')
     await wait(150)
-    const branches = measure('.gp-col-left__scroll', '.gp-branch-row--current')
+    const branchScroll = () => [...document.querySelectorAll('.gp-panel .gp-col-left__scroll')]
+      .find((node) => inVisiblePane(node) && node.getBoundingClientRect().width > 0)
+    const idleFill = branchScroll().querySelector('.gp-rowslider')
+    const idle = {
+      off: idleFill !== null && idleFill.classList.contains('gp-rowslider--off'),
+      head: textOf(branchScroll().querySelector('.gp-branch-row--current'), '.gp-branch-row__head'),
+      heads: branchScroll().querySelectorAll('.gp-branch-row__head').length,
+    }
+    const featureRow = [...branchScroll().querySelectorAll('.gp-branch-row')].find((node) => textOf(node, '.gp-tree-name') === 'feature')
+    if (featureRow === undefined) throw new Error('no feature branch row')
+    featureRow.click()
+    await waitFor(() => branchScroll().querySelector('.gp-branch-row--active') !== null, 'the filtered branch row')
+    await wait(250)
+    const branches = measure('.gp-col-left__scroll', '.gp-branch-row--active')
+
+    // 1b. Folding the section that holds the filtered branch takes the row out of
+    // the DOM; unfolding brings it back at the same place, and the fill must be
+    // there at once rather than gliding in from the top of the list.
+    let refold = null
+    if (fontDelta === 0) {
+      const groupHead = [...document.querySelectorAll('.gp-panel .gp-col-left__scroll .gp-branch-group__head')]
+        .find((node) => inVisiblePane(node) && node.parentElement?.querySelector('.gp-branch-row--active') !== null)
+      if (groupHead === undefined) throw new Error('no branch group holding the filtered branch')
+      groupHead.click()
+      await waitFor(() => branchScroll().querySelector('.gp-branch-row--active') === null, 'the folded section')
+      await wait(100)
+      groupHead.click()
+      await waitFor(() => branchScroll().querySelector('.gp-branch-row--active') !== null, 'the unfolded section')
+      await wait(40)
+      refold = measure('.gp-col-left__scroll', '.gp-branch-row--active')
+    }
 
     // 2. The history list: picking a commit moves the fill.
     const commitRows = () => [...document.querySelectorAll('.gp-panel .gp-history__list .gp-commit-row')]
-    commitRows()[1].click()
+    commitRows()[picked].click()
     await waitFor(() => document.querySelector('.gp-panel .gp-history__list .gp-commit-row--active'), 'the active commit')
     await wait(250)
     const history = measure('.gp-history__list', '.gp-commit-row--active')
@@ -192,22 +239,27 @@ try {
     const repos = measure('.gp-repolist__list', '.gp-repolist__item--active')
 
     root.unmount()
-    return { branches, history, detail, changes, files, repos, root: fixture.snapshot.root }
-  })
+    return { idle, branches, refold, history, detail, changes, files, repos, root: fixture.snapshot.root }
+  }, { fontDelta, picked: PICKED_COMMIT })
+  await page.close()
 
-  assert.deepEqual(errors, [], 'no browser runtime errors')
-  for (const [name, expected] of [
-    ['branches', -8], ['history', 0], ['detail', -8], ['changes', -8], ['files', -8], ['repos', -8],
-  ]) {
+  const step = 'font ' + fontDelta + ' '
+  assert.deepEqual(errors, [], step + 'no browser runtime errors')
+  assert.equal(result.idle.off, true, step + 'no filter row: the branch fill is hidden')
+  assert.equal(result.idle.head, 'HEAD', step + 'the checked-out branch carries the HEAD chip')
+  assert.equal(result.idle.heads, 1, step + 'only the checked-out branch carries the chip')
+  const hosts = ['branches', 'history', 'detail', 'changes', 'files', 'repos']
+  if (result.refold !== null) hosts.push('refold')
+  for (const name of hosts) {
     const box = result[name]
-    assert.equal(box.error, undefined, name + ': ' + (box.error ?? ''))
-    assert.equal(box.on, true, name + ': the fill is drawn (not hidden)')
-    assert.equal(box.anchored, true, name + ': the fill is positioned by its own scroller, not an ancestor')
-    assert.ok(Math.abs(box.top) <= 1, name + ': the fill sits on the active row (top ' + box.top + 'px)')
-    assert.ok(Math.abs(box.height) <= 1, name + ': the fill matches the row height (delta ' + box.height + 'px)')
-    assert.equal(box.width, expected, name + ': the fill keeps the host inset (width ' + box.width + 'px)')
+    const label = step + name
+    assert.equal(box.error, undefined, label + ': ' + (box.error ?? ''))
+    assert.equal(box.on, true, label + ': the fill is drawn (not hidden)')
+    assert.equal(box.anchored, true, label + ': the fill is positioned by its own scroller, not an ancestor')
+    assert.ok(Math.abs(box.top) <= 1, label + ': the fill sits on the active row (top ' + box.top + 'px)')
+    assert.ok(Math.abs(box.height) <= 1, label + ': the fill matches the row height (delta ' + box.height + 'px)')
+    assert.ok(Math.abs(box.width) <= 1, label + ': the fill is as wide as the row (delta ' + box.width + 'px)')
+    assert.equal(box.leftRadius, '0px 0px', label + ': the fill is square on the left, so the select bar is straight')
   }
-  console.log('row-slider: PASS', JSON.stringify(result))
-} finally {
-  await browser.close()
+  console.log('row-slider: ' + step + 'PASS', JSON.stringify(result))
 }

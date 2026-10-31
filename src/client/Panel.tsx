@@ -275,7 +275,7 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
     // A checkout read before turns the page on the spot: its sample republishes
     // during the call above, so dimming the body here would be a flicker rather
     // than feedback on a wait.
-    if (controller.hasSample(next)) return true
+    if (controller.showsRepo(next)) return true
     switchBase.current = view
     const active = document.activeElement
     switchFocus.current = active instanceof HTMLElement && active !== document.body ? active : null

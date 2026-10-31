@@ -142,8 +142,9 @@ export function gitPanelRemoteOf(ctx: ClientCtx): GitPanelRemote {
       return unwrap<T>(result)
     } catch (error) {
       // An aborted call is a cancellation the caller asked for, not a broken
-      // git: the controller keeps the current view instead of reporting a
-      // failure the user never caused.
+      // git, so it is typed as such. The controller's own abort (a repository
+      // switch) never reaches its error handling: the switch bumps the request
+      // generation first, and the stale reply is dropped on that.
       const aborted = signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
       return { ok: false, error: { code: aborted ? 'cancelled' : 'git-unavailable', message: error instanceof Error ? error.message : String(error) } }
     }

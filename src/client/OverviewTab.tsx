@@ -1013,14 +1013,14 @@ interface BranchScrollProps {
 }
 
 /** The branch tree's scroller, with the panel's travelling fill behind the
- * checked-out branch (see row-slider.tsx): picking another ref slides the
- * highlight instead of repainting two rows in a single frame. The fill follows
- * --current, not --active: the checked-out branch is always marked, while
- * --active is the history filter row, which may be empty. Folding a section
+ * history filter row (see row-slider.tsx): picking another ref slides the
+ * highlight instead of repainting two rows in a single frame. With no filter
+ * there is no fill; the checked-out branch carries its own mark (HEAD chip and
+ * icon colour), so the two never compete for the same cue. Folding a section
  * moves the rows below it, so the fold set is part of what the fill is
  * measured from. */
 function BranchScroll({ tree, treeError, activeRef, closed, cbs, trees }: BranchScrollProps): JSX.Element {
-  const slider = useRowSlider({ activeSelector: '.gp-branch-row--current', deps: [activeRef, tree, trees, closed] })
+  const slider = useRowSlider({ activeSelector: '.gp-branch-row--active', deps: [activeRef, tree, trees, closed] })
   return h('div', { className: 'gp-col-left__scroll', ref: slider.ref }, [
     slider.slider,
     renderBranchList(tree, treeError, activeRef, closed, cbs, trees),
@@ -1058,6 +1058,9 @@ function renderBranchList(tree: BranchTree | null, treeError: boolean, activeRef
       h('span', { key: 'i', className: `gp-branch-row__ic${isCurrent ? ' gp-branch-row__ic--current' : isPrimary ? ' gp-branch-row__ic--primary' : ''}`, title: roleLabel || undefined, 'aria-label': roleLabel || undefined }, rowIcon),
       h('span', { key: 'n', className: 'gp-tree-name' }, label),
       (b.ahead || b.behind) ? h('span', { key: 't', className: 'gp-branch-row__track' }, [sync('ahead', b.ahead), sync('behind', b.behind)]) : null,
+      // The checked-out branch: the icon already names the role for assistive
+      // tech, so the chip is visual only.
+      isCurrent ? h('span', { key: 'head', className: 'gp-branch-row__head', 'aria-hidden': 'true' }, 'HEAD') : null,
       // Shown on hover (always on touch); stops propagation so switching
       // never also toggles the row's history filter.
       target === undefined ? null : h('button', {

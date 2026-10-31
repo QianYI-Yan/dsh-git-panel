@@ -228,18 +228,11 @@ export const CSS = `
 /* stats bar */
 .gp-stats{display:flex;align-items:center;gap:6px;padding:8px 12px;min-height:33px;box-sizing:border-box;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12px;color:var(--dsw-alias-label-secondary);flex:none;flex-wrap:wrap}
 .gp-stats__item{display:inline-flex;align-items:center;gap:5px}
-/* The count leads with the same one-letter mark the file rows carry, and the
- * mark takes the item's status colour (below), so the bar reads as status, not
- * text. The mark is a complete box of its own rather than a narrower
- * .gp-status-badge: the two live in different CSS_PARTS modules, so borrowing
- * flex/text-align/weight from the badge rule would make this line depend on
- * module order. */
-.gp-stats__badge{flex:none;width:12px;text-align:center;font-size:10px;font-weight:600}
 .gp-stats__item--staged{color:var(--dsw-alias-state-business-primary)}
 .gp-stats__item--modified{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
-.gp-stats__item--untracked{color:var(--dsw-alias-state-success-primary)}
+.gp-stats__item--untracked{color:var(--dsw-alias-label-secondary)}
 /* The two timestamps wrap as one unit and never split across lines. */
-.gp-stats__times{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap}
+.gp-stats__times{display:inline-flex;align-items:center;gap:14px;flex-wrap:nowrap}
 .gp-stats__add{color:var(--dsw-alias-state-success-primary)}
 .gp-stats__del{color:var(--dsw-alias-state-error-primary)}
 /* "simplified" marker on a huge change set: muted + help cursor + dotted hint. */
@@ -256,21 +249,15 @@ export const CSS = `
 .gp-stats--timed>.gp-stats__main{flex:1 1 100%}
 .gp-stats--timed>.gp-stats__times{flex:1 1 100%;padding-top:2px}
 /* Chips: every count is its own pill, so the bar reads as discrete facts instead
- * of one run-on line. State chips tint their own background with their status
- * colour; the plain ones sit on the shared hover surface.
+ * of one run-on line. Staged and modified tint their background with their
+ * status colour; the plain ones (file count, lines, untracked) sit on the shared
+ * hover surface — untracked is the file tree's muted state, not an alert.
  * color-mix() keeps one declaration per state, in both themes — the tint is the
  * status colour, not a hard-coded hex. */
 .gp-stats__chip{padding:1px 8px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);line-height:18px;white-space:nowrap}
 .gp-stats__chip--quiet{background:transparent;padding-left:0}
 .gp-stats__item--staged.gp-stats__chip{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 14%,transparent)}
 .gp-stats__item--modified.gp-stats__chip{background:color-mix(in srgb,var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary)) 14%,transparent)}
-.gp-stats__item--untracked.gp-stats__chip{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
-/* The timestamp chips: the time itself is a pill inside the pill, mixed from the
- * chip's own colour so a theme change never needs a second rule. */
-.gp-stats__chip--change{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 13%,transparent);color:var(--dsw-alias-state-business-primary)}
-.gp-stats__chip--commit{background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 13%,transparent);color:var(--dsw-alias-state-success-primary)}
-.gp-stats__chip-label{opacity:.85}
-.gp-stats__chip-value{padding:0 6px;border-radius:999px;background:color-mix(in srgb,currentColor 18%,transparent);font-variant-numeric:tabular-nums}
 
 /* commit box */
 .gp-commitbox{flex:none;border-top:1px solid var(--dsw-alias-border-l2);padding:8px 10px;display:flex;flex-direction:column;gap:8px}

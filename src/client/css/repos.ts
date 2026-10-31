@@ -47,11 +47,9 @@ export const CSS = `
 .gp-repolist__item{box-sizing:border-box;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:5px 10px;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;text-align:left;cursor:pointer}
 .gp-repolist__item:hover:not(.gp-repolist__item--active){background:var(--dsw-alias-interactive-bg-hover)}
 .gp-repolist__item:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}
-/* The checked row keeps its fill while hovered, like the branch / commit /
- * change rows; it is also the row a click does nothing on. */
-/* The fill is drawn by .gp-repolist__slider behind the rows (it cannot be a
- * row background: then a switch would repaint two rows instead of moving one
- * block). */
+/* The checked row is the one a click does nothing on. Its fill is the
+ * travelling .gp-rowslider behind the rows (it cannot be a row background:
+ * then a switch would repaint two rows instead of moving one block). */
 .gp-repolist__item--active{background:transparent;box-shadow:none;cursor:default}
 .gp-repolist__icon{display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-tertiary)}
 .gp-repolist__item--active .gp-repolist__icon{color:var(--dsw-alias-state-business-primary)}
@@ -66,9 +64,8 @@ export const CSS = `
  * little more of it before the branch tree starts scrolling. */
 .gp-panel[data-layout="stacked"] .gp-repolist{max-height:34%}
 /* A switch keeps the previous sample on screen: dim the body so the stale panes
- * read as "being replaced" rather than as the new checkout's state. The fade
- * lives on the body itself so the new sample fades back in instead of snapping. */
-.gp-body{transition:opacity .18s ease}
+ * read as "being replaced" rather than as the new checkout's state (the fade
+ * itself is the body's own transition, in base). */
 .gp-panel[data-repo-switching="true"] .gp-body{opacity:.55}
 /* Row line 1: name, then the row's own branch chip and change count. The name
  * takes what is left and ellipsizes; the chips never squeeze it to "dsh-…". */

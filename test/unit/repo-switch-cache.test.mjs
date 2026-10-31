@@ -122,3 +122,66 @@ test('a sample older than one poll interval is not republished', async (t) => {
   await back
   assert.equal(rootOf(h.controller), '/ws')
 })
+
+test('freshness is measured on this client clock, not the host checkedAt', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 })
+  // Per call, how far the host clock reads from the browser's: 400 s ahead on
+  // the first sample, 40 s behind on the third. Neither may decide freshness.
+  const skew = [400_000, 0, -40_000, 0]
+  const h = setup(t, async (n) => ok(snapshot(Date.now() + skew[n - 1], n % 2 === 0 ? '/ws/site' : '/ws')))
+  h.controller.ensure()
+  await drain()
+  await h.controller.setRepo('site')
+
+  t.mock.timers.tick(30_001)
+  const stale = h.controller.setRepo('')
+  assert.equal(rootOf(h.controller), '/ws/site', 'a sample received a poll interval ago is not replayed, however late the host clock reads')
+  await stale
+  await h.controller.setRepo('site')
+
+  const fresh = h.controller.setRepo('')
+  assert.equal(rootOf(h.controller), '/ws', 'a sample received just now is replayed, however early the host clock reads')
+  assert.equal(h.controller.showsRepo(''), true)
+  await fresh
+})
+
+test('a replayed sample does not start the sub-queries; the calibrating one does, once', async (t) => {
+  const reply = { current: null }
+  const h = setup(t, async (n) => (n === 3 ? reply.current.promise : ok(snapshot(Date.now(), n === 2 ? '/ws/site' : '/ws'))))
+  h.controller.ensure()
+  await drain()
+  await h.controller.setRepo('site')
+  const before = h.controller.getQuerySignal()
+
+  reply.current = deferred()
+  const back = h.controller.setRepo('')
+  assert.equal(rootOf(h.controller), '/ws', 'the page turns on the replayed sample')
+  assert.equal(h.controller.showsRepo(''), true)
+  const replayed = h.controller.getQuerySignal()
+  assert.equal(replayed.tick, before.tick, 'the replay does not advance the query tick')
+  assert.equal(replayed.ready, false, 'queries wait for the calibrating sample')
+
+  reply.current.resolve(ok(snapshot(Date.now(), '/ws')))
+  await back
+  const calibrated = h.controller.getQuerySignal()
+  assert.equal(calibrated.tick, before.tick + 1, 'one batch of queries for the whole switch')
+  assert.equal(calibrated.ready, true)
+  assert.equal(calibrated.root, '/ws')
+})
+
+test('a resync drops every remembered sample', async (t) => {
+  const h = setup(t, async (n, request) => ok(snapshot(Date.now(), request.repo ? '/ws/site' : '/ws')))
+  h.controller.ensure()
+  await drain()
+  await h.controller.setRepo('site')
+  // A config write (or a reconnect) resyncs: the sample remembered for the cwd
+  // carries the old host-wide settings and must not come back.
+  h.controller.resync()
+  await drain()
+
+  const back = h.controller.setRepo('')
+  assert.equal(rootOf(h.controller), '/ws/site', 'no replay after a resync')
+  assert.equal(h.controller.showsRepo(''), false)
+  await back
+  assert.equal(rootOf(h.controller), '/ws')
+})

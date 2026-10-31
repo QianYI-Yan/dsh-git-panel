@@ -26,6 +26,7 @@ import { repoDetail, repoDisabledKey, repoGroups, repoLabel, repoRowTip } from '
 import { repoTipContent } from './repo-tip.js'
 import { useCopyFeedback } from './copy-feedback.js'
 import { useRowSlider } from './row-slider.js'
+import { inertAttr } from './inert.js'
 import { useHoverTip } from './tip.js'
 import { rtlPathText } from './rtl-path.js'
 import type { GitSnapshot } from './types.js'
@@ -190,9 +191,12 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
   // the count, and the collapsed checkout chip) from a screen reader. Composed
   // from keys that are already translated instead of a new string that would
   // need all eight locales for one sentence.
+  const countLabel = disabledCount > 0
+    ? t('repos.countAria', { n: choices.length - disabledCount, m: choices.length })
+    : String(choices.length)
   const headLabel = selectedLabel === null || selectedLabel === ''
-    ? toggleLabel
-    : `${toggleLabel}: ${t('tab.repos')} ${selectedLabel}`
+    ? `${toggleLabel}: ${t('tab.repos')} (${countLabel})`
+    : `${toggleLabel}: ${t('tab.repos')} (${countLabel}) ${selectedLabel}`
   // While collapsed the head carries the checkout's absolute path as its hint;
   // expanded, the path line below states it outright and needs no tip.
   const headTip = collapsed && selectedTitle !== null ? tip.tipProps(selectedTitle) : undefined
@@ -264,7 +268,7 @@ export function ReposSection({ choices, current, snapshot, onChoose, t, collapse
       key: 'body',
       className: 'gp-repolist__body',
       'data-collapsed': collapsed ? 'true' : 'false',
-      ...(collapsed ? { inert: '' } : {}),
+      ...inertAttr(collapsed),
     }, fold),
     tip.tipNode,
   ])

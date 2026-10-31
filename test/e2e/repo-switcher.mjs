@@ -920,8 +920,22 @@ async function mount(repos, action, options = {}) {
     // A cwd without a checkout of its own lists no workspace row to return to;
     // the pick is the last step there.
     if (listRows().some((row) => row.name === 'fixture-repo')) {
+      // The workspace was read moments ago, so the way back replays its sample:
+      // no dimming while the calibrating read is parked, and no sub-query until
+      // that read lands.
       mark = calls.length
+      fixture.holdSnapshot = true
+      // Any frame of dimming counts, not only the state 250 ms later.
+      let dimmed = false
+      const panelNode = document.querySelector('.gp-panel')
+      const watch = new MutationObserver(() => { if (switchingNow()) dimmed = true })
+      watch.observe(panelNode, { attributes: true, attributeFilter: ['data-repo-switching'] })
       pickRow('.gp-repolist__item', 'fixture-repo')
+      await wait(250)
+      watch.disconnect()
+      observed.backDuring = { switching: dimmed || switchingNow(), rows: listRows(), calls: calls.slice(mark) }
+      if (typeof fixture.releaseSnapshot === 'function') fixture.releaseSnapshot()
+      fixture.holdSnapshot = false
       await wait(600)
       observed.afterBack = { activeTab: activeTabLabel(), rows: listRows(), calls: calls.slice(mark) }
     }
@@ -1052,6 +1066,9 @@ const failures = []
     // already arrived.
     assert.equal(nestedCalls.filter((call) => call.kind === 'repo-list').length, 0, 'a switch does not re-scan the workspace')
     assert.ok(scoped(nestedCalls).every((call) => call.repo === 'site'), 'every repository-scoped request carries the picked checkout: ' + JSON.stringify(nestedCalls))
+    assert.equal(seen.backDuring.switching, false, 'a checkout read moments ago turns the page without dimming')
+    assert.equal(seen.backDuring.rows[0].active, true, 'the replayed sample checks the workspace row at once')
+    assert.deepEqual(scoped(seen.backDuring.calls).map((call) => call.endpoint), ['gitPanel/snapshot'], 'the replay starts no sub-query before the calibrating sample lands: ' + JSON.stringify(seen.backDuring.calls))
     assert.equal(seen.afterBack.activeTab, 'tab.overview', 'switching back stays on the overview')
     assert.deepEqual(seen.afterBack.rows.map((row) => row.active), [true, false, false], 'and marks the workspace checkout again')
     assert.ok(scoped(seen.afterBack.calls).some((call) => call.endpoint === 'gitPanel/snapshot'), 'the way back samples the workspace again: ' + JSON.stringify(seen.afterBack.calls))

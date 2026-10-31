@@ -12,7 +12,9 @@ export const CSS = `
 .gp-overview{display:flex;width:100%;min-height:0}
 .gp-col{display:flex;flex-direction:column;min-height:0;min-width:0}
 .gp-col--left{flex:0 1 200px;min-width:130px;overflow:hidden}
-/* Positioned: the branch rows' travelling fill is measured from this box. */
+/* Positioned: the branch rows' travelling fill is measured from this box. The
+ * rows are flush with the column's left edge and square there, so the fill is
+ * too: the select bar stays a straight vertical line. */
 .gp-col-left__scroll{position:relative;flex:1;min-height:0;overflow-y:auto}
 .gp-col--mid{flex:1 1 0;min-width:150px}
 .gp-col--right{flex:0 1 340px;min-width:190px;display:flex;flex-direction:column;min-height:0}
@@ -32,11 +34,16 @@ export const CSS = `
 .gp-branch-row--active,.gp-branch-row--active:hover{color:var(--dsw-alias-state-business-primary);background:transparent}
 .gp-branch-row--current .gp-tree-name{font-weight:600}
 .gp-branch-row__ic--current,.gp-branch-row__ic--primary{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
+/* The checked-out branch also carries a HEAD chip in the success colour, apart
+ * from the history filter row's blue fill: one row is where the work tree is,
+ * the other is only what the graph shows. Both can sit on one row. */
+.gp-branch-row__head{flex:none;margin-left:auto;padding:0 6px;border-radius:999px;font-size:10px;font-weight:600;line-height:16px;letter-spacing:.02em;color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 14%,transparent)}
+.gp-branch-row__track+.gp-branch-row__head{margin-left:6px}
 .gp-branch-row__track{display:inline-flex;align-items:center;gap:7px;flex:none;margin-left:auto;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--dsw-alias-state-business-primary)}
 .gp-branch-row__sync{display:inline-flex;align-items:center;gap:2px;white-space:nowrap}
 .gp-branch-row__sync-icon{flex:none}
 .gp-branch-row__switch{display:none;flex:none;margin:-2px 0 -2px auto;padding:0 7px;height:18px;border:1px solid var(--dsw-alias-border-l2);border-radius:5px;background:var(--dsw-alias-bg-layer-1);font:inherit;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.gp-branch-row__track+.gp-branch-row__switch{margin-left:0}
+.gp-branch-row__track+.gp-branch-row__switch,.gp-branch-row__head+.gp-branch-row__switch{margin-left:0}
 .gp-branch-row:hover .gp-branch-row__switch{display:inline-block}
 .gp-branch-row__switch:hover{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}
 .gp-branch-row__switch:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}
@@ -67,7 +74,7 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-history{display:flex;flex-direction:column;height:100%;min-height:0}
 /* overscroll-behavior:contain keeps a wheel gesture that reaches the top/bottom
  * of the commit list from bubbling out and scrolling the whole conversation. */
-.gp-history__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;--gp-rowslider-inset:0}
+.gp-history__list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .gp-commit-row{display:grid;align-items:center;gap:8px;height:30px;padding:0 10px;cursor:pointer;box-sizing:border-box}
 .gp-commit-row:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .gp-commit-row--active,.gp-commit-row--active:hover{background:transparent}
@@ -146,6 +153,5 @@ a.gp-statusbar__repo:hover{background:var(--dsw-alias-interactive-bg-hover);colo
 .gp-status--modified{color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-state-business-primary))}
 .gp-status--deleted{color:var(--dsw-alias-state-error-primary)}
 .gp-status--untracked{color:var(--dsw-alias-label-tertiary)}
-.gp-status--staged{color:var(--dsw-alias-state-business-primary)}
 .gp-status--renamed{color:var(--dsw-alias-state-business-primary)}
 `

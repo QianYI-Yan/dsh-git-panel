@@ -44,8 +44,12 @@ export class GitController {
   // sequence lets a superseded sample settle without touching the slot.
   private abort: AbortController | undefined
   private inflightSeq = 0
-  // Checkout tag ('' = the cwd's own) → the last sample read for it.
-  private readonly samples = new Map<string, GitSnapshot>()
+  // Checkout tag ('' = the cwd's own) → the last sample read for it, stamped
+  // with this client's clock on arrival (the host's checkedAt is another
+  // machine's clock when the GUI is reached remotely).
+  private readonly samples = new Map<string, { readonly snapshot: GitSnapshot; readonly receivedAt: number }>()
+  // The checkout the published view was read from.
+  private viewRepo: string | null = null
   private pendingRefresh = false
   private disposed = false
   private pollMs = DEFAULT_POLL_MS
@@ -134,6 +138,7 @@ export class GitController {
       .then((result) => {
         if (this.disposed || requestGeneration !== this.requestGeneration) return
         if (result.ok) {
+          this.remember(result.value)
           this.publishSnapshot(result.value, generation, false)
         } else if (result.error.code === 'cancelled') {
           // A caller-driven abort (navigation/reset) is not an error state:
@@ -174,6 +179,10 @@ export class GitController {
 
   resync(): void {
     if (this.disposed) return
+    // A resync follows a config write or a reconnect: every remembered sample
+    // may carry host-wide fields (font step, browser follow, checkout probing)
+    // that no longer hold, so none of them may be replayed.
+    this.samples.clear()
     this.requestGeneration += 1
     void this.refresh()
   }
@@ -195,19 +204,20 @@ export class GitController {
   }
 
   /** The remembered sample of this checkout, if it is still worth publishing:
-   * one poll interval old at most. Older than that and the next refresh would
-   * contradict it on arrival, so a switch pays the read instead of flashing a
-   * change list that is no longer true. */
+   * received one poll interval ago at most. Older than that and the next
+   * refresh would contradict it on arrival, so a switch pays the read instead
+   * of flashing a change list that is no longer true. */
   private fresh(repo: string): GitSnapshot | undefined {
     if (this.disposed) return undefined
     const cached = this.samples.get(repo)
     if (cached === undefined) return undefined
-    return Date.now() - cached.checkedAt <= this.pollMs ? cached : undefined
+    return Date.now() - cached.receivedAt <= this.pollMs ? cached.snapshot : undefined
   }
 
-  /** Whether switching to this checkout can republish a sample on the spot. */
-  hasSample(repo: string): boolean {
-    return this.fresh(repo) !== undefined
+  /** Whether the published view was read from this checkout — after setRepo(),
+   * true exactly when the switch replayed a remembered sample. */
+  showsRepo(repo: string): boolean {
+    return this.view.state === 'ready' && this.viewRepo === repo
   }
 
   /** Follow another repository and re-sample. The previous snapshot now
@@ -217,7 +227,9 @@ export class GitController {
    * disappear and come back. The panel dims its body and shows a switching
    * badge instead, and the new snapshot replaces the old one in one step.
    * A checkout read before republishes its own last sample immediately, and the
-   * refresh that follows proves it still describes the work tree. */
+   * refresh that follows proves it still describes the work tree. The replay
+   * does not advance the query tick: the sub-queries (history, branches, diff)
+   * run once, on the calibrating sample. */
   setRepo(repo: string): Promise<void> {
     if (this.disposed || repo === this.repo) return Promise.resolve()
     this.repo = repo
@@ -233,7 +245,10 @@ export class GitController {
     // A checkout read before opens on its own last sample, so going back is a
     // page turn; the refresh below calibrates it with the current state.
     const cached = this.fresh(repo)
-    if (cached !== undefined) this.publishSnapshot(cached, this.visibilityGeneration, true)
+    if (cached !== undefined) {
+      this.viewRepo = repo
+      this.publish({ state: 'ready', snapshot: cached }, this.unreadySignal())
+    }
     return this.refresh()
   }
 
@@ -243,6 +258,7 @@ export class GitController {
     if (this.disposed) return
     this.requestGeneration += 1
     this.pendingRefresh = false
+    this.remember(snapshot)
     this.publishSnapshot(snapshot, this.visibilityGeneration, true)
     this.schedulePoll()
   }
@@ -250,7 +266,7 @@ export class GitController {
   /** Remember this checkout's sample for the next switch back to it. */
   private remember(snapshot: GitSnapshot): void {
     this.samples.delete(this.repo)
-    this.samples.set(this.repo, snapshot)
+    this.samples.set(this.repo, { snapshot, receivedAt: Date.now() })
     while (this.samples.size > SAMPLE_CACHE_LIMIT) {
       const oldest = this.samples.keys().next()
       if (oldest.done === true) break
@@ -260,7 +276,7 @@ export class GitController {
 
   private publishSnapshot(snapshot: GitSnapshot, generation: number, force: boolean): void {
     this.pollMs = snapshot.refreshIntervalMs || DEFAULT_POLL_MS
-    this.remember(snapshot)
+    this.viewRepo = this.repo
     const previous = this.view.state === 'ready' ? this.view.snapshot : null
     const same = !force && previous !== null && snapshot.root === previous.root
       && snapshot.stateFingerprint !== undefined && snapshot.stateFingerprint === previous.stateFingerprint

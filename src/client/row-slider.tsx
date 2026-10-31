@@ -14,13 +14,19 @@
  * Resizing is watched at two levels: the scroller (it changes size when the
  * panel is resized) and the active row itself (its height can change on its own
  * — a zoom step, a theme with taller rows — while the scroller keeps its box).
- * Callers put every value that reorders rows into `deps`; that array is
- * rebuilt on each render of the caller, so measuring is cheap by design (one
- * querySelector and two rects), not something the deps array spares us.
+ * Callers put every value that moves the active row into `deps`; each entry
+ * must be a stable value (state, a memoized list), since the effect re-measures
+ * whenever one of them changes identity.
  *
- * Transitions stay off for the first frame after mount: a list is remounted
- * whenever its pane is rebuilt, and gliding the fill in from a stale position
- * would read as a glitch, not as a movement.
+ * Rects come back in visual pixels, while the slider's own offsets are laid
+ * out in the host's CSS pixels: under the panel's CSS `zoom` (the font step)
+ * the two differ, so measurements are divided by the host's effective zoom.
+ *
+ * Transitions stay off for the first frame the fill is shown — after mount, and
+ * after the active row comes back from outside the DOM (a folded section, a
+ * virtual window that slid past it): gliding in from a stale position would
+ * read as a glitch, not as a movement. While the row is absent the last box is
+ * kept and only hidden.
  */
 import { createElement as h, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX, RefObject } from 'react'
@@ -56,7 +62,9 @@ export function useRowSlider({ activeSelector, deps, collapsed = false, host: sh
     (ref as { current: HTMLDivElement | null }).current = node
   }, [ref])
   const [box, setBox] = useState<{ readonly top: number; readonly height: number } | null>(null)
+  const [shown, setShown] = useState(false)
   const [settled, setSettled] = useState(false)
+  const shownRef = useRef(false)
 
   const observed = useRef<Element | null>(null)
   const observerRef = useRef<ResizeObserver | null>(null)
@@ -73,13 +81,24 @@ export function useRowSlider({ activeSelector, deps, collapsed = false, host: sh
       observed.current = active
     }
     if (host === null || collapsed) return
-    if (active === null) { setBox(null); return }
+    if (active === null) {
+      shownRef.current = false
+      setShown(false)
+      return
+    }
     const base = host.getBoundingClientRect()
     const rect = active.getBoundingClientRect()
+    const zoom = zoomOf(host, base.height)
     // Rects are viewport-relative; the slider lives in the scrolled content, so
-    // add back what the container has scrolled away above it.
-    const top = rect.top - base.top - host.clientTop + host.scrollTop
-    const height = rect.height
+    // add back what the container has scrolled away above it. clientTop and
+    // scrollTop are already in the host's CSS pixels.
+    const top = (rect.top - base.top) / zoom - host.clientTop + host.scrollTop
+    const height = rect.height / zoom
+    if (!shownRef.current) {
+      shownRef.current = true
+      setShown(true)
+      setSettled(false)
+    }
     setBox((prev) => (prev !== null && prev.top === top && prev.height === height ? prev : { top, height }))
   }, [activeSelector, collapsed, ref])
 
@@ -113,10 +132,18 @@ export function useRowSlider({ activeSelector, deps, collapsed = false, host: sh
 
   const slider = h('span', {
     className: 'gp-rowslider'
-      + (box === null ? ' gp-rowslider--off' : '')
+      + (box === null || !shown ? ' gp-rowslider--off' : '')
       + (settled ? ' gp-rowslider--settled' : ''),
     style: box === null ? undefined : { transform: `translateY(${box.top}px)`, height: `${box.height}px` },
     'aria-hidden': 'true',
   })
   return { ref, attach, slider }
+}
+
+/** The effective CSS zoom on `host`: `currentCSSZoom` where the engine has it,
+ * otherwise the ratio of its visual height to its layout height. */
+function zoomOf(host: HTMLElement, visualHeight: number): number {
+  const reported = (host as { currentCSSZoom?: number }).currentCSSZoom
+  if (typeof reported === 'number' && reported > 0) return reported
+  return host.offsetHeight > 0 && visualHeight > 0 ? visualHeight / host.offsetHeight : 1
 }

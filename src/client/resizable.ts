@@ -149,7 +149,7 @@ export function useStackedSplit(splitResetTitle?: string): {
   dividerProps: {
     onPointerDown: (e: { clientY: number; preventDefault: () => void; currentTarget: EventTarget | null }) => void
     onDoubleClick: () => void
-    title: string
+    title?: string
   }
 } {
   const [pct, setPct] = useState<number>(() => splitValue())
@@ -201,5 +201,5 @@ export function useStackedSplit(splitResetTitle?: string): {
     }
   }, [])
 
-  return { pct, dividerProps: { onPointerDown, onDoubleClick, title: splitResetTitle ?? '' } }
+  return { pct, dividerProps: { onPointerDown, onDoubleClick, ...(splitResetTitle === undefined ? {} : { title: splitResetTitle }) } }
 }

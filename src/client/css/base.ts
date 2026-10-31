@@ -19,17 +19,16 @@ export const CSS = `
  * the coordinates; the row keeps no background of its own. It sits behind the
  * rows (first child, no z-index) and scrolls with them.
  *
- * --gp-rowslider-inset is the fill's horizontal inset on each side: 4px by
- * default, because most lists pad their rows; a list whose rows are flush with
- * the scroller sets it to 0 so the fill is the same width as the row it marks. */
-.gp-rowslider{position:absolute;left:var(--gp-rowslider-inset,4px);right:var(--gp-rowslider-inset,4px);top:0;border-radius:6px;background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);pointer-events:none}
+ * Every list uses the same shape: flush with the scroller on both sides and
+ * square on the left, so the select bar is a straight vertical line. */
+.gp-rowslider{position:absolute;left:0;right:0;top:0;border-radius:0 6px 6px 0;background:var(--gp-select-bg);box-shadow:var(--gp-select-bar);pointer-events:none}
 .gp-rowslider--settled{transition:transform .22s cubic-bezier(.2,.7,.3,1),height .22s cubic-bezier(.2,.7,.3,1)}
 .gp-rowslider--off{opacity:0}
 .gp-tabbar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--dsw-alias-border-l2);flex:none;flex-wrap:nowrap;min-width:0}
 /* The shell floats the input composer over the view's bottom (composer-overlay
  * mode). Reserve that height as bottom padding so the panel's own bottom rows
  * (commit box / commit comment) stay above it instead of being covered. */
-.gp-body{flex:1;min-height:0;display:flex;overflow:hidden;padding-bottom:calc(var(--dsh-composer-height,140px) + 12px)}
+.gp-body{flex:1;min-height:0;display:flex;overflow:hidden;padding-bottom:calc(var(--dsh-composer-height,140px) + 12px);transition:opacity .18s ease}
 /* The sidebar has no composer floating over it, so the reserved height would
    be dead space at the bottom of every view. */
 .gp-panel[data-gp-host="sidebar"] .gp-body{padding-bottom:0}
