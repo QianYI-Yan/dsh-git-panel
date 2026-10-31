@@ -101,7 +101,8 @@ async function mount(repos, action, options = {}) {
     : SNAP
   // A non-zero poll makes fresh snapshots arrive on their own — the way the
   // config form's resync delivers a flipped switch to the panel.
-  const snapUsed = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
+  const polled = options.pollMs === undefined ? snap : { ...snap, refreshIntervalMs: options.pollMs }
+  const snapUsed = options.foldOnPick === true ? { ...polled, collapseReposOnPick: true } : polled
   const scene = options.scene || 'scene'
   const out = await page.evaluate(async ({ snap, repos: listed, action, snapshotFails, scene, probeToggle, taggedRoot, followActive, followOn }) => {
     const React = window.React
@@ -586,6 +587,24 @@ async function mount(repos, action, options = {}) {
       if (observed.statusMenuOpen) await clickRootItem('files.copyRootMenu')
       observed.statusPathCopy = window.__copiedStatus
       observed.statusPathCopiedClass = document.querySelector('.gp-panel .gp-files__status-path')?.classList.contains('gp-files__status-path--copied') ?? false
+      return { observed, calls }
+    }
+    if (action === 'fold-on-pick') {
+      // collapseReposOnPick is on: a pick folds the block, a repeat pick of
+      // the checkout in use is no switch and leaves it open.
+      if (activeTabLabel() !== 'tab.overview') {
+        clickTab('tab.overview')
+        await wait(300)
+      }
+      await expandRepos()
+      observed.opened = headInfo()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(700)
+      observed.afterPick = { head: headInfo(), rows: listRows() }
+      await expandRepos()
+      pickRow('.gp-repolist__item', 'site')
+      await wait(300)
+      observed.afterRepeat = headInfo()
       return { observed, calls }
     }
     if (action === 'probe') {
@@ -1343,6 +1362,25 @@ const failures = []
     assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
   } catch (error) {
     console.error('probe-toggle observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
+    failures.push(error)
+  }
+}
+
+// 9b. The collapseReposOnPick setting folds the block on a pick, handing the
+// column back to the branch tree; the default (scene 3) leaves it open.
+{
+  const { out, errors } = await mount([WORKSPACE_REPO, NESTED_REPO], 'fold-on-pick', { foldOnPick: true, scene: 'S9b' })
+  try {
+    assert.equal(out.error, undefined, 'the panel mounted')
+    const seen = out.observed
+    assert.equal(seen.opened.expanded, true, 'the toggle expands the block')
+    assert.deepEqual(seen.afterPick.rows.map((row) => row.active), [false, true], 'the pick switched checkouts')
+    assert.equal(seen.afterPick.head.expanded, false, 'the setting folds the block after a pick')
+    assert.equal(seen.afterPick.head.selected, 'site', 'the folded head names the picked checkout')
+    assert.equal(seen.afterRepeat.expanded, true, 'picking the checkout in use is no switch and leaves the block open')
+    assert.deepEqual(errors, [], 'no page errors: ' + JSON.stringify(errors))
+  } catch (error) {
+    console.error('fold-on-pick observation: ' + JSON.stringify({ observed: out.observed, calls: out.calls, errors }))
     failures.push(error)
   }
 }

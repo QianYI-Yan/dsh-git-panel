@@ -285,10 +285,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
 
   const chooseRepo = (next: string): void => {
     if (!hasSession(sessionId) || !switchRepo(next)) return
-    // A pick leaves the block open: the rows stay where the pointer left them,
-    // so switching again is one click and the list never folds away between two
-    // picks. Collapsing stays the user's own toggle (both docked copies share
-    // that state).
+    // By default a pick leaves the block open: the rows stay where the pointer
+    // left them, so switching again is one click. `collapseReposOnPick` folds it
+    // instead, handing the column back to the branch tree. Both docked copies
+    // share that state; a repeat pick of the current checkout returns above and
+    // leaves the block alone.
+    if (collapseOnPick) setReposCollapsed(true)
     // The pick comes from the list on the page in front — the overview's
     // branch surface (column, band, drawer or sheet) or the changes column — so
     // that page stays put; an entry that no longer resolves is the fall-through
@@ -305,6 +307,12 @@ export function Panel({ ctx, sessionId, t, host = 'conversation', visible }: Pan
   const detectRef = useRef(true)
   if (view.state === 'ready') detectRef.current = view.snapshot.detectCheckouts ?? true
   const detectCheckouts = detectRef.current
+
+  // Whether a pick folds the repository list rides the snapshot too, sticky at
+  // the last ready answer; an older host omits it → off, the list stays open.
+  const collapseOnPickRef = useRef(false)
+  if (view.state === 'ready') collapseOnPickRef.current = view.snapshot.collapseReposOnPick ?? false
+  const collapseOnPick = collapseOnPickRef.current
 
   // The browser's follow switch rides the snapshot the same way, sticky at the
   // last ready answer (a view dip must not flip it); an older host omits the
